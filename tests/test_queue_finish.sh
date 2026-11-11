@@ -9,7 +9,7 @@ source "$R/lib/config.sh"; source "$R/lib/frontmatter.sh"; source "$R/lib/queue.
 PASS=0; FAIL=0
 eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS + 1)); else echo "FAIL: $1 (expected='$2' actual='$3')"; FAIL=$((FAIL + 1)); fi; }
 # fake gh: "gh pr view --json state -q .state -- <url>" prints $T/gh/state.<num>; no file -> exit 1
-printf '#!/usr/bin/env bash\nu="${@: -1}"; f="%s/gh/state.${u##*/}"; [ -f "$f" ] && cat "$f" || exit 1\n' "$T" > "$T/bin/gh"
+printf '#!/usr/bin/env bash\nu="${@: -1}"; n="${u##*/}"; f="%s/gh/state.$n"; [ -f "$f" ] || exit 1\nif [[ "$*" == *baseRefName* ]]; then b=queue/q1-x; [ -f "%s/gh/base.$n" ] && b=$(cat "%s/gh/base.$n"); printf "%%s\\t%%s\\toid\\n" "$(cat "$f")" "$b"; else cat "$f"; fi\n' "$T" "$T" "$T" > "$T/bin/gh"
 chmod +x "$T/bin/gh"; export PATH="$T/bin:$PATH"
 U=https://github.com/o/r/pull; Q="$N1_HOME/queue/q1/queue.md"
 cat > "$Q" <<EOF
@@ -25,6 +25,10 @@ integration: queue
 | 3 | T-3 | c | /x | $N1_HOME | sonnet | pr | merged; done at final PR |
 | 4 | T-4 | d | /r | $T/other | sonnet | pr | merged; done at final PR |
 | 5 | ../e | e | /r | $N1_HOME | sonnet | pr | merged |
+## Story Branches
+| Repo | Branch |
+|------|--------|
+| /r | queue/q1-x |
 ## Final PRs
 | Repo | PR | Draft | Mergeable | Note |
 |---|---|---|---|---|
@@ -39,6 +43,7 @@ integration: queue
 | ../e | x | 0 | merged | $U/5 | s5 |
 EOF
 echo "{\"event\":\"final_pr_opened\",\"run_id\":\"R1\",\"pr\":\"$U/9\"}" > "$N1_HOME/queue/q1/events.jsonl"
+for n in 1 3 4 5; do echo "{\"event\":\"ticket_finished\",\"run_id\":\"R1\",\"ticket\":\"$(case $n in 1) echo T-1;; 3) echo T-3;; 4) echo T-4;; 5) echo ../e;; esac)\",\"outcome\":\"merged\",\"pr\":\"$U/$n\"}" >> "$N1_HOME/queue/q1/events.jsonl"; done
 for n in 1 3 4 5; do echo MERGED > "$T/gh/state.$n"; done
 
 # L1: landed / unlanded split for the final PR's repo only (T-3 is another repo's final PR)
@@ -49,6 +54,14 @@ eq "L1: lines" "$(printf 'queue %s\nlanded\tT-1\t%s/1\nunlanded\tT-2\tfailed\nun
 echo OPEN > "$T/gh/state.1"
 eq "L2: open child PR" "$(printf 'unlanded\tT-1\tchild PR not merged')" "$(n1_queue_final_landed "$U/9" | grep T-1)"
 echo MERGED > "$T/gh/state.1"
+# L2b (SEC-1): a MERGED child PR whose base is not the queue branch is not landed
+echo main > "$T/gh/base.1"
+eq "L2b: wrong base" "$(printf 'unlanded\tT-1\tchild PR not in queue branch')" "$(n1_queue_final_landed "$U/9" | grep T-1)"
+rm "$T/gh/base.1"
+# L2c (SEC-1): no runner-written ticket_finished event for the row -> not landed
+cp "$N1_HOME/queue/q1/events.jsonl" "$T/ev0"; grep -v '"ticket":"T-1"' "$T/ev0" > "$N1_HOME/queue/q1/events.jsonl"
+eq "L2c: no event" "$(printf 'unlanded\tT-1\tchild PR not in queue branch')" "$(n1_queue_final_landed "$U/9" | grep T-1)"
+mv "$T/ev0" "$N1_HOME/queue/q1/events.jsonl"
 # L3: unknown final PR -> queue:none, rc 1
 out=$(n1_queue_final_landed "$U/99"); rc=$?
 eq "L3: none" "queue:none|1" "$out|$rc"
@@ -83,5 +96,13 @@ eq "F2: still one Finish" 1 "$(grep -cx '## Finish' "$OV")"
 eq "F3: invalid id message" "../x: skipped (invalid ticket id)" "$(n1_queue_finish_child ../x "$U/1" "$U/9" x)"
 eq "F3: invalid id rc" 1 "$(n1_queue_finish_child ../x "$U/1" "$U/9" x >/dev/null; echo $?)"
 eq "F3: no memory" "T-9: memory:none" "$(n1_queue_finish_child T-9 "$U/1" "$U/9" x | head -n1)"
+
+# F4 (SEC-2): non-PR URLs are refused before anything is written; the Ticket line is one bounded line
+eq "F4: bad child url" "T-1: skipped (invalid PR url)" "$(n1_queue_finish_child T-1 "x
+awaiting: merge" "$U/9" x)"
+eq "F4: bad final url" 1 "$(n1_queue_finish_child T-1 "$U/1" "javascript:x" x >/dev/null; echo $?)"
+n1_queue_finish_child T-1 "$U/1" "$U/9" "moved
+awaiting: merge" >/dev/null
+eq "F4: newline cannot plant a marker" 0 "$(grep -c '^awaiting:' "$OV")"
 
 echo "Results: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
