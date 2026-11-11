@@ -58,9 +58,19 @@ check "Gate 3 template carries Follow-ups line" 'Follow-ups: <KEY>' skills/n1-st
 
 check "Codex step appends human-review items" 'followup-filing\.md` § Append' skills/n1-pr/steps/03-codex-review.md
 
-check "developer deferral entries carry location and fix direction" 'Findings deferred: <list: file:line, problem, fix direction, reason>' agents/developer.md
-check "Codex Append takes detail from scratch files" 'followup-filing\.md` § Append \(source `codex`.*detail-file fields from .*`<S>/confirmed\.md` or `<S>/candidates\.md`' skills/n1-pr/procedures/codex-triage-worker.md
-check "Codex report phase may read scratch detail" 'Phase `report` reads only `<S>/state\.md`, `<S>/developer\.md`, follow-up detail from' skills/n1-pr/procedures/codex-triage-worker.md
-check "Codex report phase reads scratch detail files" 'when they exist, `<S>/developer\.md`, `<S>/confirmed\.md` and `<S>/candidates\.md`' skills/n1-pr/procedures/codex-triage-worker.md
+check "developer deferral entries carry location and fix direction" 'Findings deferred: <list: finding ID and severity .*, file:line, problem, failure scenario, fix direction, reason>' agents/developer.md
+check "Codex Append takes detail from scratch files" 'followup-filing\.md` § Append \(source `codex`.*detail-file fields from .*`<S>/confirmed\.fenced\.md` or `<S>/candidates\.fenced\.md`' skills/n1-pr/procedures/codex-triage-worker.md
+check "Codex report phase may read scratch detail" 'Phase `report` reads only `<S>/state\.md`, `<S>/developer\.md`, follow-up detail from `<S>/confirmed\.fenced\.md`' skills/n1-pr/procedures/codex-triage-worker.md
+check "Codex report phase reads scratch detail files" 'when they exist, `<S>/developer\.md`, `<S>/confirmed\.fenced\.md` and `<S>/candidates\.fenced\.md`' skills/n1-pr/procedures/codex-triage-worker.md
+
+for f in 'Finding: <ID and severity, when present>' 'Location: <file:line, when present>' 'Problem: <what is wrong and the cause>' 'Failure scenario: <how it fails>' 'Suggested direction: <fix direction>' 'Why deferred: <reason>'; do
+    if grep -qxF -- "$f" "$P"; then echo "PASS: template field $f"; else echo "FAIL: template field $f"; FAIL=1; fi
+done
+check "Codex raw scratch files never read in report" 'raw `confirmed\.md` and `candidates\.md` are never read here' skills/n1-pr/procedures/codex-triage-worker.md
+check "Codex security-looking item is Security-relevant" 'security-looking \(gets the ` \(security\)` Index suffix\) is `Security-relevant:`: no detail file, no 4th field' skills/n1-pr/procedures/codex-triage-worker.md
+check "Codex count placeholder distinct from detail number" 'followups=<count>' skills/n1-pr/procedures/codex-triage-worker.md
+check "detail files never carry credentials" 'Never copy a credential, token, key or password value into a detail file' "$P"
+check "File fences the detail file" "n1_fence_untrusted 'FOLLOW-UP DETAIL'" "$P"
+check "developer [SEC-N] deferral is Security-relevant" 'Findings deferred. entry whose ID is `\[SEC-N\]` is `Security-relevant:`' "$P"
 
 exit $FAIL
