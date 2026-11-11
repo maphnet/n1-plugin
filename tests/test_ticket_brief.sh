@@ -21,9 +21,9 @@ before() { # <label> <fixed-a> <fixed-b> <file>: first a precedes first b
 }
 
 # --- Wiring: ticket step
-line_has "intake block reads N1_QUEUE_RUN_ID" "$ENVREAD" 'N1_QUEUE_RUN_ID' "$T"
-line_has "intake block reads N1_HEADLESS" "$ENVREAD" 'N1_HEADLESS' "$T"
-before "env read sits in the intake block" 'ORIGINAL_STATUS=$(' "$ENVREAD" "$T"
+line_has "intake block reads N1_QUEUE_RUN_ID" "$ENVREAD" 'N1_QUEUE_RUN_ID' lib/ticket-step.sh
+line_has "intake block reads N1_HEADLESS" "$ENVREAD" 'N1_HEADLESS' lib/ticket-step.sh
+before "env read sits in the intake block" 'ORIGINAL_STATUS=$(' "$ENVREAD" lib/ticket-step.sh
 line_has "brief prose names the analyst brief: line" '**Brief:**' '`brief:`' "$T"
 line_has "brief prose gates on queue id empty and headless not 1" '**Brief:**' 'QUEUE_RUN_ID is empty and HEADLESS is not 1' "$T"
 line_has "brief prose continues without pausing" '**Brief:**' 'without pausing' "$T"

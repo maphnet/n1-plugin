@@ -48,7 +48,7 @@ case "$out" in *"/n1:n1-init"*"set tracker.assignToCreator to false."*) pass "wa
 [ "$(printf '%s\n' "$out" | wc -l)" -eq 1 ] && pass "warning is a single line" || fail "warning is a single line"
 
 # ---- wiring: skills call the helper, wording lives only in lib/config.sh ----
-check "n1-start ticket step calls helper" "n1_assign_gap_warn" skills/n1-start/steps/ticket.md
+check "n1-start ticket step helper calls n1_assign_gap_warn" "n1_assign_gap_warn" lib/ticket-step.sh
 check "n1-ticket compose calls helper" "n1_assign_gap_warn" skills/n1-ticket/steps/01-compose.md
 check "n1-story collect calls helper" "n1_assign_gap_warn" skills/n1-story/steps/01-collect.md
 check "n1-ticket Step 8 notes warning already shown" "warning already shown at compose" skills/n1-ticket/steps/02-create.md

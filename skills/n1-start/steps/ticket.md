@@ -1,30 +1,16 @@
-<!-- n1:step-snippet-exception: agent spawn with interspersed type resolution and tracker MCP calls -->
-
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
 
 **Spawn product-analyst.** Detect mode and params. Ticket: `mode=ticket ticketId trackerMcp operations trackerType ticketMdPath`; add error fields if `ET_CONFIGURED`. File: `mode=file filePath ticketMdPath`. Brain dump: `mode=text content ticketMdPath`. Error tracker: `mode=error-tracker issueId issueUrl`+error fields; provisional `<ID>=sentry-<issueId>`. Always: `enrichmentEnabled` (`ticketEnrichment.enabled != false`), `cloudId` (Jira only).
 
-```bash
-INTAKE_RESULT=$(echo "$AGENT_OUTPUT" | grep -m1 '^intake-result: ' | sed 's/^intake-result: //')
-```
-Empty: `{"title":null,"tags":[],"type":"task"}`. Parse `TITLE TAGS TYPE CLOUD_ID LINKED_ERROR`. `LINKED_ERROR` → `TYPE=bug`, `LINKED_ERROR_URL`.
+Write the product-analyst's full returned text to `$N1_HOME/memory/$ID/ticket-return.md` with the file-write mechanism (never paste it into a shell command or string), then:
 
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/ticket-step.sh"
 n1_step_begin "ticket" 1
-TYPE_OVERRIDE="<TYPE_OVERRIDE from input parsing, empty if none>"
-TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"' | tr -d ' ')
-TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*[,{] *"type": *"\([^"]*\)".*/\1/')
-n1_resolve_type "$TITLE" "$TAGS_CSV" "$TYPE_FIELD" "$TYPE_OVERRIDE" > "$N1_HOME/memory/$ID/.resolved-type" 2>/dev/null || true
-RESOLVED_TYPE=$(cat "$N1_HOME/memory/$ID/.resolved-type"); rm -f "$N1_HOME/memory/$ID/.resolved-type"; TYPE_MATCHED_BY="$N1_TYPE_MATCHED_BY"
-INVESTIGATION_DETECTED=false
-[ "$RESOLVED_TYPE" = "investigation" ] && INVESTIGATION_DETECTED=true || { [ -z "$TYPE_OVERRIDE" ] && n1_title_hints_investigation "$TITLE" && echo "Hint: title looks like investigation; re-run with --type investigation; continuing as ${RESOLVED_TYPE}."; }
-ISSUE_TYPE=$(echo "$INTAKE_RESULT" | sed -n 's/.*"issue_type": *"\([^"]*\)".*/\1/p' | tr '[:upper:]' '[:lower:]'); IS_STORY=false
-SUBTASK_COUNT=$(echo "$INTAKE_RESULT" | sed -n 's/.*"subtask_count": *\([0-9]*\).*/\1/p')
-case "$ISSUE_TYPE" in epic) IS_STORY=true ;; story) ;; *) [ "${SUBTASK_COUNT:-0}" -gt 0 ] && ! grep -q '### Parent Context' "$N1_HOME/memory/$ID/ticket.md" && IS_STORY=true ;; esac
-ORIGINAL_STATUS=$(echo "$INTAKE_RESULT" | sed -n 's/.*"original_status": *"\([^"]*\)".*/\1/p')
-printf 'QUEUE_RUN_ID=%s\nHEADLESS=%s\n' "${N1_QUEUE_RUN_ID:-}" "${N1_HEADLESS:-}"
+n1_ticket_intake '<TYPE_OVERRIDE from input parsing, empty if none>'
 ```
+Output: `TITLE=`, `CLOUD_ID=`, `LINKED_ERROR_URL=` (non-empty: linked error; the type is already `bug`), `RESOLVED_TYPE=`, `TYPE_MATCHED_BY=`, `INVESTIGATION_DETECTED=`, `ISSUE_TYPE=`, `IS_STORY=`, `ORIGINAL_STATUS=`, `QUEUE_RUN_ID=`, `HEADLESS=`, and a `Hint:` line (relay it) when the title looks like an investigation. No `intake-result:` line: the call uses `{"title":null,"tags":[],"type":"task"}`.
 **Brief:** only when QUEUE_RUN_ID is empty and HEADLESS is not 1, print the `brief:` line text from the analyst return (already in context) verbatim; print nothing in queue children, headless runs or without a `brief:` line; continue without pausing.
 
 **Story/epic** (`ISSUE_TYPE=story` or `IS_STORY=true`): read `procedures/ticket-story.md` and follow it (Story children, convert decision, Story handoff); otherwise skip it.
@@ -37,21 +23,10 @@ printf 'QUEUE_RUN_ID=%s\nHEADLESS=%s\n' "${N1_QUEUE_RUN_ID:-}" "${N1_HEADLESS:-}
 
 ```bash
 source ~/.n1/preamble.sh
-source "$N1_ROOT/lib/context.sh"
-n1_verify_dependencies "$N1_HOME/memory/$ID" ticket.md
-SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
-[ -n "$SIGNAL_LINE" ] && { PAIRS=$(echo "$SIGNAL_LINE" | sed 's/^n1:signals //'); n1_write_signals "$N1_HOME/memory/$ID/ticket.md" $PAIRS; }
-TITLE=$(echo "$AGENT_OUTPUT" | grep -m1 '^title: ' | sed 's/^title: //')
-n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier" "$TIER"
-MAX=$(( 50 - ${#ID} - 1 )); SESSION_NAME="$ID${TITLE:+ ${TITLE:0:$MAX}}"
-n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" "$RESOLVED_TYPE"
-n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type_matched_by" "$TYPE_MATCHED_BY"
-[ -n "${N1_STORY_ID:-}" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story" "$N1_STORY_ID"
-[ -n "$ORIGINAL_STATUS" ] && [ "$ORIGINAL_STATUS" != "Not specified" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "original_status" "$ORIGINAL_STATUS"
-SC=$(tr -d '\\\r\n' 2>/dev/null < "$N1_HOME/memory/$ID/.story-convert"); rm -f "$N1_HOME/memory/$ID/.story-convert"; [ -n "$SC" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story_convert" "$SC"
-n1_write_context
+source "$N1_ROOT/lib/ticket-step.sh"
+n1_ticket_persist '<TYPE_OVERRIDE from input parsing, empty if none>'
 ```
-Missing/empty: compact fallback. Extract `tier:` default `standard`. Run `/rename $SESSION_NAME`. **Create overview.md**: frontmatter (ticket, tier, step, fix_cycles), heading, `## Context` (pending), `## Progress`, `## Key Decisions`, `## Escalations`. `INVESTIGATION_DETECTED=true`: investigation variant.
+Output: `TIER=` (`tier:` from the return, default `standard`), `SESSION_NAME=`, `ASSIGN_TO_CREATOR=`, `GET_USER_OP=`, `ASSIGN_OP=`, `READ_OP=` (used by **Assign to creator** below) and any `Warning:` line (missing assign ops; relay it). The call checks ticket.md, writes the return's signals and the overview.md frontmatter, and persists the ticket context. Missing/empty return: compact fallback. Run `/rename <printed SESSION_NAME>`. **Create overview.md**: frontmatter (ticket, tier, step, fix_cycles), heading, `## Context` (pending), `## Progress`, `## Key Decisions`, `## Escalations`. `INVESTIGATION_DETECTED=true`: investigation variant.
 
 **Ticket URL** (mode=ticket): call `mcp__<trackerMcp>__get_instance_url` (format=json) → extract `base_url`. YouTrack: `TICKET_URL=<base_url>/issue/<ID>`. Jira: `TICKET_URL=<base_url>/browse/<ID>`. On failure: skip silently. `n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url" "$TICKET_URL"`.
 
@@ -63,18 +38,14 @@ Missing/empty: compact fallback. Extract `tier:` default `standard`. Run `/renam
 
 `tracker.operations.addToSprint` (`n1_config_val`; only here; skip silently if empty): call with `<ID>` on `tracker.versionMcp` else `tracker.mcp`. `ok:true` → one overview.md `## Progress` line (`skipped` → say skipped); `ok:false` or tool error → warning line there (`reason`/`message`). Never prompt; non-fatal.
 
-**Assign to creator** (if configured; never steal from an existing assignee): skip if ANY of `ASSIGN_TO_CREATOR` is `false`, `GET_USER_OP` empty, `ASSIGN_OP` empty, or (when `READ_OP` set) `READ_OP` on `<ID>` shows a non-empty assignee. Else call `GET_USER_OP` then `ASSIGN_OP` (payload per `n1-ticket/steps/02-create.md` Step 8). Failure: log to overview.md `## Progress`, continue — non-fatal. Relay any `Warning:` line the snippet prints (missing assign ops). Run this first; it supplies the values Assign needs and does not close the step:
-```bash
-source ~/.n1/preamble.sh
-ASSIGN_TO_CREATOR=$(n1_config_val ".tracker.assignToCreator"); GET_USER_OP=$(n1_config_val ".tracker.operations.getCurrentUser"); ASSIGN_OP=$(n1_config_val ".tracker.operations.assign"); READ_OP=$(n1_config_val ".tracker.operations.readTicket"); n1_assign_gap_warn
-```
+**Assign to creator** (if configured; never steal from an existing assignee): skip if ANY of `ASSIGN_TO_CREATOR` is `false`, `GET_USER_OP` empty, `ASSIGN_OP` empty, or (when `READ_OP` set) `READ_OP` on `<ID>` shows a non-empty assignee. Else call `GET_USER_OP` then `ASSIGN_OP` (payload per `n1-ticket/steps/02-create.md` Step 8). Failure: log to overview.md `## Progress`, continue — non-fatal. Use the four values `n1_ticket_persist` printed.
 
 **Workspace** (`INVESTIGATION_DETECTED=false`; after Assign, so overview.md exists for a handoff or escalation): `procedures/workspace-isolation.md § Workspace Decision` with `FRESH=1`. A successful handoff or Stop closes the ticket step itself and STOPs the run: skip the block below.
 
 **Close the step** (only when the run continues):
 ```bash
 source ~/.n1/preamble.sh
-LT=$(n1_config_val '.localTesting.enabled' "${N1_HOME}/config.json")
-[ -n "$N1_RUN_ID" ] && echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","branch":"'"$BRANCH"'","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","config_snapshot":{"test_coverage_tier":"maintain","local_testing_enabled":'"${LT:-true}"',"plan_review_enabled":true}}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
+source "$N1_ROOT/lib/ticket-step.sh"
+n1_ticket_envelope
 n1_step_end "ticket" 1 success
 ```

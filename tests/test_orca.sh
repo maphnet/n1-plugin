@@ -291,7 +291,7 @@ TK=skills/n1-start/steps/ticket.md
 ln() { grep -n -m1 -F "$1" "$TK" | cut -d: -f1; }
 eq "W2b: no worktree creation before overview.md exists" yes "$(yn test -z "$(grep -F 'Ensure Worktree' "$TK")")"
 eq "W2c (CR-2): Assign values are read before the workspace step, which comes before the step close" yes \
-    "$(yn test "$(ln 'n1_assign_gap_warn')" -lt "$(ln '**Workspace**')" -a "$(ln '**Workspace**')" -lt "$(ln 'n1_step_end "ticket" 1 success')")"
+    "$(yn test "$(ln 'n1_ticket_persist')" -lt "$(ln '**Workspace**')" -a "$(ln '**Workspace**')" -lt "$(ln 'n1_step_end "ticket" 1 success')")"
 has "W2e: Adopt Checkout syncs and links the card from inside the adopted checkout" '(cd "$WORKTREE_PATH" && n1_orca_sync "ticket: in progress"' "$(cat skills/n1-start/procedures/workspace-isolation.md)"
 has "W2d (CR-7): handoff snippet sets FRESH itself and gates the step pre-write on it" 'FRESH=<1|0>; [ "$FRESH" = 1 ] && n1_write_frontmatter' "$(cat skills/n1-start/procedures/workspace-ownership.md)"
 has "W3 (AC1): input parsing uses n1_parse_start_flags" "n1_parse_start_flags" "$(cat skills/n1-start/procedures/input-parsing.md)"
