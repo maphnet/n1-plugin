@@ -37,6 +37,8 @@ DEPLOY=skills/n1-finish/steps/03-deploy.md
 VERIFY=skills/n1-finish/references/post-deploy-verification.md
 CLOSE=skills/n1-finish/steps/04-close-ticket.md
 CLEANUP=skills/n1-finish/steps/06-cleanup.md
+CONFIG_SKILL=skills/n1-config/SKILL.md
+CONFIG_STEP=skills/n1-config/steps/01-dev-access.md
 
 check "fresh config writes disabled nested default" '"postDeployVerification"[[:space:]]*:[[:space:]]*\{' "$INIT_CONFIG"
 if awk '
@@ -51,15 +53,18 @@ else
     echo "FAIL: fresh config disables post-deploy verification"
     FAIL=$((FAIL + 1))
 fi
-check "init asks post-deploy verification separately from local testing" 'post-deploy verification' "$INIT_FINISH"
-check_fixed "reconfiguration offers post-deploy verification" 'On reconfiguration, offer the **Post-deploy verification** questions above' "$INIT_FINISH"
-check "enabled setup creates dev-access template" 'dev-access\.md' "$INIT_FINISH"
-check "dev-access template records URL or entry point" 'URL.*entry point|entry point.*URL' "$INIT_FINISH"
-check "dev-access template requires non-secret setup" 'Non-secret' "$INIT_FINISH"
+check_fixed "init points to n1-config for post-deploy verification" 'Dev-environment access and post-deploy verification are configured with `/n1:n1-config`.' "$INIT_FINISH"
+check_absent "init no longer asks the post-deploy question" 'Enable post-deploy verification' "$INIT_FINISH"
+check_absent "init no longer writes dev-access.md" 'dev-access\.md' "$INIT_FINISH"
+check_fixed "init rewrite keeps an existing postDeployVerification member" 'keep an existing `postDeployVerification` member' "$INIT_FINISH"
+check_absent "init without tracker does not overwrite finishWork" 'write `"finishWork"' "$INIT_FINISH"
 check_fixed "nested-key gap is detected" 'finishWork.postDeployVerification.enabled' "$INIT_PREREQ"
-check "declined upgrade preserves legacy fallback" 'legacy fallback' "$INIT_PREREQ"
+check "gap notice keeps the legacy fallback" 'legacy fallback' "$INIT_PREREQ"
+check_fixed "gap notice points to n1-config" 'run /n1:n1-config' "$INIT_PREREQ"
+check_absent "gap check no longer runs the init questions" 'Configure post-deploy verification' "$INIT_PREREQ"
 check "confirmation reports setting" 'Post-deploy verification:' "$INIT_CONFIRM"
-check "confirmation reports dev-access creation" 'dev-access\.md' "$INIT_CONFIRM"
+check_fixed "confirmation names n1-config" '/n1:n1-config' "$INIT_CONFIRM"
+check_absent "confirmation no longer lists dev-access.md as created" 'dev-access\.md' "$INIT_CONFIRM"
 check "finish contract states explicit false precedence" 'explicit.*false.*legacy smoke|legacy smoke.*explicit.*false' "$FINISH"
 check "finish contract states successful-deploy dispatch" 'successful deployment|deploy.*succeeds' "$FINISH"
 check "finish contract names verifier artifact inputs" 'post-deploy-verification\.md.*ticket\.md|ticket\.md.*post-deploy-verification\.md' "$FINISH"
@@ -136,6 +141,21 @@ if grep -rqF ScheduleWakeup skills/n1-finish; then
 else
     echo "PASS: n1-finish names no wakeup tool"; PASS=$((PASS + 1))
 fi
+
+# N1-175: /n1:n1-config owns dev-access.md and the post-deploy verification flag.
+for h in 'URL or entry point' 'Non-secret authentication or setup' 'Allowed commands and data constraints' 'Observability hints'; do
+    check_fixed "n1-config template has section: $h" "## $h" "$CONFIG_STEP"
+done
+check_fixed "n1-config asks selectors only for env dev providers" 'select(.value.env == "dev")' "$CONFIG_STEP"
+check_fixed "n1-config records a skipped provider as no selector" 'no selector' "$CONFIG_STEP"
+check_fixed "n1-config writes the flag as a JSON boolean" "jq --argjson v \"\$V\" '.finishWork.postDeployVerification.enabled = \$v'" "$CONFIG_STEP"
+check "n1-config never requests or stores secrets" 'Never request or store secrets' "$CONFIG_SKILL"
+check_fixed "n1-config No does not create dev-access.md" 'Do not create `dev-access.md`' "$CONFIG_STEP"
+check_fixed "n1-config true to false keeps an existing dev-access.md" 'switching from true to false changes only the flag' "$CONFIG_STEP"
+check_fixed "n1-config secret guard covers URL userinfo" 'URL userinfo such as `scheme://user:password@host`' "$CONFIG_STEP"
+check_fixed "n1-config secret guard covers selectors" 'questions 1-3 or a selector looks like a credential' "$CONFIG_STEP"
+check_fixed "n1-config empty enable answer with unset flag follows the legacy gate" 'with `enabled=` not set it follows `gate=`' "$CONFIG_STEP"
+check_fixed "n1-config enable question states no recommendation" 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$CONFIG_STEP"
 
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
