@@ -511,6 +511,33 @@ n1_delivery_action() {
     printf 'execute'
 }
 
+n1_delivery_skip() {
+    # N1-531. Reads the merged PR's changed paths (one per line) on stdin; prints skip | deliver.
+    # skip only when jq is available, .delivery.skipPaths is an array with at least one
+    # non-empty string glob, stdin holds at least one path, and every path matches a glob.
+    # Globs use bash case semantics (as lib/rules.sh): * also matches /; a glob ending in /
+    # is a directory prefix (docs/ -> docs/*). Anything else fails safe to deliver.
+    local f paths globs path glob hit n=0
+    paths=$(cat)
+    f=$(n1_config_file)
+    if ! command -v jq >/dev/null 2>&1 || [ ! -f "$f" ]; then printf 'deliver'; return 0; fi
+    # || globs="": jq exits non-zero on malformed config or a non-object .delivery; under set -e that must not abort
+    globs=$(jq -r '.delivery.skipPaths | if type == "array" then .[] | strings | select(length > 0) else empty end' "$f" 2>/dev/null) || globs=""
+    if [ -z "$globs" ]; then printf 'deliver'; return 0; fi
+    while IFS= read -r path; do
+        [ -z "$path" ] && continue
+        n=$((n+1)); hit=0
+        while IFS= read -r glob; do
+            glob="${glob#./}"   # gh file paths never start with ./
+            case "$glob" in */) glob="$glob*" ;; esac
+            # shellcheck disable=SC2254
+            case "$path" in $glob) hit=1; break ;; esac
+        done <<< "$globs"
+        if [ "$hit" -eq 0 ]; then printf 'deliver'; return 0; fi
+    done <<< "$paths"
+    if [ "$n" -gt 0 ]; then printf 'skip'; else printf 'deliver'; fi
+}
+
 n1_delivery_is_multi_step() {
     # NP-240. Prints true when delivery is an ordered delivery.steps list (an array, even an
     # empty one) and delivery.command is empty; false otherwise. command wins when both are

@@ -67,6 +67,39 @@ test_action_no_jq() {
     rm -rf "$nopath"
 }
 
+# --- N1-531: delivery.skipPaths --------------------------------------------------
+skip() { echo "$1" > "$TEST_CONFIG"; printf '%s' "$2" | n1_delivery_skip; }
+
+test_skip() {
+    local c='{"delivery":{"mode":"ssh","command":"true","skipPaths":["docs/","*.md"]}}'
+    assert_eq "skip: every path matches -> skip" "skip" "$(skip "$c" $'docs/a.txt\nREADME.md\ndocs/sub/b.png')"
+    assert_eq "skip: one non-matching path -> deliver" "deliver" "$(skip "$c" $'docs/a.txt\nsrc/app.sh')"
+    assert_eq "skip: trailing / is a directory prefix only" "deliver" "$(skip "$c" 'docsx/a.txt')"
+    assert_eq "skip: * crosses / (bash case semantics)" "skip" "$(skip "$c" 'src/templates/x.md')"
+    assert_eq "skip: blank lines ignored" "skip" "$(skip "$c" $'\ndocs/a.txt\n\n')"
+    assert_eq "skip: empty stdin -> deliver" "deliver" "$(skip "$c" '')"
+    assert_eq "skip: no skipPaths key -> deliver" "deliver" "$(skip "$SSH_CFG" 'docs/a.txt')"
+    assert_eq "skip: empty list -> deliver" "deliver" \
+        "$(skip '{"delivery":{"mode":"ssh","skipPaths":[]}}' 'docs/a.txt')"
+    assert_eq "skip: list of empty strings -> deliver" "deliver" \
+        "$(skip '{"delivery":{"mode":"ssh","skipPaths":[""]}}' 'docs/a.txt')"
+    assert_eq "skip: not an array -> deliver" "deliver" \
+        "$(skip '{"delivery":{"mode":"ssh","skipPaths":"docs/"}}' 'docs/a.txt')"
+    assert_eq "skip: malformed config -> deliver" "deliver" "$(skip '{not json' 'docs/a.txt')"
+    assert_eq "skip: non-object delivery -> deliver" "deliver" "$(skip '{"delivery":"x"}' 'docs/a.txt')"
+    assert_eq "skip: leading ./ in a glob is stripped" "skip" \
+        "$(skip '{"delivery":{"mode":"ssh","skipPaths":["./docs/"]}}' 'docs/a.txt')"
+}
+
+test_skip_no_jq() {
+    local nopath b real
+    nopath=$(mktemp -d)
+    for b in bash cat; do real=$(command -v "$b"); ln -s "$real" "$nopath/$b"; done
+    echo '{"delivery":{"mode":"ssh","skipPaths":["docs/"]}}' > "$TEST_CONFIG"
+    assert_eq "skip: no jq -> deliver" "deliver" "$(printf 'docs/a.txt' | PATH="$nopath" n1_delivery_skip)"
+    rm -rf "$nopath"
+}
+
 # --- n1_delivery_runbook: writes, never executes ------------------------------
 test_runbook_never_executes() {
     export N1_HOME="$TMP/home"
@@ -218,6 +251,10 @@ test_wiring() {
     assert_eq "init: step grammar explained" "yes" "$(grep -qF 'saved as a manual step' "$init" && echo yes || echo no)"
     assert_eq "init: reconfiguration shows steps" "yes" "$(grep -qF 'steps         →' "$init" && echo yes || echo no)"
     assert_eq "init: never writes both shapes" "yes" "$(grep -qF 'Never write both' "$init" && echo yes || echo no)"
+    assert_eq "init: asks for repo-only skipPaths" "yes" "$(grep -qF '"skipPaths": [' "$init" && echo yes || echo no)"
+    assert_eq "init: reconfiguration shows skipPaths" "yes" "$(grep -qF 'skipPaths     →' "$init" && echo yes || echo no)"
+    assert_eq "docs: architecture documents skipPaths" "yes" \
+        "$(grep -qF 'delivery.skipPaths' "$REPO_ROOT/references/architecture.md" && echo yes || echo no)"
     # SEC-1/SEC-2: failure/pending tracker comments never carry command text or raw output.
     assert_eq "wiring: deploy-failed comment has no command interpolation" "0" \
         "$(grep -c '<command>' <<<"$xb" || true)"
@@ -234,6 +271,29 @@ test_wiring() {
         "$(grep -qF '^[0-9a-f]{7,40}$' "$s/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
     assert_eq "wiring: resume validates SHA is an ancestor of the default branch" "yes" \
         "$(grep -qF 'merge-base --is-ancestor' "$s/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
+    # N1-531: repo-only skip gate.
+    local sk
+    sk=$(section "$step" '## Repo-only skip')
+    assert_eq "skip wiring: gate calls n1_delivery_skip" "yes" \
+        "$(grep -qF 'n1_delivery_skip' "$step" && echo yes || echo no)"
+    assert_eq "skip wiring: file list is the paginated PR files API" "yes" \
+        "$(grep -qF 'pulls/$PR/files" --paginate' "$step" && echo yes || echo no)"
+    assert_eq "skip wiring: completeness check against changed_files (3000 cap)" "yes" \
+        "$(grep -qF '.changed_files' "$step" && grep -qF -- '-ge 3000' "$step" && grep -qF -- '-ne "$TOTAL"' "$step" && echo yes || echo no)"
+    assert_eq "skip wiring: renamed files also check the previous path" "yes" \
+        "$(grep -qF 'previous_filename' "$step" && echo yes || echo no)"
+    assert_eq "skip wiring: section exists" "yes" "$([ -n "$sk" ] && echo yes || echo no)"
+    assert_eq "skip wiring: writes the not-needed Delivery line" "yes" \
+        "$(grep -qF -- '- **Delivery:** not needed (repo-only paths)' <<<"$sk" && echo yes || echo no)"
+    assert_eq "skip wiring: never writes a runbook" "0" \
+        "$(grep -c 'n1_delivery_runbook "' <<<"$sk" || true)"
+    assert_eq "skip wiring: clears a stale deploy_pending" "yes" \
+        "$(grep -qF 'deploy_pending false' <<<"$sk" && echo yes || echo no)"
+    assert_eq "skip wiring: returns to Step 4 to close the ticket" "yes" \
+        "$(grep -qF 'Return to Step 4 and continue with its After-deploy actions and ticket close' <<<"$sk" && echo yes || echo no)"
+    assert_eq "skip wiring: both Step 6 Delivery grammars list not needed" "2" \
+        "$(grep -cF 'not needed (repo-only paths)' "$s/n1-finish/steps/06-cleanup.md" || true)"
+
     # Non-regression: the PR / local-merge / deploy-watch step files and n1-start's finish step are not touched.
     assert_eq "non-regression: 02-merge has no delivery logic" "0" "$(grep -c 'delivery' "$s/n1-finish/steps/02-merge.md" || true)"
     assert_eq "non-regression: 03-deploy has no delivery logic" "0" "$(grep -c 'delivery\.' "$s/n1-finish/steps/03-deploy.md" || true)"
@@ -281,6 +341,8 @@ test_wiring
 test_wiring_multi_step
 test_action
 test_action_no_jq
+test_skip
+test_skip_no_jq
 test_runbook_never_executes
 test_multi_step_helpers
 test_runbook_steps

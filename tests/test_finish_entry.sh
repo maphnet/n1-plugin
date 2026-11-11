@@ -220,6 +220,9 @@ TCH=yes HL=1 run "{$OFF,$TRK,\"delivery\":{\"mode\":\"ssh\"}}" 'deploy_pending: 
 has "handoff: no still reads 03-deploy" "steps/03-deploy.md"
 TCH=yes HL=1 run "{$OFF,$TRK,\"delivery\":{\"mode\":\"ssh\"}}" 'deploy_pending: false'
 ho no "handoff: ssh delivery -> no"
+TCH=yes HL=1 run "{$OFF,$TRK,\"delivery\":{\"mode\":\"ssh\",\"skipPaths\":[\"docs/\"]}}" 'deploy_pending: false'
+ho no "handoff: ssh delivery with skipPaths -> no (N1-531: skip decided in 03b)"
+has "skipPaths: entry still reads 03b" "steps/03b-ssh-deploy.md"
 TCH=yes HL=1 run "{$OFF,\"tracker\":{\"mcp\":\"jira\"}}" 'deploy_pending: false'
 ho no "handoff: done-status recovery -> no"
 TCH=yes HL=1 run "{\"finishWork\":{\"postDeployVerification\":{\"enabled\":true}},$TRK}" 'deploy_pending: false'
