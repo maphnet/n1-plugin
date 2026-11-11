@@ -9,7 +9,7 @@ effort: medium
 
 ## Overview
 
-Tests a whole release before it is cut. It scopes everything since the last `v*` tag, writes one case plan, runs the automatable cases on dev through the post-deploy verifier's Release Mode, publishes manual and assisted cases to Confluence, and prints a computed readiness signal.
+Tests a whole release before it is cut. It scopes everything since the last `v*` tag, writes one case plan, runs the automatable cases on dev through the post-deploy verifier's Release Mode, scans dev observability for errors since that tag, publishes manual and assisted cases to Confluence, and prints a computed readiness signal.
 
 Standalone by design: it is never a step of n1-release and it does not start a release. It never files tickets, creates tags or writes `pending-releases.json`. It does not prompt the user.
 
@@ -42,6 +42,9 @@ Execute the steps in order. Read each step file and follow it before moving to t
 
 3. **Run**: dispatch the verifier in Release Mode for the runnable cases.
    Read `<N1_ROOT>/skills/n1-release-test/steps/03-run.md`
+
+3b. **Dev observability**: read-only scan of `env: dev` providers for errors since the previous tag.
+   Read `<N1_ROOT>/skills/n1-release-test/steps/03b-dev-observability.md`
 
 4. **Publish and report**: Confluence page, readiness signal, final report.
    Read `<N1_ROOT>/skills/n1-release-test/steps/04-publish-report.md`

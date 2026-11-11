@@ -184,5 +184,153 @@ eq "rows: tab inside title collapsed" $'OPS-7\tnot done\tOPS\tTo Do\tVEL-1\tpart
 # Bug (D7): a row whose key fails the key pattern is dropped.
 eq "rows: invalid key rows dropped" "" "$(rows Done VEL $'ops-7\tTo Do\tVEL-1\tx' $'OPS-7;rm\tTo Do\tVEL-1\tx')"
 
+# --- n1_release_tag_date and n1_release_obs_window (N1-179)
+R2="$T/repo2"; git init -q "$R2"
+GIT_COMMITTER_DATE='2026-01-01T10:00:00+02:00' git -C "$R2" -c user.name=t -c user.email=t@t commit -q --allow-empty -m one
+GIT_COMMITTER_DATE='2026-02-01T10:00:00+02:00' git -C "$R2" -c user.name=t -c user.email=t@t tag -a v2.0.0 -m rel
+git -C "$R2" update-ref refs/tags/v2.0.1 HEAD
+in_r2() { (cd "$R2" && "$@"); }
+# Bug: the scan window must start when the release was tagged, not when its last commit was made.
+eq "tag date: annotated tag gives the tagger date" "2026-02-01T10:00:00+02:00" "$(in_r2 n1_release_tag_date v2.0.0)"
+eq "tag date: lightweight tag gives the commit date" "2026-01-01T10:00:00+02:00" "$(in_r2 n1_release_tag_date v2.0.1)"
+# Bug: an absent tag or a hostile name must give no date, so Step 3b skips instead of scanning from epoch 0 or running it.
+eq "tag date: absent tag is empty" "" "$(in_r2 n1_release_tag_date v9.9.9)"
+eq "tag date: non-semver name is empty" "" "$(in_r2 n1_release_tag_date 'v1$(id)')"
+NOW=$(date +%s)
+GIT_COMMITTER_DATE="$((NOW - 18600)) +0000" git -C "$R2" -c user.name=t -c user.email=t@t tag -a v3.0.0 -m rel
+GIT_COMMITTER_DATE="$((NOW - 40 * 86400)) +0000" git -C "$R2" -c user.name=t -c user.email=t@t tag -a v3.1.0 -m rel
+# Bug: a window rounded down misses the first hours after the tag; an uncapped window queries beyond Loki retention.
+eq "window: hours rounded up, baseline doubled" "6 full 12" "$(in_r2 n1_release_obs_window v3.0.0)"
+eq "window: capped at the default 720 h and flagged" "720 capped 720" "$(in_r2 n1_release_obs_window v3.1.0)"
+eq "window: baseline respects N1_OBS_MAX_HOURS" "6 full 10" "$(N1_OBS_MAX_HOURS=10 in_r2 n1_release_obs_window v3.0.0)"
+eq "window: absent tag is empty" "" "$(in_r2 n1_release_obs_window v9.9.9)"
+# --- n1_release_obs_providers (N1-179)
+cat > "$T/obs.json" <<'XEOF'
+{"observability":{"default":"prod","providers":{
+ "loki":{"env":"prod","mcp":"prod-loki","operations":{"query":"loki_query"},"instructions":"x"},
+ "loki-dev":{"env":"dev","mcp":"publius-dev-loki-mcp","operations":{"query":"loki_query"},"instructions":"x"},
+ "sentry-dev":{"env":"dev","mcp":"publius-sentry","operations":{"searchIssues":"search_issues","getIssue":"get_issue"},"instructions":"x"},
+ "langfuse-dev":{"env":"dev","mcp":"publius-dev-langfuse-mcp","operations":{"findExceptions":"find_exceptions"},"instructions":"x"},
+ "grafana-dev":{"env":"dev","mcp":"grafana","operations":{"dashboards":"list"},"instructions":"x"},
+ "bad;name":{"env":"dev","mcp":"m","operations":{"query":"q"},"instructions":"x"},
+ "global":{"mcp":"g","operations":{"query":"q"},"instructions":"x"}}}}
+XEOF
+# Bug (AC1): pilots set default prod; only env dev providers may be scanned, kind keyed on the operation,
+# providers without a scan operation and names that are unsafe in a tool name are dropped.
+eq "obs providers: dev only, kind from the operation" "loki-dev	publius-dev-loki-mcp	loki	loki_query
+sentry-dev	publius-sentry	sentry	search_issues
+langfuse-dev	publius-dev-langfuse-mcp	langfuse	find_exceptions" "$(n1_release_obs_providers "$T/obs.json")"
+echo '{"observability":{"default":"prod","providers":{}}}' > "$T/obs-none.json"
+# Bug (AC1): no dev provider must read as empty so Step 3b prints one skip line.
+eq "obs providers: none configured is empty" "" "$(n1_release_obs_providers "$T/obs-none.json")"
+# --- n1_release_obs_group (N1-179)
+CUT='2026-02-01T10:00:00+02:00'
+ROWS=$(printf '%s\t%s\t%s\t%s\n' \
+  2026-02-01T07:59:59Z 2026-02-01T07:59:59Z 1 'Timeout for order 123 at 2026-02-01T07:59:59Z' \
+  2026-02-03T00:00:00Z 2026-02-03T00:00:00Z 2 'Timeout for order 4567 at 2026-02-03T00:00:00Z' \
+  1770336000 1770336000 1 'DB error id 550e8400-e29b-41d4-a716-446655440000 hash deadbeef01' \
+  1770336000123 1770339600123 3 'DB error id 123e4567-e89b-12d3-a456-426614174000 hash cafebabe99' \
+  bad 2026-02-03T00:00:00Z 1 'dropped row' \
+  2026-02-03T00:00:00Z 2026-02-03T00:00:00Z x 'dropped row')
+# Bug: IDs, hashes, numbers and timestamps split one error into many groups; a group first seen before the tag
+# (cutoff 08:00Z) is labelled new; epoch ms is misread; groups are not newest-first.
+eq "obs group: signatures merge, newest first, labels by cutoff" "db error id {id} hash {id}	4	2026-02-06T00:00:00Z	2026-02-06T01:00:00Z	new since release	DB error id 550e8400-e29b-41d4-a716-446655440000 hash deadbeef01
+timeout for order {n} at {ts}	3	2026-02-01T07:59:59Z	2026-02-03T00:00:00Z	pre-existing	Timeout for order 123 at 2026-02-01T07:59:59Z" "$(n1_release_obs_group "$CUT" <<<"$ROWS" 2>/dev/null)"
+# Bug: rows with a bad timestamp or count vanish silently, so the report understates what was seen.
+eq "obs group: bad rows are counted on stderr" "dropped: 2" "$(n1_release_obs_group "$CUT" <<<"$ROWS" 2>&1 >/dev/null)"
+# Bug: an offset timestamp equal to the tag time must count as new (>= cutoff), in UTC.
+eq "obs group: offset normalized, cutoff inclusive" "boundary	1	2026-02-01T08:00:00Z	2026-02-01T08:00:00Z	new since release	boundary" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-01T10:00:00+02:00 2026-02-01T10:00:00+02:00 1 boundary | n1_release_obs_group "$CUT")"
+# Bug: secrets in log lines reach Confluence, or table/shell metacharacters break the one-line cell.
+eq "obs group: sample redacted and stripped" "Auth failed {redacted} {redacted} key {redacted} a b c d e f g" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 \
+     'Auth failed Authorization: Bearer abc.def password=hunter2 key AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA a|b`c$d<e>f\g' \
+     | n1_release_obs_group "$CUT" | cut -f6)"
+# Bug: a long log line bloats the Confluence page body without bound.
+eq "obs group: signature 120 and sample 160 chars max" "120 160" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 "$(printf 'word %.0s' {1..40})" \
+     | n1_release_obs_group "$CUT" | awk -F'\t' '{print length($1), length($6)}')"
+# Bug: secret shapes outside bearer/KEYS/long-run reach the published report (SEC-1).
+obs_leak() { # <label> <line> <secret>: neither the signature nor the sample may keep the secret
+  local out; out=$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 "$2" | n1_release_obs_group "$CUT")
+  case "$out" in *"$3"*) eq "obs group: redacts $1" "no leak" "leaked: $out" ;; *) eq "obs group: redacts $1" ok ok ;; esac
+}
+obs_leak "URL userinfo" 'could not connect to postgres://app:hunter2pw@db:5432/app' hunter2pw
+obs_leak "empty-user URL userinfo" 'redis://:hunter2pw@cache:6379 refused' hunter2pw
+obs_leak "Basic auth" 'Authorization: Basic dXNlcjpwYXNz sent' dXNlcjpwYXNz
+obs_leak "Slack token" 'slack failed xoxb-123-456-abcDEF here' abcDEF
+obs_leak "aws_secret_access_key" 'aws_secret_access_key=wJalr/K7MDENG/bPxRfi' 'K7MDENG'
+obs_leak "private_key" 'private_key: abc123XYZ end' abc123XYZ
+obs_leak "cookie" 'cookie: session=s3cr3tval; path=/' s3cr3tval
+obs_leak "session_id" 'session_id=s3cr3tval x' s3cr3tval
+obs_leak "SAS sig" 'GET /blob?sig=ab%2Fcd%2Bef&se=2026' 'ab%2Fcd'
+obs_leak "double-quoted value with spaces" 'login failed password="a b c" retry' 'b c'
+obs_leak "single-quoted value with spaces" "login failed password='a b c' retry" 'b c'
+obs_leak "escaped JSON" 'body {\"password\":\"hunter2pw\"} sent' hunter2pw
+obs_leak "secret_key" 'secret_key=hunter2pw x' hunter2pw
+obs_leak "credentials" 'credentials=hunter2pw x' hunter2pw
+obs_leak "passwords" 'passwords: hunter2pw x' hunter2pw
+obs_leak "auth_token_value" 'auth_token_value=hunter2pw x' hunter2pw
+obs_leak "multi-cookie header" 'Cookie: a=1; auth=hunter2pw; jwt=eyJhbGci.abc' hunter2pw
+obs_leak "multi-cookie unknown name" 'Cookie: a=1; foo=hunter2pw' hunter2pw
+obs_leak "sid key" 'sid=hunter2pw x' hunter2pw
+obs_leak "Authorization Token" 'Authorization: Token hunter2pw sent' hunter2pw
+obs_leak "Authorization ApiKey" 'authorization: ApiKey hunter2pw sent' hunter2pw
+obs_leak "Authorization SSWS" 'Authorization: SSWS hunter2pw sent' hunter2pw
+obs_leak "AIza key" 'maps failed key AIzaSyA-1234567890abcdefghijklmnopqrstu done' 'AIzaSyA'
+obs_leak "Slack webhook" 'post https://hooks.slack.com/services/T000/B000/hunter2pw failed' hunter2pw
+obs_leak "xoxe token" 'slack xoxe-1-hunter2pw end' hunter2pw
+obs_leak "xapp token" 'slack xapp-1-A0-hunter2pw end' hunter2pw
+obs_leak "token-only userinfo" 'clone https://ghp_hunter2pw@github.com/x/y failed' ghp_hunter2pw
+obs_leak "userinfo with @ in password" 'redis://u:p@ss@host:6379 refused' 'ss@host'
+obs_leak "userinfo with / in password" 'redis://u:p/ss@host:6379 refused' 'p/ss'
+eq "obs group: plain basic text survives" "basic setup failed" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'basic setup failed' | n1_release_obs_group "$CUT" | cut -f1)"
+eq "obs group: ordinary text with sig-like words stays" "design review failed	1" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'design review failed' | n1_release_obs_group "$CUT" | cut -f1,2)"
+obs_leak "userinfo pass does not swallow a later key" 'GET /cb?next=https://app/&password=p@ssw0rd x' ssw0rd
+obs_leak "JSON password with @ after a URL" '{"url":"https://h/","password":"Adm1n@Pr0dSecret"}' Pr0dSecret
+obs_leak "bare auth key" 'x auth=hunter2pw y' hunter2pw
+obs_leak "bare jwt key after delimiter" 'a&jwt=hunter2pw' hunter2pw
+obs_leak "bare sid key" 'sid: hunter2pw' hunter2pw
+obs_leak "signature key" 'x-signature=hunter2pw' hunter2pw
+sigs=$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'terminated by signal: SIGKILL' \
+  | cat - <(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'terminated by signal: SIGSEGV') | n1_release_obs_group "$CUT" | wc -l)
+eq "obs group: signal: SIGKILL and SIGSEGV stay two groups" "2" "$sigs"
+eq "obs group: unauthorized text kept" "unauthorized: user not found" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'unauthorized: user not found' | n1_release_obs_group "$CUT" | cut -f1)"
+# Cycle 4 (SEC-10, SEC-11, CR-7, CR-8): short-key suffixes and RFC-valid userinfo characters.
+obs_leak "auth_key" 'deepl auth_key=hunter2pw x' hunter2pw
+obs_leak "authKey" 'authKey=hunter2pw x' hunter2pw
+obs_leak "auth_code" 'oauth redirect auth_code=hunter2pw x' hunter2pw
+obs_leak "jwt_key" 'jwt_key=hunter2pw x' hunter2pw
+obs_leak "sig_key" 'sig_key=hunter2pw x' hunter2pw
+obs_leak "signing_key" 'signing_key=hunter2pw x' hunter2pw
+obs_leak "bare PHPSESSID" 'GET /x?PHPSESSID=abcdefghijklmnopqrstuvwxyz ok' abcdefghijklmnopqrstuvwxyz
+obs_leak "oauth" 'oauth=hunter2pw x' hunter2pw
+obs_leak "proxyauth" 'proxyauth=hunter2pw x' hunter2pw
+obs_leak "basicauth" 'basicauth=hunter2pw x' hunter2pw
+obs_leak "userinfo with & in password" 'could not connect to postgres://app:p&ss@db:5432/app' 'p&ss'
+obs_leak "userinfo with ' in password" "could not connect to postgres://app:pa'ss@db" "pa'ss"
+obs_leak "userinfo with # in password" 'could not connect to postgres://u:pa#ss@h' 'pa#ss'
+obs_leak "userinfo with ? in password" 'could not connect to postgres://u:pa?ss@h' 'pa?ss'
+obs_leak "userinfo before a host named auth" 'postgres://app:hunter2pw@auth:5432/db' hunter2pw
+obs_leak "userinfo before a host named sid" 'postgres://app:hunter2pw@sid:5432/db' hunter2pw
+eq "obs group: design: x keeps its text" "design: x" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'design: x' | n1_release_obs_group "$CUT" | cut -f1)"
+eq "obs group: UUIDs still become {id}" "job {id} failed" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'job 123e4567-e89b-12d3-a456-426614174000 failed' | n1_release_obs_group "$CUT" | cut -f1)"
+# Bug: an unparsable cutoff labels every group against epoch 0 or -1, so all of them read as new.
+eq "obs group: bad cutoff gives no output" "" "$(n1_release_obs_group 'not-a-date' <<<"$ROWS" 2>/dev/null)"
+
+# --- n1_release_signal observability argument (N1-179)
+# Bug (AC5): new observability groups must cap readiness at conditions and never turn a GO or a Low FAIL into NO-GO.
+eq "obs groups: a condition, never NO-GO" "GO with conditions
+condition: 1 Low/Medium FAIL case(s)
+condition: 2 new-since-release dev observability group(s)" "$(printf 'Low\tauto\tFAIL\n' | n1_release_signal verified 0 2)"
+# Bug: a malformed count must fail toward a condition, not toward GO.
+eq "obs groups: malformed count is a condition" "GO with conditions
+condition: 1 new-since-release dev observability group(s)" "$(printf 'Low\tauto\tPASS\n' | n1_release_signal verified 0 x)"
+
 echo "passed=$PASS failed=$FAIL"
 [ "$FAIL" -eq 0 ]
