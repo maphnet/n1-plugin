@@ -62,6 +62,13 @@ eq "persist: return signals written to ticket.md" "bug" "$(n1_read_signal "$MEM/
 eq "persist: ticket context carries the type" "bug" "$( . "$MEM/ticket-context.sh"; echo "$TYPE")"
 ret "$BUG" ''
 has "persist: missing tier defaults to standard" "$(n1_ticket_persist '' 2>&1)" "TIER=standard"
+ret "$BUG" 'tier: simple'
+has "persist: valid tier passes through" "$(n1_ticket_persist '' 2>&1)" "TIER=simple"
+ret "$BUG" 'tier: x"; touch '"$T"'/pwned; "\n'
+has "persist: hostile tier falls back to standard" "$(n1_ticket_persist '' 2>&1)" "TIER=standard"
+eq "persist: hostile tier frontmatter clean" "standard" "$(n1_read_frontmatter "$MEM/overview.md" tier)"
+eq "persist: hostile tier context clean" "standard" "$( . "$MEM/ticket-context.sh"; echo "$TIER")"
+eq "persist: hostile tier not executed" "no" "$([ -e "$T/pwned" ] && echo yes || echo no)"
 # Reconcile Memory ID & Branch moves the whole memory dir: the persist call reads ticket-return.md under the new ID.
 ret "$BUG"; mv "$MEM" "$N1_HOME/memory/TK-2"
 OUT=$(ID=TK-2 n1_ticket_persist '' 2>&1)

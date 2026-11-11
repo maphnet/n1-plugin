@@ -54,7 +54,8 @@ n1_ticket_persist() {
     # shellcheck disable=SC2086 # PAIRS splits into key=value words on purpose
     [ -n "$SIGNAL_LINE" ] && { PAIRS=$(sed 's/^n1:signals //' <<<"$SIGNAL_LINE"); n1_write_signals "$N1_HOME/memory/$ID/ticket.md" $PAIRS; }
     TITLE=$(grep -m1 '^title: ' <<<"$RET" | sed 's/^title: //')
-    TIER=$(grep -m1 '^tier: ' <<<"$RET" | sed 's/^tier: *//'); TIER=${TIER:-standard}; TYPE="$RESOLVED_TYPE"
+    TIER=$(grep -m1 '^tier: ' <<<"$RET" | sed 's/^tier: *//'); TYPE="$RESOLVED_TYPE"
+    case "$TIER" in simple|standard|complex) ;; *) TIER=standard ;; esac # ticket-context.sh is sourced later: enum only
     n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier" "$TIER"
     MAX=$(( 50 - ${#ID} - 1 )); SESSION_NAME="$ID${TITLE:+ ${TITLE:0:$MAX}}"
     n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" "$RESOLVED_TYPE"
