@@ -4,7 +4,7 @@
 
 Interactive runs stop at PR + CI; the human merges, then runs n1-finish to watch the deployment and close the tracker ticket. With `mergeOnFinish` on, n1-finish merges the open PR itself first, but only at the head n1-pr pinned as reviewed; a missing pin or newer head stops it and the human merges.
 
-Only ask when a tracker is configured — without one, write `"finishWork": { "postDeployVerification": { "enabled": false } }` silently.
+Only ask when a tracker is configured; without one, skip this section and leave `finishWork` as it is (a fresh config gets the 13-write-config default).
 
 Ask:
 
@@ -30,36 +30,9 @@ No recommendation. The options are equivalent given the available evidence; sele
 
 Ask: "Deploy workflow name to watch? (enter = watch all runs on the merge commit)"
 
-Ask the post-deploy verification question separately from local testing:
+Dev-environment access and post-deploy verification are configured with `/n1:n1-config`.
 
-```
-Enable post-deploy verification after a successful deployment?
-It checks ticket acceptance criteria on development and records an informational result.
-1 — Yes
-2 — No (default)
-```
-
-If **Yes**, create the editable local-only `$N1_HOME/dev-access.md` template. Ask for each field before writing it; never request or store secrets:
-
-```markdown
-# Development Access
-
-## URL or entry point
-<development URL, application entry point, or both>
-
-## Non-secret authentication or setup
-<for example, required role, local profile, or "none">
-
-## Allowed commands and data constraints
-<safe read-only commands, permitted test data, and prohibited actions>
-
-## Observability hints
-<configured dashboards, logs, or "none">
-```
-
-If **No**, set `postDeployVerification.enabled` to `false` and do not create `dev-access.md`. This choice does not change `localTesting`; an older config that leaves this nested key absent retains its legacy smoke fallback.
-
-Write the block (omit `deployWatch` when the workflow name is empty). `mergeOnFinish` is a JSON boolean (`true` for **2**, `false` for **1**), never a quoted string: n1-finish treats any non-boolean value as off.
+Write the block (omit `deployWatch` when the workflow name is empty). `mergeOnFinish` is a JSON boolean (`true` for **2**, `false` for **1**), never a quoted string: n1-finish treats any non-boolean value as off. `postDeployVerification` is owned by `/n1:n1-config`: keep an existing `postDeployVerification` member unchanged. When the config has none, write `{ "enabled": false }` on a fresh setup only; on reconfiguration omit the member, so the absent key keeps the legacy smoke fallback (AC6).
 ```json
 {
   "finishWork": {
@@ -68,9 +41,7 @@ Write the block (omit `deployWatch` when the workflow name is empty). `mergeOnFi
     "deployWatch": {
       "workflowName": "<name>"
     },
-    "postDeployVerification": {
-      "enabled": "<from post-deploy verification question>"
-    }
+    "postDeployVerification": <existing member, or { "enabled": false } on a fresh setup>
   }
 }
 ```
@@ -88,10 +59,7 @@ Current finish work:
 2 — Change settings (re-ask the questions above)
 ```
 - **1** → leave unchanged.
-- **2** → re-run the questions, overwrite the block.
-
-If `finishWork.postDeployVerification.enabled` is absent:
-On reconfiguration, offer the **Post-deploy verification** questions above without re-asking merge or deploy-watch settings. **No** leaves the nested key absent so legacy smoke behavior continues; **Yes** writes the nested key and creates or updates `$N1_HOME/dev-access.md`.
+- **2** → re-run the questions, overwrite the block; keep an existing `postDeployVerification` member unchanged.
 
 If `finishWork` is absent from the current config, run the fresh-setup flow above.
 

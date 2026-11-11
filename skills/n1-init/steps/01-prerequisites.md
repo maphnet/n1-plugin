@@ -242,18 +242,7 @@ CFG="$N1_HOME/config.json"
 HAS_POST_DEPLOY_VERIFICATION=$(jq -r 'if (.finishWork.postDeployVerification | type) == "object" and (.finishWork.postDeployVerification | has("enabled")) then "true" else "false" end' "$CFG")
 ```
 
-When `HAS_POST_DEPLOY_VERIFICATION` is `false`, offer:
-
-```
-Post-deploy verification has not been configured.
-It can verify ticket acceptance criteria on development after a successful deployment.
-
-1 — Configure post-deploy verification
-2 — Keep the legacy fallback
-```
-
-- **1:** Run the **Post-deploy verification** questions in **Finish Work Configuration**. Preserve all other `finishWork` values.
-- **2:** Do not write the nested key. This preserves the legacy fallback: an explicit `localTesting.mode: "smoke"` can still enable verification.
+When `HAS_POST_DEPLOY_VERIFICATION` is `false`, print one line, no prompt, no write: `Post-deploy verification is not configured; run /n1:n1-config to set it up. Until then the legacy fallback applies: an explicit localTesting.mode "smoke" still enables verification.`
 
 ### Migration Flow (existing `.n1/n1.config.json`)
 

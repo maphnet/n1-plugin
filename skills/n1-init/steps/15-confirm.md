@@ -15,14 +15,13 @@ Branch pattern: {prefix}-{id}
 Ticket tagging: payments-api / disabled
 Error tracking: Sentry (my-backend @ my-org) / disabled
 Local testing: enabled / disabled
-Post-deploy verification: enabled / disabled (legacy smoke fallback when not configured)
+Post-deploy verification: enabled / disabled (legacy smoke fallback when not configured; set up with /n1:n1-config)
 Test coverage: maintain / minimal / standard
 PR mode: draft / ready
 
 Created:
   ~/.n1/<project-name>/config.json
   ~/.n1/<project-name>/memory/
-  ~/.n1/<project-name>/dev-access.md (when post-deploy verification was enabled)
   N1_HOME auto-derived from repo name (no git config needed)
   .gitignore configured (${WT_ROOT}/ — global or project-level)
   .claude/settings.json updated (if pinning configured)
