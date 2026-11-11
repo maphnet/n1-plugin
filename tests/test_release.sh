@@ -288,6 +288,17 @@ eq "obs group: plain basic text survives" "basic setup failed" \
   "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'basic setup failed' | n1_release_obs_group "$CUT" | cut -f1)"
 eq "obs group: ordinary text with sig-like words stays" "design review failed	1" \
   "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'design review failed' | n1_release_obs_group "$CUT" | cut -f1,2)"
+obs_leak "userinfo pass does not swallow a later key" 'GET /cb?next=https://app/&password=p@ssw0rd x' ssw0rd
+obs_leak "JSON password with @ after a URL" '{"url":"https://h/","password":"Adm1n@Pr0dSecret"}' Pr0dSecret
+obs_leak "bare auth key" 'x auth=hunter2pw y' hunter2pw
+obs_leak "bare jwt key after delimiter" 'a&jwt=hunter2pw' hunter2pw
+obs_leak "bare sid key" 'sid: hunter2pw' hunter2pw
+obs_leak "signature key" 'x-signature=hunter2pw' hunter2pw
+sigs=$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'terminated by signal: SIGKILL' \
+  | cat - <(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'terminated by signal: SIGSEGV') | n1_release_obs_group "$CUT" | wc -l)
+eq "obs group: signal: SIGKILL and SIGSEGV stay two groups" "2" "$sigs"
+eq "obs group: unauthorized text kept" "unauthorized: user not found" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'unauthorized: user not found' | n1_release_obs_group "$CUT" | cut -f1)"
 # Bug: an unparsable cutoff labels every group against epoch 0 or -1, so all of them read as new.
 eq "obs group: bad cutoff gives no output" "" "$(n1_release_obs_group 'not-a-date' <<<"$ROWS" 2>/dev/null)"
 

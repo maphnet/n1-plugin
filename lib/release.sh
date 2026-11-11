@@ -133,8 +133,9 @@ n1_release_obs_group() {
             h = "[0-9a-f]"; h4 = h h h h; HEX8 = h4 h4 h "*"
             UUID = h4 h4 "-" h4 "-" h4 "-" h4 "-" h4 h4 h4
             TS = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][t ][0-9][0-9]:[0-9][0-9]:[0-9][0-9](\\.[0-9]+)?(z|[+-][0-9][0-9]:?[0-9][0-9])?"
-            KW = "(token|secret|password|passwd|pwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|cookie|session[_-]?id|sessid|sid|jwt|auth|sig)"
-            KB = KW "[a-z_-]*[\\\\\"\047 ]*[=:][ ]*"
+            KW = "(token|secret|password|passwd|pwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|cookie|session[_-]?id|authorization)[a-z_-]*"
+            KS = "(^|[^a-z])(sig(nature)?|sessid|sid|jwt|auth)"
+            KB = "(" KW "|" KS ")[\\\\\"\047 ]*[=:][ ]*"
             KQ1 = KB "\\\\*\"[^\"]*\"?"; KQ2 = KB "\047[^\047]*\047?"; KU = KB "[^ \",;&\047\\\\]+"
             AUTH = "authorization[\\\\\"\047 ]*[=:][ ]*[\\\\\"\047]*[a-z]+[ ]+[^ \",\047\\\\]+"
             COOKIE = "cookie[a-z_-]*[ ]*:.*"
@@ -148,9 +149,8 @@ n1_release_obs_group() {
             if (last < first) { x = first; first = last; last = x }
             text = $0; sub(/^[^\t]*\t[^\t]*\t[^\t]*\t/, "", text)
             gsub(/[[:cntrl:]]/, " ", text)
-            text = redact(text, "://[^ ]*@")
             text = redact(redact(redact(redact(redact(redact(text, "bearer[ ]+[^ ]+"), "xox[a-z][-.][^ ]+"), "xapp-[^ ]+"), "hooks[.]slack[.]com/services/[^ ]+"), AIZA), COOKIE)
-            text = redact(redact(redact(redact(redact(text, AUTH), KQ1), KQ2), KU), LONG)
+            text = redact(redact(redact(redact(redact(redact(text, AUTH), KQ1), KQ2), KU), "://[^ \"\047?#&]*@"), LONG)
             gsub(/[|`$<>\\]/, " ", text); text = squeeze(text)
             s = tolower(text); gsub(TS, "{ts}", s); gsub(UUID, "{id}", s)
             out = ""
