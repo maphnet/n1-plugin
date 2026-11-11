@@ -243,7 +243,7 @@ n1_queue_final_body() {
     local q="$1" repo="$2" id="$3" out="$4" kind="${5:-story}" num t r st pr rsn tk landed="" rest="" nl=0 nr=0 state head finish pred
     case "$kind" in
         story) head=Story; finish="After the merge, /n1:n1-finish $id closes the story and deletes the local story branch" ;;
-        queue) head=Queue; finish="After the merge, run /n1:n1-finish with this PR number; it closes no ticket and deletes the local queue branch" ;;
+        queue) head=Queue; finish="After the merge, run /n1:n1-finish with this PR number; it moves each landed child to done, removes its worktree and deletes the local queue branch" ;;
         *) return 1 ;;
     esac
     while IFS=$'\t' read -r num t r _ _ st; do

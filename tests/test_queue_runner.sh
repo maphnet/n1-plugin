@@ -2886,8 +2886,8 @@ test_final_body() {
     assert_eq "final-body queue: heading" "## Queue sq-20261106T000000Z: final PR" "$(head -n1 "$tmp/qbody.md")"
     assert_eq "final-body queue: opened from the queue branch" yes \
         "$(grep -qF 'from queue/sq-20261106T000000Z (N1-293)' "$tmp/qbody.md" && echo yes || echo no)"
-    assert_eq "final-body queue: finish closes no ticket" yes \
-        "$(grep -qF 'After the merge, run /n1:n1-finish with this PR number; it closes no ticket and deletes the local queue branch; the remote branch follows' "$tmp/qbody.md" && echo yes || echo no)"
+    assert_eq "final-body queue: finish closes landed children" yes \
+        "$(grep -qF 'After the merge, run /n1:n1-finish with this PR number; it moves each landed child to done, removes its worktree and deletes the local queue branch; the remote branch follows' "$tmp/qbody.md" && echo yes || echo no)"
     n1_queue_final_body "$q" /r1 S-1 "$tmp/sbody2.md" story >/dev/null
     assert_eq "final-body: explicit story kind equals the default" "" "$(cmp "$tmp/sbody.md" "$tmp/sbody2.md" 2>&1)"
     assert_eq "final-body: unknown kind -> 1" 1 "$(n1_queue_final_body "$q" /r1 S-1 "$tmp/x.md" release >/dev/null 2>&1; echo $?)"
