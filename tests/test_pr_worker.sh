@@ -250,7 +250,7 @@ has "pr.md: inline fallback keeps n1-pr" "$PRF" '`n1:n1-pr`\. Pass: `docUpdateMo
 has "pr.md: post-condition stays in the orchestrator" "$PRF" 'MISSING=\$\(n1_review_check_run\)'
 has "pr.md: Pending stays in the orchestrator" "$PRF" '^## Pending$'
 has "procedure: dispatches pr-worker" "$PD" 'Dispatch persona `pr-worker`'
-has "procedure: Wait Contract" "$PD" 'Wait Contract'
+has "procedure: waits per the dispatch requirement" "$PD" 'BLOCKING DISPATCH REQUIREMENT'
 for s in n1_merge_authorized 'gh pr merge' n1_step_end; do lacks "procedure: no $s" "$PD" "$s"; done
 has "procedure: prompt falls back inline" "$PD" '^- `pr:prompt` .*invoke skill `n1:n1-pr`'
 has "procedure: unknown falls back inline" "$PD" '^- `pr:unknown` .*invoke skill `n1:n1-pr`'

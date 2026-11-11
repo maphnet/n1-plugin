@@ -4,7 +4,7 @@ The pr step's begin fence printed `route:worker`: the tree is clean, so n1-pr's 
 
 ## Dispatch
 
-Dispatch persona `pr-worker` with the printed `model:` and only this prompt, then wait for it, foreground, per `<N1_ROOT>/skills/n1-start/procedures/output-gates.md § Wait Contract`:
+Dispatch persona `pr-worker` with the printed `model:` and only this prompt, then wait for it, foreground, per the BLOCKING DISPATCH REQUIREMENT in `<N1_ROOT>/skills/n1-start/SKILL.md`:
 
 ```
 id: <ID>
