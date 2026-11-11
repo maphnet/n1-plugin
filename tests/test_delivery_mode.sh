@@ -131,6 +131,83 @@ test_runbook_never_executes() {
     assert_eq "runbook-unmerged: no verify section" "0" "$(grep -c 'Verify command' "$out" || true)"
 }
 
+# --- N1-528: covered deploy_pending tickets ---------------------------------------
+test_covered() {
+    local repo="$TMP/cov-repo" home="$TMP/cov-home" a b x side out exp before after nf_before nf_after
+    export GIT_CEILING_DIRECTORIES="$TMP"
+    g() { git -C "$repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+    git init -q -b main "$repo"
+    g commit -q --allow-empty -m 'A [T-1] [T-8] [T-9] [T-7-old] bad.id T-130 [T-6]'; a=$(g rev-parse HEAD)
+    g commit -q --allow-empty -m 'B (OWN) T-2 [T-4]'; b=$(g rev-parse HEAD)
+    g commit -q --allow-empty -m 'X [T-10]'; x=$(g rev-parse HEAD)
+    g checkout -q -b side "$a"
+    g commit -q --allow-empty -m 'S [T-3]'; side=$(g rev-parse HEAD)
+    g checkout -q main
+    mk() {
+        mkdir -p "$home/memory/$1"
+        printf -- '---\nstep: done\ndeploy_pending: %s\ndeploy_merge_sha: %s\n---\n# %s\n' "$2" "$3" "$1" > "$home/memory/$1/overview.md"
+    }
+    mk OWN true "$b"                 # the owner ticket: excluded
+    mk T-1 true "$a"                 # ancestor -> ok
+    mk T-2 true "${b:0:7}"           # short SHA, ancestor -> ok
+    mk T-3 true "$side"              # not an ancestor (side branch / force-push) -> skipped
+    mk T-4 true deadbeefdeadbeef     # unknown SHA (another repo in a shared N1_HOME) -> skipped
+    mk T-5 true 'abc;rm'             # malformed SHA -> skipped
+    mk T-6 false "$a"                # not pending -> skipped
+    mk T-7-old true "$a"             # archived dir -> skipped
+    mk bad.id true "$a"              # ID outside [A-Za-z0-9_-] -> skipped
+    mk T-8 true "$a"                 # unticked Deployment Actions -> actions
+    printf '# R\n\n## Deployment Actions\n\n### After deploy\n\n- [ ] #1 restart worker\n' > "$home/memory/T-8/runbook.md"
+    mk T-9 true "$a"                 # all actions ticked -> ok
+    printf '# R\n\n## Deployment Actions\n\n### After deploy\n\n- [x] #1 restart worker\n\n## Notes\n\n- [ ] unrelated todo\n' > "$home/memory/T-9/runbook.md"
+    mk T-10 true "$x"                # equal to X -> ok
+    mk T-12 true "$a"                # commit does not name T-12 -> skipped (identity binding)
+    mk T-13 true "$a"                # only T-130 is named -> skipped (boundary)
+    mkdir -p "$home/memory/T-11"     # no overview.md -> skipped
+
+    before=$(cat "$home"/memory/*/overview.md "$home"/memory/*/runbook.md | cksum)
+    nf_before=$(find "$home" | wc -l)
+    out=$(cd "$repo" && N1_HOME="$home" n1_delivery_covered "$x" OWN | LC_ALL=C sort)
+    exp=$(printf '%s\n' "T-1 $a ok" "T-10 $x ok" "T-2 ${b:0:7} ok" "T-8 $a actions" "T-9 $a ok" | LC_ALL=C sort)
+    assert_eq "covered: exact candidate set" "$exp" "$out"
+    after=$(cat "$home"/memory/*/overview.md "$home"/memory/*/runbook.md | cksum)
+    nf_after=$(find "$home" | wc -l)
+    assert_eq "covered: pure (memory content unchanged)" "$before" "$after"
+    assert_eq "covered: pure (no files created)" "$nf_before" "$nf_after"
+
+    assert_eq "covered: own ID is listed when not excluded" "yes" \
+        "$(grep -q '^OWN ' <<<"$(cd "$repo" && N1_HOME="$home" n1_delivery_covered "$x")" && echo yes || echo no)"
+    assert_eq "covered: malformed X -> nothing" "" "$(cd "$repo" && N1_HOME="$home" n1_delivery_covered "$x;rm" OWN)"
+    assert_eq "covered: unknown X -> nothing" "" \
+        "$(cd "$repo" && N1_HOME="$home" n1_delivery_covered 0123456789abcdef0123 OWN)"
+    assert_eq "covered: empty X -> nothing" "" "$(cd "$repo" && N1_HOME="$home" n1_delivery_covered '' OWN)"
+    assert_eq "covered: outside a git repo -> nothing" "" "$(cd "$home" && N1_HOME="$home" n1_delivery_covered "$x" OWN)"
+    assert_eq "covered: empty N1_HOME -> nothing" "" "$(cd "$repo" && N1_HOME='' n1_delivery_covered "$x" OWN)"
+    assert_eq "covered: earlier X covers fewer tickets" "T-1 $a ok" \
+        "$(cd "$repo" && N1_HOME="$home" n1_delivery_covered "$a" OWN | grep -v -e '^T-8 ' -e '^T-9 ')"
+    unset GIT_CEILING_DIRECTORIES
+}
+
+test_finish_line_set() {
+    local ov="$TMP/fls.md"
+    printf -- '---\nstep: done\n---\n# T\n\n## Finish\n- **Merged:** abc\n- **Delivery:** pending (runbook: memory/T/runbook.md)\n- **Ticket:** left open (deploy pending)\n\n## Notes\nkeep\n' > "$ov"
+    n1_finish_line_set "$ov" Delivery "succeeded (covered by OWN at 1234567)"
+    assert_eq "finish-line: one Delivery line" "1" "$(grep -c '^- \*\*Delivery:\*\*' "$ov" || true)"
+    assert_eq "finish-line: new value inside ## Finish" "yes" \
+        "$(grep -qF -- '- **Delivery:** succeeded (covered by OWN at 1234567)' <<<"$(section "$ov" '## Finish')" && echo yes || echo no)"
+    assert_eq "finish-line: other Finish lines kept" "yes" \
+        "$(grep -qF -- '- **Merged:** abc' <<<"$(section "$ov" '## Finish')" && grep -qF -- '- **Ticket:** left open' "$ov" && echo yes || echo no)"
+    assert_eq "finish-line: other sections kept" "keep" "$(section "$ov" '## Notes')"
+    assert_eq "finish-line: frontmatter kept" "done" "$(n1_read_frontmatter "$ov" step)"
+    n1_finish_line_set "$ov" Delivery "succeeded (covered by OWN at 1234567)"
+    assert_eq "finish-line: idempotent re-run" "1" "$(grep -c '^- \*\*Delivery:\*\*' "$ov" || true)"
+    printf -- '---\n---\n# T\n' > "$ov"
+    n1_finish_line_set "$ov" Ticket "moved to Done"
+    assert_eq "finish-line: appends ## Finish when absent" "- **Ticket:** moved to Done" "$(section "$ov" '## Finish')"
+    assert_eq "finish-line: missing file -> rc 1" "1" \
+        "$(n1_finish_line_set "$TMP/nope.md" Ticket x && echo 0 || echo 1)"
+}
+
 # --- NP-240: multi-step delivery helpers ---------------------------------------
 test_multi_step_helpers() {
     local cf="$TMP/step.cmd" out
@@ -300,6 +377,48 @@ test_wiring() {
     assert_eq "non-regression: n1-start finish gate has no delivery logic" "0" "$(grep -c 'delivery' "$s/n1-start/steps/finish.md" || true)"
 }
 
+# --- N1-528: covered-close wiring ------------------------------------------------
+test_wiring_covered() {
+    local s="$REPO_ROOT/skills" cc="$REPO_ROOT/skills/n1-finish/references/covered-close.md"
+    local c4="$REPO_ROOT/skills/n1-finish/steps/04-close-ticket.md" c6="$REPO_ROOT/skills/n1-finish/steps/06-cleanup.md"
+    local lr lt
+    assert_eq "covered wiring: reference exists" "yes" "$([ -f "$cc" ] && echo yes || echo no)"
+    assert_eq "covered wiring: Step 4 points at covered-close.md" "yes" \
+        "$(grep -qF 'skills/n1-finish/references/covered-close.md' "$c4" && echo yes || echo no)"
+    assert_eq "covered wiring: Step 4 runs it only after a succeeded delivery" "yes" \
+        "$(grep -qF 'recorded `- **Delivery:** succeeded (`' "$c4" && echo yes || echo no)"
+    assert_eq "covered wiring: scan uses the helper with own ID excluded" "yes" \
+        "$(grep -qF 'n1_delivery_covered "$X" "$ID"' "$cc" && echo yes || echo no)"
+    assert_eq "covered wiring: batch prompt skipped only under fullAuto" "yes" \
+        "$(grep -qF 'n1_fullauto_enabled' "$cc" && echo yes || echo no)"
+    assert_eq "covered wiring: skipped delivery steps disable the auto close" "yes" \
+        "$(grep -qF 'skipped steps' "$cc" && echo yes || echo no)"
+    assert_eq "covered wiring: unticked actions are never closed" "yes" \
+        "$(grep -qF 'never closed' "$cc" && echo yes || echo no)"
+    assert_eq "covered wiring: records the covered Delivery value" "yes" \
+        "$(grep -qF 'n1_finish_line_set "$OV" Delivery "succeeded (covered by $ID at $X)"' "$cc" && echo yes || echo no)"
+    assert_eq "covered wiring: clears deploy_pending and the pending marker" "yes" \
+        "$(grep -qF 'deploy_pending false' "$cc" && grep -qF 'n1_pending_clear "$OV"' "$cc" && echo yes || echo no)"
+    lr=$(grep -n -m1 -F 'n1_finish_line_set "$OV" Delivery' "$cc" | cut -d: -f1 || true)
+    lt=$(grep -n -m1 -F 'moveStatus' "$cc" | cut -d: -f1 || true)
+    assert_eq "covered wiring: local record precedes the tracker close" "yes" \
+        "$([ -n "$lr" ] && [ -n "$lt" ] && [ "$lr" -lt "$lt" ] && echo yes || echo no)"
+    assert_eq "covered wiring: tracker failure never blocks" "yes" \
+        "$(grep -qF 'warn, never block' "$cc" && echo yes || echo no)"
+    assert_eq "covered wiring: never deploys or runs Step 5/6 for covered tickets" "yes" \
+        "$(grep -qF 'Never run a deploy, Step 5 or Step 6 for a covered ticket' "$cc" && echo yes || echo no)"
+    assert_eq "covered wiring: both Step 6 Delivery grammars list covered" "2" \
+        "$(grep -cF 'succeeded (covered by <owner ID> at <sha>)' "$c6" || true)"
+    assert_eq "covered wiring: mode:runbook exit runs the covered close" "yes" \
+        "$(grep -qF 'including the `mode:runbook` exit' "$c4" && grep -qF 'covered-tickets paragraph' "$c4" && echo yes || echo no)"
+    assert_eq "covered wiring: Step 6 Report has a Covered line" "yes" \
+        "$(grep -q '^Covered: <' "$c6" && echo yes || echo no)"
+    assert_eq "covered wiring: 03b untouched (no covered text)" "0" \
+        "$(grep -c 'covered by' "$s/n1-finish/steps/03b-ssh-deploy.md" || true)"
+    assert_eq "docs: architecture documents the covered close" "yes" \
+        "$(grep -qF 'n1_delivery_covered' "$REPO_ROOT/references/architecture.md" && echo yes || echo no)"
+}
+
 # --- NP-240: multi-step wiring ---------------------------------------------------
 test_wiring_multi_step() {
     local step="$REPO_ROOT/skills/n1-finish/steps/03b-ssh-deploy.md" ms xb rb
@@ -339,6 +458,7 @@ test_wiring_multi_step() {
 
 test_wiring
 test_wiring_multi_step
+test_wiring_covered
 test_action
 test_action_no_jq
 test_skip
@@ -346,6 +466,8 @@ test_skip_no_jq
 test_runbook_never_executes
 test_multi_step_helpers
 test_runbook_steps
+test_covered
+test_finish_line_set
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

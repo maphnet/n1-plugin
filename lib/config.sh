@@ -626,6 +626,42 @@ n1_delivery_runbook() {
     printf '%s\n' "$dir/runbook.md"
 }
 
+n1_delivery_covered() {
+    # N1-528. Usage: n1_delivery_covered <sha> [exclude-id]
+    # Lists other tickets whose pending deploy shipped with the delivery of <sha>: overview.md has
+    # deploy_pending: true and a deploy_merge_sha that resolves to a commit in the CURRENT repo and is an
+    # ancestor of (or equal to) <sha> whose commit message names <ID> (ticket binding). One line per ticket: "<ID> <merge-sha> ok", or "<ID> <merge-sha> actions"
+    # when memory/<ID>/runbook.md still has an unticked row under "## Deployment Actions" (never close those).
+    # Skips <exclude-id>, archived "-old" dirs and IDs outside [A-Za-z0-9_-]. Fails closed: invalid or unknown
+    # <sha>, no git repo or no N1_HOME print nothing; a SHA from another repo in a shared N1_HOME never resolves.
+    # Pure: reads only, writes nothing (N1-529 may call it from the session-start hook). Always rc 0.
+    local x="${1:-}" ex="${2:-}" ov id sha rb msg
+    [ -n "${N1_HOME:-}" ] || return 0
+    [[ "$x" =~ ^[0-9a-f]{7,40}$ ]] || return 0
+    git cat-file -e "$x^{commit}" 2>/dev/null || return 0
+    for ov in "$N1_HOME"/memory/*/overview.md; do
+        [ -f "$ov" ] || continue
+        id="${ov%/overview.md}"; id="${id##*/}"
+        case "$id" in ''|*-old|*[!A-Za-z0-9_-]*) continue ;; esac
+        [ "$id" = "$ex" ] && continue
+        [ "$(n1_read_frontmatter "$ov" deploy_pending)" = true ] || continue
+        sha=$(n1_read_frontmatter "$ov" deploy_merge_sha)
+        [[ "$sha" =~ ^[0-9a-f]{7,40}$ ]] || continue
+        git cat-file -e "$sha^{commit}" 2>/dev/null || continue
+        git merge-base --is-ancestor "$sha" "$x" 2>/dev/null || continue
+        # Bind to identity: the merge commit must name this ticket (hand-edited or foreign overviews fail closed).
+        msg=$(git log -1 --format=%B "$sha^{commit}" 2>/dev/null) || continue
+        [[ "$msg" =~ (^|[^A-Za-z0-9_-])$id([^A-Za-z0-9_-]|$) ]] || continue
+        rb="${ov%overview.md}runbook.md"
+        if [ -f "$rb" ] && awk '/^## / { s = ($0 ~ /^## Deployment Actions\r?$/) } s && /^- \[ \] / { f = 1; exit } END { exit !f }' "$rb"; then
+            printf '%s %s actions\n' "$id" "$sha"
+        else
+            printf '%s %s ok\n' "$id" "$sha"
+        fi
+    done
+    return 0
+}
+
 n1_review_narrow_threshold() {
     # Prints integer. Default: 50.
     local v; v=$(n1_config_val '.review.narrowThreshold')

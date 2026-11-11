@@ -73,6 +73,22 @@ n1_pending_clear() {
     ' "$file" "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; return 1; }
 }
 
+# N1-528: upsert "- **<Key>:** <value>" in overview ## Finish (n1-finish covered close). Drops any existing line
+# for that key inside ## Finish and prints the new one right after the heading; no ## Finish -> appends a minimal
+# one. Same awk shape as _n1_clean_record. Missing file or write failure: rc 1, file unchanged.
+n1_finish_line_set() {
+    local file="$1" key="$2" value="$3" tmp
+    [ -f "$file" ] || return 1
+    tmp=$(mktemp "${file}.XXXXXX") || return 1
+    K="- **$key:**" L="- **$key:** $value" awk '
+        /^## / { s = /^## Finish\r?$/ }
+        s && index($0, ENVIRON["K"]) == 1 { next }
+        { print }
+        /^## Finish\r?$/ && !d { print ENVIRON["L"]; d = 1 }
+        END { if (!d) { print ""; print "## Finish"; print ENVIRON["L"] } }
+    ' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; return 1; }
+}
+
 # N1-277: finish exited without a merge (timeout paths): keep the marker, set step: finish and refresh last_checked
 # wherever it is (frontmatter or ## Pending). No last_checked line: only step is set (no key is invented).
 n1_pending_touch() {
