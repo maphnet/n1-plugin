@@ -61,4 +61,22 @@ done
 lacks "investigation has no vague tagging line" 'Apply ticketTagging rules' skills/n1-start/steps/investigation-deliverable.md
 check "n1-refine adopt gets no tagging or label" 'Adopted tickets get no tagging or label' skills/n1-refine/steps/03-write.md
 
+# Create sites run by tail-worker: follow-up filing, n1-finish telemetry follow-up.
+F=references/followup-filing.md
+for f in "$F" skills/n1-finish/steps/05-telemetry-followup.md; do
+    check "$f resolves via ticket-tagging" 'ticket-tagging\.md` § Resolve' "$f"
+    check "$f labels via ticket-tagging" 'ticket-tagging\.md` § Label after create' "$f"
+done
+check "follow-up reconcile accepts plain or tagged summary" 'summary equals the title or the tagged summary' "$F"
+check "follow-up markers keep the plain title" 'markers and the duplicate-check `TEXT` keep the plain title' "$F"
+check "follow-up label never changes the marker" 'never changes the line.s marker' "$F"
+
+# Agent audit: no agent creates tickets directly; tail-worker files through followup-filing.
+if grep -qE 'createIssue|create_issue|createJiraIssue|CREATE_ISSUE_OP|CREATE_OP' agents/*.md 2>/dev/null; then
+    echo "FAIL: an agent file names a create op directly"; FAIL=1
+else
+    echo "PASS: no agent file names a create op directly"
+fi
+check "tail-worker files follow-ups via followup-filing" 'followup-filing\.md` § File' agents/tail-worker.md
+
 exit $FAIL
