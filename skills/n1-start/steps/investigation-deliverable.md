@@ -263,8 +263,8 @@ When `IMPLEMENTABLE!=true`: "What next? 1 — Close ticket [/ 2 — Restore to o
 
 **If: Create new implementation ticket:**
 1. Derive title from first recommendation (~80 chars) or ask user.
-2. Construct description: `"Follows investigation <ID>\n\n## Summary\n...\n## Acceptance Criteria\n...\n## Scope\n...\n## Context\n..."` (Jira: plain bullets; YouTrack: checkboxes). Apply ticketTagging rules.
-3. Call createIssue via tracker MCP with the type per `<N1_ROOT>/references/ticket-scope.md` § Free-form creation (parameters per § Create-call parameters).
+2. Construct description: `"Follows investigation <ID>\n\n## Summary\n...\n## Acceptance Criteria\n...\n## Scope\n...\n## Context\n..."` (Jira: plain bullets; YouTrack: checkboxes). Tag `summary` and the description per `<N1_ROOT>/references/ticket-tagging.md` § Resolve.
+3. Call createIssue via tracker MCP with the type per `<N1_ROOT>/references/ticket-scope.md` § Free-form creation (parameters per § Create-call parameters). Then apply `<N1_ROOT>/references/ticket-tagging.md` § Label after create with `<newID>`.
 4. **Link:** if `tracker.operations.linkIssues` is configured (`LINK_OP=$(n1_config_val ".tracker.operations.linkIssues")`), call `mcp__<tracker.mcp>__<LINK_OP>`:
    - **Jira:** call with `cloudId`, `inwardIssue: { key: "<ID>" }`, `outwardIssue: { key: "<newID>" }`, `type: { name: "Relates" }`.
    - **YouTrack:** source = `<newID>`, target = `<ID>`, link type = `"depends on"` (already a valid YouTrack direction name — no remap needed), using the tool's own argument names.

@@ -53,4 +53,12 @@ check "n1-story subtasks label after create" 'ticket-tagging\.md` § Label after
 check "n1-story adopt gets no tagging or label" 'Adopted tickets get no tagging or label' skills/n1-story/steps/02-compose.md
 lacks "n1-story has no vague subtask tagging line" 'same logic as story' skills/n1-story/steps/02-compose.md
 
+# Create sites: n1-start (investigation follow-up, brain-dump), n1-refine children.
+for f in skills/n1-start/steps/investigation-deliverable.md skills/n1-start/steps/ticket.md skills/n1-refine/steps/03-write.md; do
+    check "$f resolves via ticket-tagging" 'ticket-tagging\.md` § Resolve' "$f"
+    check "$f labels via ticket-tagging" '§ Label after create' "$f"
+done
+lacks "investigation has no vague tagging line" 'Apply ticketTagging rules' skills/n1-start/steps/investigation-deliverable.md
+check "n1-refine adopt gets no tagging or label" 'Adopted tickets get no tagging or label' skills/n1-refine/steps/03-write.md
+
 exit $FAIL
