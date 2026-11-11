@@ -55,6 +55,27 @@ n1_release_obs_window() {
     return 0
 }
 
+# n1_release_obs_providers [config-file]: dev observability providers for release-test Step 3b, read regardless of
+# observability.default. One row per provider with env "dev": <name>\t<mcp>\t<kind>\t<tool>, where kind comes from
+# the operation key (query -> loki, searchIssues -> sentry, findExceptions -> langfuse). Providers with none of these,
+# or with a name, mcp or tool outside [A-Za-z0-9_.-], are dropped. No file or no jq: nothing; rc 0.
+n1_release_obs_providers() {
+    local file="${1:-$(n1_config_file)}"
+    [ -f "$file" ] && command -v jq >/dev/null 2>&1 || return 0
+    jq -r '
+        (.observability.providers // {}) | if type == "object" then to_entries[] else empty end
+        | select((.value | type) == "object" and .value.env == "dev")
+        | .key as $n | .value as $p
+        | (if ($p.operations | type) == "object" then $p.operations else {} end) as $o
+        | (if ($o.query | type) == "string" then ["loki", $o.query]
+           elif ($o.searchIssues | type) == "string" then ["sentry", $o.searchIssues]
+           elif ($o.findExceptions | type) == "string" then ["langfuse", $o.findExceptions]
+           else empty end) as $k
+        | [$n, ($p.mcp // "" | tostring), $k[0], $k[1]] | @tsv' "$file" 2>/dev/null \
+        | awk -F'\t' 'NF == 4 && $1 ~ /^[A-Za-z0-9_.-]+$/ && $2 ~ /^[A-Za-z0-9_.-]+$/ && $4 ~ /^[A-Za-z0-9_.-]+$/'
+    return 0
+}
+
 # n1_release_ticket_ids <prev> <head-ref>: IDs from the leading [PREFIX-N] of each commit subject in prev..head
 # (all of head when prev is empty). IDs later in a subject and untagged subjects count for nothing.
 # --no-decorate: log.decorate would put "(tag: ..)" after the hash. PREFIX: env, else .tracker.prefix.

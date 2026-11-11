@@ -204,5 +204,24 @@ eq "window: hours rounded up, baseline doubled" "6 full 12" "$(in_r2 n1_release_
 eq "window: capped at the default 720 h and flagged" "720 capped 720" "$(in_r2 n1_release_obs_window v3.1.0)"
 eq "window: baseline respects N1_OBS_MAX_HOURS" "6 full 10" "$(N1_OBS_MAX_HOURS=10 in_r2 n1_release_obs_window v3.0.0)"
 eq "window: absent tag is empty" "" "$(in_r2 n1_release_obs_window v9.9.9)"
+# --- n1_release_obs_providers (N1-179)
+cat > "$T/obs.json" <<'XEOF'
+{"observability":{"default":"prod","providers":{
+ "loki":{"env":"prod","mcp":"prod-loki","operations":{"query":"loki_query"},"instructions":"x"},
+ "loki-dev":{"env":"dev","mcp":"publius-dev-loki-mcp","operations":{"query":"loki_query"},"instructions":"x"},
+ "sentry-dev":{"env":"dev","mcp":"publius-sentry","operations":{"searchIssues":"search_issues","getIssue":"get_issue"},"instructions":"x"},
+ "langfuse-dev":{"env":"dev","mcp":"publius-dev-langfuse-mcp","operations":{"findExceptions":"find_exceptions"},"instructions":"x"},
+ "grafana-dev":{"env":"dev","mcp":"grafana","operations":{"dashboards":"list"},"instructions":"x"},
+ "bad;name":{"env":"dev","mcp":"m","operations":{"query":"q"},"instructions":"x"},
+ "global":{"mcp":"g","operations":{"query":"q"},"instructions":"x"}}}}
+XEOF
+# Bug (AC1): pilots set default prod; only env dev providers may be scanned, kind keyed on the operation,
+# providers without a scan operation and names that are unsafe in a tool name are dropped.
+eq "obs providers: dev only, kind from the operation" "loki-dev	publius-dev-loki-mcp	loki	loki_query
+sentry-dev	publius-sentry	sentry	search_issues
+langfuse-dev	publius-dev-langfuse-mcp	langfuse	find_exceptions" "$(n1_release_obs_providers "$T/obs.json")"
+echo '{"observability":{"default":"prod","providers":{}}}' > "$T/obs-none.json"
+# Bug (AC1): no dev provider must read as empty so Step 3b prints one skip line.
+eq "obs providers: none configured is empty" "" "$(n1_release_obs_providers "$T/obs-none.json")"
 echo "passed=$PASS failed=$FAIL"
 [ "$FAIL" -eq 0 ]
