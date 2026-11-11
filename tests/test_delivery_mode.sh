@@ -278,6 +278,8 @@ test_wiring() {
         "$(grep -qF 'n1_delivery_skip' "$step" && echo yes || echo no)"
     assert_eq "skip wiring: file list is the paginated PR files API" "yes" \
         "$(grep -qF 'pulls/$PR/files" --paginate' "$step" && echo yes || echo no)"
+    assert_eq "skip wiring: completeness check against changed_files (3000 cap)" "yes" \
+        "$(grep -qF '.changed_files' "$step" && grep -qF -- '-ge 3000' "$step" && grep -qF -- '-ne "$TOTAL"' "$step" && echo yes || echo no)"
     assert_eq "skip wiring: renamed files also check the previous path" "yes" \
         "$(grep -qF 'previous_filename' "$step" && echo yes || echo no)"
     assert_eq "skip wiring: section exists" "yes" "$([ -n "$sk" ] && echo yes || echo no)"

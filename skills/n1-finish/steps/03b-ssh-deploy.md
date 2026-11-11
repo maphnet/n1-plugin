@@ -14,7 +14,12 @@ if [ "$A" != none ]; then   # N1-531: repo-only check; every failure means deliv
   [ -z "$PR" ] && [ -n "$SHA" ] && PR=$(gh api "repos/{owner}/{repo}/commits/$SHA/pulls" --jq '[.[] | select(.merged_at)] | .[0].number' 2>/dev/null)
   case "$PR" in
     ''|*[!0-9]*) echo skip-paths:deliver ;;
-    *) FILES=$(gh api "repos/{owner}/{repo}/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)' 2>/dev/null) || FILES=""
+    *) RAW=$(gh api "repos/{owner}/{repo}/pulls/$PR/files" --paginate --jq '.[] | [.filename, (.previous_filename // "")] | @tsv' 2>/dev/null) || RAW=""
+       FILES=$(printf '%s\n' "$RAW" | tr '\t' '\n' | sed '/^$/d')
+       NF=$(printf '%s\n' "$RAW" | sed '/^$/d' | wc -l | tr -d ' ')
+       TOTAL=$(gh api "repos/{owner}/{repo}/pulls/$PR" --jq .changed_files 2>/dev/null)
+       # the files API caps at 3000 entries: a list not proven complete delivers
+       case "$TOTAL" in ''|*[!0-9]*) FILES="" ;; *) { [ "$TOTAL" -ge 3000 ] || [ "$NF" -ne "$TOTAL" ]; } && FILES="" ;; esac
        echo "skip-paths:$(printf '%s\n' "$FILES" | n1_delivery_skip)" ;;
   esac
 fi
