@@ -143,6 +143,17 @@ check "3b reports a failing provider as unavailable" ': unavailable \(' "$S3B"
 check "3b next actions mark one recommendation" '^1 — re-check \(Recommended\): a log or error signature' "$S3B"
 expect "3b next-action list marks exactly one recommendation" "1" "$(grep -cF '(Recommended)' "$S3B")"
 check "3b writes provider text only via the file-write mechanism" 'obs-rows\.tsv. with the file-write mechanism' "$S3B"
+# Bug (AC5): new-since-release groups must reach the signal as a condition, and only through OBS, never WARN.
+printf '%s\t%s\t%s\t%s\t%s\t%s\n' 'db error {n}' 3 2999-01-01T00:00:00Z 2999-01-01T00:00:00Z 'new since release' 'DB error 7' > "$D/obs-groups.tsv"
+expect "signal: new observability group is a condition" "GO with conditions
+condition: 1 new-since-release dev observability group(s)" "$(sandbox "$SIG")"
+rm -f "$D/obs-groups.tsv"
+check "4f passes the observability count" 'n1_release_signal "\$BUILD" "\$WARN" "\$OBS"' "$S4"
+lacks "observability groups never join WARN" 'WARN=.*OBS' "$S4"
+# Bug: the reserved placeholder stays, so the scan result never reaches the page or the report.
+lacks "4 no longer prints the N1-179 placeholder" 'not run \(N1-179\)' "$S4"
+check "4e and 4g embed dev-observability.md" 'content of .dev-observability\.md' "$S4"
+check "4g lists the 3b next actions" 'Step 3b § 3b-5' "$S4"
 
 # --- Text rules
 check "scope step calls n1_release_prev_tag" 'n1_release_prev_tag' "$S1"

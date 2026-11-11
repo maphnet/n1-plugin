@@ -97,10 +97,10 @@ QA: enter PASS or FAIL in the Result column of each manual and assisted case. An
 
 ## Dev observability
 
-not run (N1-179)
+<the content of `dev-observability.md` from Step 3b, or "not run: <reason>" when the file is absent>
 ```
 
-Write one row per case in the plan. Every cell stays on one line, `|` is written as `\|`, and the page never uses checkbox list items, because they do not survive Jira and Confluence rendering.
+Write one row per case in the plan. Every cell stays on one line, `|` is written as `\|`, and the page never uses checkbox list items, because they do not survive Jira and Confluence rendering. The Dev observability table follows the case table and has no `ID` or `Result` column, so `n1_release_page_results` never reads it.
 
 - No page found: call `operations.createArticle` with `{spaceId, title: TITLE, body}`. The result is `{id, title, url}`. Set `CONF=created <url>`.
 - Page found: call `operations.updateArticle` with `{pageId, title: TITLE, body, version}`, passing the current `version` from `getArticle` unchanged, because jc-mcp increments it itself. Set `CONF=updated <stored url>`, or `CONF=updated <TITLE> (page <id>)` when no url is stored.
@@ -116,12 +116,13 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/release.sh"
 DIR="$N1_HOME/releases/<LABEL>"
 WARN="<integrity warnings plus publish failures>"
+OBS=$(awk -F'\t' '$5 == "new since release"' "$DIR/obs-groups.tsv" 2>/dev/null | wc -l | tr -d ' ')
 BUILD=unverified
 grep -Eq '^Dev build: verified \(.+\)' "$DIR/release-test-results.md" 2>/dev/null && BUILD=verified
-cut -f2- "$DIR/case-status.tsv" | n1_release_signal "$BUILD" "$WARN"
+cut -f2- "$DIR/case-status.tsv" | n1_release_signal "$BUILD" "$WARN" "$OBS"
 ```
 
-Print its output unchanged; never reword or override the signal.
+Print its output unchanged; never reword or override the signal. `OBS` counts the `new since release` groups from Step 3b. It is a condition only: it is never added to `WARN` and never makes NO-GO. An unavailable provider counts nowhere.
 
 ## 4g. Final report
 
@@ -142,8 +143,10 @@ Plan: <path>
 Results: <path, or "not run: <reason>">
 
 ## Dev observability
-not run (N1-179)
+<the content of `dev-observability.md` from Step 3b, or "not run: <reason>" when the file is absent>
 ```
+
+Under each `new since release` row of the Dev observability table, list the next actions of Step 3b § 3b-5 (`<N1_ROOT>/skills/n1-release-test/steps/03b-dev-observability.md`). `pre-existing` rows get none.
 
 Under each failure and unverified item, list the next actions in the format of `<N1_ROOT>/references/question-format.md`. Nothing is done for the user and no ticket is filed. The evidence cites the verifier contract in `agents/post-deploy-verifier.md` § Release Mode (Tier 2).
 
