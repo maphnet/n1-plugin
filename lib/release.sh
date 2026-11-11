@@ -81,8 +81,11 @@ n1_release_obs_providers() {
 # epoch s/ms/us/ns. stdout, newest last-seen first, times in UTC:
 #   <signature>\t<count>\t<first>\t<last>\t<new since release|pre-existing>\t<sample>
 # Signature: lowercased, timestamps -> {ts}, UUIDs and hex runs of 8+ with a letter -> {id}, digits -> {n}, 120 chars.
-# Sample: first row's text, 160 chars. Both are redacted (Bearer tokens, key=value secrets, 32+ char token runs ->
-# {redacted}) and stripped of control characters and | ` $ < > \, so they are safe in a one-line table cell.
+# Sample: first row's text, 160 chars. Both are redacted to {redacted}: URL userinfo (anything between :// and the last @ of the word),
+# Bearer tokens, Authorization scheme+credential, Slack tokens/webhook paths, Google AIza keys, everything after a
+# "cookie:" header, key=value / key: value / JSON (quoted, spaces, backslash-escaped) secrets whose key contains
+# token secret password passwd pwd api/access/private key credential cookie session id sessid sid jwt auth sig,
+# and 32+ char token runs. Over-redacting is the safe direction. Both are also stripped of control characters and | ` $ < > \, so they are safe in a one-line table cell.
 # New since release: the group's earliest first-seen is at or after the cutoff. Merge: min first, max last, sum count.
 # Rows with a bad timestamp or count are dropped and counted on stderr ("dropped: N"). Bad cutoff: no output. rc 0.
 # ponytail: the label only sees the rows the provider returned (bounded, newest first); older lines crowded out by
@@ -130,7 +133,12 @@ n1_release_obs_group() {
             h = "[0-9a-f]"; h4 = h h h h; HEX8 = h4 h4 h "*"
             UUID = h4 h4 "-" h4 "-" h4 "-" h4 "-" h4 h4 h4
             TS = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][t ][0-9][0-9]:[0-9][0-9]:[0-9][0-9](\\.[0-9]+)?(z|[+-][0-9][0-9]:?[0-9][0-9])?"
-            KEYS = "([a-z_-]*(token|secret|password|passwd|pwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|cookie|session[_-]?id)|sig(nature)?|authorization)\"?[ ]*[=:][ ]*\"?[^ \",;&]+"
+            KW = "(token|secret|password|passwd|pwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|cookie|session[_-]?id|sessid|sid|jwt|auth|sig)"
+            KB = KW "[a-z_-]*[\\\\\"\047 ]*[=:][ ]*"
+            KQ1 = KB "\\\\*\"[^\"]*\"?"; KQ2 = KB "\047[^\047]*\047?"; KU = KB "[^ \",;&\047\\\\]+"
+            AUTH = "authorization[\\\\\"\047 ]*[=:][ ]*[\\\\\"\047]*[a-z]+[ ]+[^ \",\047\\\\]+"
+            COOKIE = "cookie[a-z_-]*[ ]*:.*"
+            AIZA = "aiza"; for (i = 0; i < 20; i++) AIZA = AIZA "[a-z0-9_-]"; AIZA = AIZA "[a-z0-9_-]*"
             cut = epoch(cutoff)
         }
         cut < 0 { next }
@@ -140,8 +148,9 @@ n1_release_obs_group() {
             if (last < first) { x = first; first = last; last = x }
             text = $0; sub(/^[^\t]*\t[^\t]*\t[^\t]*\t/, "", text)
             gsub(/[[:cntrl:]]/, " ", text)
-            text = redact(text, "://[^/ @]*:[^/ @]*@")
-            text = redact(redact(redact(redact(redact(text, "bearer[ ]+[^ ]+"), "basic[ ]+[^ ]+"), "xox[abprs]-[^ ]+"), KEYS), LONG)
+            text = redact(text, "://[^ ]*@")
+            text = redact(redact(redact(redact(redact(redact(text, "bearer[ ]+[^ ]+"), "xox[a-z][-.][^ ]+"), "xapp-[^ ]+"), "hooks[.]slack[.]com/services/[^ ]+"), AIZA), COOKIE)
+            text = redact(redact(redact(redact(redact(text, AUTH), KQ1), KQ2), KU), LONG)
             gsub(/[|`$<>\\]/, " ", text); text = squeeze(text)
             s = tolower(text); gsub(TS, "{ts}", s); gsub(UUID, "{id}", s)
             out = ""

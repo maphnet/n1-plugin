@@ -264,6 +264,28 @@ obs_leak "private_key" 'private_key: abc123XYZ end' abc123XYZ
 obs_leak "cookie" 'cookie: session=s3cr3tval; path=/' s3cr3tval
 obs_leak "session_id" 'session_id=s3cr3tval x' s3cr3tval
 obs_leak "SAS sig" 'GET /blob?sig=ab%2Fcd%2Bef&se=2026' 'ab%2Fcd'
+obs_leak "double-quoted value with spaces" 'login failed password="a b c" retry' 'b c'
+obs_leak "single-quoted value with spaces" "login failed password='a b c' retry" 'b c'
+obs_leak "escaped JSON" 'body {\"password\":\"hunter2pw\"} sent' hunter2pw
+obs_leak "secret_key" 'secret_key=hunter2pw x' hunter2pw
+obs_leak "credentials" 'credentials=hunter2pw x' hunter2pw
+obs_leak "passwords" 'passwords: hunter2pw x' hunter2pw
+obs_leak "auth_token_value" 'auth_token_value=hunter2pw x' hunter2pw
+obs_leak "multi-cookie header" 'Cookie: a=1; auth=hunter2pw; jwt=eyJhbGci.abc' hunter2pw
+obs_leak "multi-cookie unknown name" 'Cookie: a=1; foo=hunter2pw' hunter2pw
+obs_leak "sid key" 'sid=hunter2pw x' hunter2pw
+obs_leak "Authorization Token" 'Authorization: Token hunter2pw sent' hunter2pw
+obs_leak "Authorization ApiKey" 'authorization: ApiKey hunter2pw sent' hunter2pw
+obs_leak "Authorization SSWS" 'Authorization: SSWS hunter2pw sent' hunter2pw
+obs_leak "AIza key" 'maps failed key AIzaSyA-1234567890abcdefghijklmnopqrstu done' 'AIzaSyA'
+obs_leak "Slack webhook" 'post https://hooks.slack.com/services/T000/B000/hunter2pw failed' hunter2pw
+obs_leak "xoxe token" 'slack xoxe-1-hunter2pw end' hunter2pw
+obs_leak "xapp token" 'slack xapp-1-A0-hunter2pw end' hunter2pw
+obs_leak "token-only userinfo" 'clone https://ghp_hunter2pw@github.com/x/y failed' ghp_hunter2pw
+obs_leak "userinfo with @ in password" 'redis://u:p@ss@host:6379 refused' 'ss@host'
+obs_leak "userinfo with / in password" 'redis://u:p/ss@host:6379 refused' 'p/ss'
+eq "obs group: plain basic text survives" "basic setup failed" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'basic setup failed' | n1_release_obs_group "$CUT" | cut -f1)"
 eq "obs group: ordinary text with sig-like words stays" "design review failed	1" \
   "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'design review failed' | n1_release_obs_group "$CUT" | cut -f1,2)"
 # Bug: an unparsable cutoff labels every group against epoch 0 or -1, so all of them read as new.
