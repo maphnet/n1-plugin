@@ -1792,6 +1792,9 @@ test_rerun_wiring() {
     assert_eq "rerun-wiring: other steps still stop" "yes" "$(_hasF 'No saved plan for `<QUEUE_ID>`' "$r")"
     assert_eq "rerun-wiring: planned STALE path kept" "yes" "$(_hasF '`STALE=yes` (planned more than `STALE_HOURS` hours ago' "$r")"
     local bg rr; bg=$(grep -n -m1 -F '**Busy guard' "$r" | cut -d: -f1); rr=$(grep -n -m1 -F '### Re-read (' "$r" | cut -d: -f1)
+    local wp; wp=$(grep -n -m1 -F '## Write plan (' "$r" | cut -d: -f1)
+    assert_eq "rerun-wiring: re-read precedes Write plan" "yes" "$([ -n "$rr" ] && [ -n "$wp" ] && [ "$rr" -lt "$wp" ] && echo yes || echo no)"
+    assert_eq "rerun-wiring: bg run order wording" "yes" "$(_hasF 'the bg backend runs rows in plan order.' "$r")"
     assert_eq "rerun-wiring: busy guard precedes the re-read" "yes" "$([ -n "$bg" ] && [ -n "$rr" ] && [ "$bg" -lt "$rr" ] && echo yes || echo no)"
 }
 

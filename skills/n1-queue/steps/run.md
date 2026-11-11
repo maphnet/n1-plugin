@@ -144,7 +144,7 @@ N1-536: work finished outside the queue (ticket done in the tracker, PR merged b
    printf 'LEFT=%s\n' "$(n1_queue_pending_rows "$QUEUE_DIR/queue.md" 'pending|held' | wc -l | tr -d ' ')"
    ```
    Print the change summary: "Re-read <N> ticket(s) for `<QUEUE_ID>`: done-before-run: <KEYs>; released: <KEYs>; after the blocker check: <KEY: held|skip>; left as is, worker may still be running (stop it first with /n1:n1-queue --stop): <KEYs>; tracker read failed: <KEYs>." Omit empty parts. With no change, print "Re-read <N> ticket(s) for `<QUEUE_ID>`: no change."
-6. `INTERRUPTED=yes`: go to § Launch with `RESUME=1` whatever `LEFT` is. `STEP` `done` or `halted` with `LEFT=0`: print "Nothing left to run for `<QUEUE_ID>`; the step is unchanged." **STOP** (no launch; `step` and `run_id` stay as they are). `LEFT` above 0: go to § Launch with `RESUME=1`; the run keeps its run id and the runner sets `step: run` itself. Released rows run in `## Schedule` order when the queue has a schedule, otherwise in plan order.
+6. `INTERRUPTED=yes`: go to § Launch with `RESUME=1` whatever `LEFT` is. `STEP` `done` or `halted` with `LEFT=0`: print "Nothing left to run for `<QUEUE_ID>`; the step is unchanged." **STOP** (no launch; `step` and `run_id` stay as they are). `LEFT` above 0: go to § Launch with `RESUME=1`; the run keeps its run id and the runner sets `step: run` itself. With the workspace manager running and `queue.backend` not `bg`, a released row waits for its `## Schedule` predecessors; the bg backend runs rows in plan order.
 
 ## Write plan (bare and `--plan`)
 
