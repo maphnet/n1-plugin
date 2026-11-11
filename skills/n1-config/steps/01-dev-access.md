@@ -22,7 +22,7 @@ jq -r '.observability.providers // {} | to_entries[] | select(.value.env == "dev
 ```
 
 - `jq:missing` or `config:invalid`: print "Cannot read the N1 config (<token>). Fix it, then re-run /n1:n1-config." **STOP.** Nothing is written.
-- `enabled=` empty: not set; the effective value is `gate=` (legacy smoke fallback). `enabled=` with a value other than `true` or `false`: treat it as not set; 1.6 replaces it with a boolean.
+- `enabled=` empty: not set; the effective value is `gate=` (legacy smoke fallback). `enabled=` with a value other than `true` or `false`: treat it as not set (an empty answer in 1.2 follows `gate=`); 1.6 replaces it with a boolean.
 - `dev-access:present headings:4`: read `$N1_HOME/dev-access.md`. The text under each of the four `##` headings is that field's current value.
 - `dev-access:present` with fewer than 4 headings: the file was edited by hand and cannot be parsed. Read it, show it whole as the current content, and ask every field in 1.4 fresh (an empty answer does not keep anything). Before 1.5 writes, keep a copy:
   ```bash
@@ -54,7 +54,7 @@ No recommendation. The options are equivalent given the available evidence; sele
 2 — No
 ```
 
-An empty answer keeps the current value (`true` → 1, `false` → 2); with no current value it means 2.
+An empty answer keeps the effective value: `enabled=` `true` → 1, `false` → 2; with `enabled=` not set it follows `gate=` (`true` → 1, `false` → 2).
 
 ## 1.3 No
 
@@ -68,7 +68,7 @@ Ask each question separately. Show the current value with it; an empty answer ke
 2. "Non-secret authentication or setup? (required role, local profile, VPN, test account name, or `none`)"
 3. "Allowed commands and data constraints? (safe read-only commands, permitted test data, prohibited actions)"
 
-If an answer looks like a credential (a `password=`, `token=` or `secret=` assignment, an `Authorization:` or `Bearer ` value, a `-----BEGIN` key block, or a long random-looking token), do not store it. Say "That looks like a secret; it was not saved." and ask the same question again.
+If an answer to questions 1-3 or a selector looks like a credential (a `password=`, `token=` or `secret=` assignment, an `Authorization:` or `Bearer ` value, a `-----BEGIN` key block, a long random-looking token, URL userinfo such as `scheme://user:password@host`, or a bare `user:password` pair), do not store it. Say "That looks like a secret; it was not saved." and ask the same question again; the user re-enters the value without the credential part.
 
 **Observability selectors.** For each dev provider from 1.1, ask:
 

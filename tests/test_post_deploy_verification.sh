@@ -152,6 +152,9 @@ check_fixed "n1-config writes the flag as a JSON boolean" "jq --argjson v \"\$V\
 check "n1-config never requests or stores secrets" 'Never request or store secrets' "$CONFIG_SKILL"
 check_fixed "n1-config No does not create dev-access.md" 'Do not create `dev-access.md`' "$CONFIG_STEP"
 check_fixed "n1-config true to false keeps an existing dev-access.md" 'switching from true to false changes only the flag' "$CONFIG_STEP"
+check_fixed "n1-config secret guard covers URL userinfo" 'URL userinfo such as `scheme://user:password@host`' "$CONFIG_STEP"
+check_fixed "n1-config secret guard covers selectors" 'questions 1-3 or a selector looks like a credential' "$CONFIG_STEP"
+check_fixed "n1-config empty enable answer with unset flag follows the legacy gate" 'with `enabled=` not set it follows `gate=`' "$CONFIG_STEP"
 check_fixed "n1-config enable question states no recommendation" 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$CONFIG_STEP"
 
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
