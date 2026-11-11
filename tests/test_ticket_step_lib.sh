@@ -82,6 +82,21 @@ eq "envelope: config_snapshot written" "true" "$(jq -r '.config_snapshot.plan_re
 eq "envelope: local testing defaults to true" "true" "$(jq -r '.config_snapshot.local_testing_enabled' "$MEM/telemetry/raw/steps/run-tk.jsonl")"
 ( unset N1_RUN_ID; n1_ticket_envelope ); eq "envelope: no run id -> no write" "1" "$(cat "$MEM"/telemetry/raw/steps/*.jsonl | wc -l | tr -d ' ')"
 
+# --- ticket_url writer (CR-5): any run that ends with a tracker ID ---
+printf -- '---\n---\n' > "$MEM/overview.md"; ret "$BUG"
+echo '{"tracker":{"type":"jira"}}' > "$N1_HOME/config.json"
+echo 'https://x.atlassian.net/' > "$MEM/instance-url.txt"; n1_ticket_persist '' >/dev/null 2>&1
+eq "ticket_url: jira base_url -> /browse/<ID>" "https://x.atlassian.net/browse/TK-1" "$(n1_read_frontmatter "$MEM/overview.md" ticket_url)"
+eq "ticket_url: instance-url.txt consumed" "no" "$([ -f "$MEM/instance-url.txt" ] && echo yes || echo no)"
+echo '{"tracker":{"type":"youtrack"}}' > "$N1_HOME/config.json"
+echo 'https://yt.example.com' > "$MEM/instance-url.txt"; n1_ticket_persist '' >/dev/null 2>&1
+eq "ticket_url: youtrack -> /issue/<ID>" "https://yt.example.com/issue/TK-1" "$(n1_read_frontmatter "$MEM/overview.md" ticket_url)"
+printf -- '---\n---\n' > "$MEM/overview.md"; echo 'https://x.com/$(id)' > "$MEM/instance-url.txt"; n1_ticket_persist '' >/dev/null 2>&1
+eq "ticket_url: URL with shell characters is not written" "" "$(n1_read_frontmatter "$MEM/overview.md" ticket_url)"
+STEP="$REPO_ROOT/skills/n1-start/steps/ticket.md"
+has "ticket.md: Ticket URL block covers created tickets" "$(grep '^\*\*Ticket URL' "$STEP")" "just created"
+has "ticket.md: URL goes through instance-url.txt" "$(grep '^\*\*Ticket URL' "$STEP")" "instance-url.txt"
+
 # --- step wiring: run ticket.md's own fences ---
 STEP="$REPO_ROOT/skills/n1-start/steps/ticket.md"
 fence() { awk -v n="$2" '/^```bash$/{c++; if (c==n) {f=1; next}} /^```$/{f=0} f' "$1" | sed '/^source /d'; }

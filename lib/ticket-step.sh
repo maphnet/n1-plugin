@@ -42,6 +42,19 @@ n1_ticket_intake() {
     return 0
 }
 
+_n1_ticket_write_url() {
+    # Writes overview.md ticket_url from $N1_HOME/memory/$ID/instance-url.txt (the tracker's base_url, written by the model with the
+    # file-write mechanism) and tracker.type. Absent file, unknown type or a URL with shell/space characters: write nothing.
+    local f="$N1_HOME/memory/$ID/instance-url.txt" base ttype path
+    [ -f "$f" ] || return 0
+    base=$(head -n1 "$f" | tr -d '\r'); base="${base%/}"; rm -f "$f"
+    case "$base" in http://*|https://*) ;; *) return 0 ;; esac
+    case "$base" in *[[:space:]\'\"\$\`\\]*) return 0 ;; esac
+    ttype=$(n1_config_val ".tracker.type")
+    case "$ttype" in youtrack) path=issue ;; jira) path=browse ;; *) return 0 ;; esac
+    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url" "$base/$path/$ID"
+}
+
 n1_ticket_persist() {
     # Usage: n1_ticket_persist '<type override or empty>' — after the final <ID>: ticket.md dependency check, return signals,
     # overview.md frontmatter (tier, type, type_matched_by, story, original_status, story_convert), ticket context.
@@ -63,6 +76,7 @@ n1_ticket_persist() {
     [ -n "${N1_STORY_ID:-}" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story" "$N1_STORY_ID"
     [ -n "$ORIGINAL_STATUS" ] && [ "$ORIGINAL_STATUS" != "Not specified" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "original_status" "$ORIGINAL_STATUS"
     SC=$(tr -d '\\\r\n' 2>/dev/null < "$N1_HOME/memory/$ID/.story-convert"); rm -f "$N1_HOME/memory/$ID/.story-convert"; [ -n "$SC" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story_convert" "$SC"
+    _n1_ticket_write_url
     n1_write_context
     echo "TIER=$TIER"; echo "SESSION_NAME=$SESSION_NAME"
     ASSIGN_TO_CREATOR=$(n1_config_val ".tracker.assignToCreator"); GET_USER_OP=$(n1_config_val ".tracker.operations.getCurrentUser"); ASSIGN_OP=$(n1_config_val ".tracker.operations.assign"); READ_OP=$(n1_config_val ".tracker.operations.readTicket")

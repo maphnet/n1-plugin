@@ -19,16 +19,16 @@ Output: `TITLE=`, `CLOUD_ID=`, `LINKED_ERROR_URL=` (non-empty: linked error; the
 
 **ID-Final:** no memory file/branch until `<ID>` final. product-analyst writes ticket.md directly to `ticketMdPath`.
 
-**Tracker ticket creation** (brain-dump/file/error-tracker+`createIssue`): Create without a prompt + ledger. →`createIssue` (summary/description per `<N1_ROOT>/references/ticket-tagging.md` § Resolve, then § Label after create), final `<ID>`, **Reconcile Memory ID & Branch**, assign, record URL. Type: `<N1_ROOT>/references/ticket-scope.md` § Free-form creation.
+**Tracker ticket creation** (brain-dump/file/error-tracker+`createIssue`): Create without a prompt + ledger. →`createIssue` (summary/description per `<N1_ROOT>/references/ticket-tagging.md` § Resolve, then § Label after create), final `<ID>`, **Reconcile Memory ID & Branch**, assign, then the **Ticket URL** block below. Type: `<N1_ROOT>/references/ticket-scope.md` § Free-form creation.
+
+**Ticket URL** (every run that ends with a tracker `<ID>`: `mode=ticket` or a ticket just created): before the next block, call `mcp__<trackerMcp>__get_instance_url` (format=json) and write its `base_url` alone to `$N1_HOME/memory/$ID/instance-url.txt` with the file-write mechanism. On failure write nothing. `n1_ticket_persist` turns it into `ticket_url`.
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/ticket-step.sh"
 n1_ticket_persist '<TYPE_OVERRIDE from input parsing, empty if none>'
 ```
-Output: `TIER=` (`tier:` from the return, default `standard`), `SESSION_NAME=`, `ASSIGN_TO_CREATOR=`, `GET_USER_OP=`, `ASSIGN_OP=`, `READ_OP=` (used by **Assign to creator** below) and any `Warning:` line (missing assign ops; relay it). The call checks ticket.md, writes the return's signals and the overview.md frontmatter, and persists the ticket context. Missing/empty return: compact fallback. Run `/rename <printed SESSION_NAME>`. **Create overview.md**: frontmatter (ticket, tier, step, fix_cycles), heading, `## Context` (pending), `## Progress`, `## Key Decisions`, `## Escalations`. `INVESTIGATION_DETECTED=true`: investigation variant.
-
-**Ticket URL** (mode=ticket): call `mcp__<trackerMcp>__get_instance_url` (format=json) → extract `base_url`. YouTrack: `TICKET_URL=<base_url>/issue/<ID>`. Jira: `TICKET_URL=<base_url>/browse/<ID>`. On failure: skip silently. `n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url" "$TICKET_URL"`.
+Output: `TIER=` (`tier:` from the return, default `standard`), `SESSION_NAME=`, `ASSIGN_TO_CREATOR=`, `GET_USER_OP=`, `ASSIGN_OP=`, `READ_OP=` (used by **Assign to creator** below) and any `Warning:` line (missing assign ops; relay it). The call checks ticket.md, writes the return's signals and the overview.md frontmatter, persists the ticket context and writes `ticket_url`. Missing/empty return: compact fallback. Run `/rename <printed SESSION_NAME>`. **Create overview.md**: frontmatter (ticket, tier, step, fix_cycles), heading, `## Context` (pending), `## Progress`, `## Key Decisions`, `## Escalations`. `INVESTIGATION_DETECTED=true`: investigation variant.
 
 **Duplicate check:** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=start`, `TEXT` = title + description from ticket.md, `SELF_ID=<ID>`, `OVERVIEW=$N1_HOME/memory/<ID>/overview.md` (cached; skipped on resume and in queue children — resolved at plan time). **Stop** → end as above (`duplicate`), then end the run as the procedure says.
 
