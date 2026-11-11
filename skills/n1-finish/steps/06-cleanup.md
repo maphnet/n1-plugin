@@ -13,11 +13,11 @@
    - **Deploy:** <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <evidence>) | none triggered | skipped (local merge) | not watched; delivery not run (queue final PR)>
    - **Verification:** <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
    - **Verification details:** when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, this invocation's validated per-criterion table from `memory/<ID>/post-deploy-verification.md` (include status, concise evidence, and reason; exclude dev-access contents, credentials, raw commands, and raw command output); otherwise omit this line.
-   - **Delivery:** <pending (runbook: memory/<ID>/runbook.md) | succeeded (<verified | not verified>) | n/a (delivery.mode is not ssh)>
+   - **Delivery:** <pending (runbook: memory/<ID>/runbook.md) | succeeded (<verified | not verified>) | not needed (repo-only paths) | n/a (delivery.mode is not ssh)>
    - **Ticket:** <moved to <done status> | left open (<reason>) | tracker not configured>
    pr_url: <PR URL from the `## Pending` section being removed below; omit this line on the local-merge path, which has no PR>
    ```
-   If a `## Finish` section already exists, replace it (idempotent upsert, never duplicate), carrying over the `- **Delivery:**` value that Step 4's delivery gate (`03b-ssh-deploy.md`) recorded — never drop or rewrite a pending/succeeded delivery as n/a. Only when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, upsert the full validated verification table from this invocation's `post-deploy-verification.md` in `## Finish`; otherwise omit verification details and never read an existing artifact. Do not summarize away `PASS`, `FAIL`, or `SKIPPED` reasons. Also run `n1_pending_clear "$OV"` after the append (the merge is no longer pending: it drops frontmatter `awaiting:` and the `## Pending` marker lines; other lines move to `## Pending notes`), set frontmatter `step: done`, and clear the active-run pointer (idempotent — safe even when n1-start also clears it in FINALIZE MEMORY). If finish exits without a merge (timeout paths), instead run `n1_pending_touch "$OV"` (sets `step: finish`, refreshes only `last_checked`; the marker stays). Standalone without memory: skip silently.
+   If a `## Finish` section already exists, replace it (idempotent upsert, never duplicate), carrying over the `- **Delivery:**` value that Step 4's delivery gate (`03b-ssh-deploy.md`) recorded — never drop or rewrite a pending, succeeded or not-needed delivery as n/a. Only when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, upsert the full validated verification table from this invocation's `post-deploy-verification.md` in `## Finish`; otherwise omit verification details and never read an existing artifact. Do not summarize away `PASS`, `FAIL`, or `SKIPPED` reasons. Also run `n1_pending_clear "$OV"` after the append (the merge is no longer pending: it drops frontmatter `awaiting:` and the `## Pending` marker lines; other lines move to `## Pending notes`), set frontmatter `step: done`, and clear the active-run pointer (idempotent — safe even when n1-start also clears it in FINALIZE MEMORY). If finish exits without a merge (timeout paths), instead run `n1_pending_touch "$OV"` (sets `step: finish`, refreshes only `last_checked`; the marker stays). Standalone without memory: skip silently.
 
 ## One Cleanup Call
 
@@ -70,7 +70,7 @@ Deploy: <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <
 Verification: <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
 Verification details: <this invocation's validated per-criterion table when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`; otherwise omitted>
 Deferred to release (n1-release walks these before the tag push): <items> (PR #<n>)   ← only when Step 4 § Parse printed `deferred:<M>` with M > 0
-Delivery: <pending — runbook: memory/<ID>/runbook.md, resume with /n1:n1-finish <ID> | succeeded (<verified | not verified>) | n/a (delivery.mode is not ssh)>
+Delivery: <pending — runbook: memory/<ID>/runbook.md, resume with /n1:n1-finish <ID> | succeeded (<verified | not verified>) | not needed (repo-only paths) | n/a (delivery.mode is not ssh)>
 Cleanup: <the status tokens, e.g. worktree:removed, branch:deleted | worktree:kept (dirty), branch:kept (checked out in <path>) | worktree:none, branch:none>
 Next tickets: <ID title [status]; ... | none | lookup failed (<reason>)>
 Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never runs releases automatically.

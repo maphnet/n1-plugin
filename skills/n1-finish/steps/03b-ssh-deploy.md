@@ -6,12 +6,37 @@ Entered from the top of Step 4 (`04-close-ticket.md`) only, after the merge (Ste
 
 ```bash
 source ~/.n1/preamble.sh
-echo "delivery:$(n1_delivery_action)"
+A=$(n1_delivery_action); echo "delivery:$A"
+PR="<n>"; SHA="<SHA>"   # <n>: the merged PR number; empty after a Step 1 pending-deploy resume and on the local-merge path
+case "$PR" in *[!0-9]*) PR="" ;; esac
+case "$SHA" in *[!0-9a-f]*) SHA="" ;; esac
+if [ "$A" != none ]; then   # N1-531: repo-only check; every failure means deliver
+  [ -z "$PR" ] && [ -n "$SHA" ] && PR=$(gh api "repos/{owner}/{repo}/commits/$SHA/pulls" --jq '[.[] | select(.merged_at)] | .[0].number' 2>/dev/null)
+  case "$PR" in
+    ''|*[!0-9]*) echo skip-paths:deliver ;;
+    *) FILES=$(gh api "repos/{owner}/{repo}/pulls/$PR/files" --paginate --jq '.[].filename' 2>/dev/null) || FILES=""
+       echo "skip-paths:$(printf '%s\n' "$FILES" | n1_delivery_skip)" ;;
+  esac
+fi
 ```
 
 - `delivery:none` means `delivery.mode` is not `"ssh"`. There is nothing to do: return to Step 4 and continue exactly as before.
-- `delivery:runbook` → Runbook branch.
-- `delivery:execute` → Execute branch.
+- `skip-paths:skip` → **Repo-only skip** below. It takes precedence over both branches, in runbook and execute runs alike (queue and headless runs included).
+- Otherwise (`skip-paths:deliver`): `delivery:runbook` → Runbook branch; `delivery:execute` → Execute branch.
+
+## Repo-only skip
+
+Every file of the merged PR matches `delivery.skipPaths` (`n1_delivery_skip`, `lib/config.sh`), so nothing needs to reach the host. A gh failure, an unknown PR (the local-merge path usually has none) or any non-matching file printed `skip-paths:deliver` instead.
+
+1. Never call the runbook helper, never run `delivery.command`, any `delivery.steps` item or `delivery.verifyCommand`, and post no deploy-pending tracker comment.
+2. Clear a pending flag an earlier run may have left:
+   ```bash
+   source ~/.n1/preamble.sh
+   case "<ID>" in *[!A-Za-z0-9_-]*) echo id:invalid; exit 1;; esac
+   n1_write_frontmatter "$N1_HOME/memory/<ID>/overview.md" deploy_pending false || true
+   ```
+3. Add this line to the `## Finish` section of overview.md: `- **Delivery:** not needed (repo-only paths)`.
+4. Return to Step 4 and continue with its After-deploy actions and ticket close, then Step 5 and Step 6, in this same run.
 
 ## Runbook branch (headless runs, never executes)
 

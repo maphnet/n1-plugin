@@ -267,6 +267,25 @@ test_wiring() {
         "$(grep -qF '^[0-9a-f]{7,40}$' "$s/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
     assert_eq "wiring: resume validates SHA is an ancestor of the default branch" "yes" \
         "$(grep -qF 'merge-base --is-ancestor' "$s/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
+    # N1-531: repo-only skip gate.
+    local sk
+    sk=$(section "$step" '## Repo-only skip')
+    assert_eq "skip wiring: gate calls n1_delivery_skip" "yes" \
+        "$(grep -qF 'n1_delivery_skip' "$step" && echo yes || echo no)"
+    assert_eq "skip wiring: file list is the paginated PR files API" "yes" \
+        "$(grep -qF 'pulls/$PR/files" --paginate' "$step" && echo yes || echo no)"
+    assert_eq "skip wiring: section exists" "yes" "$([ -n "$sk" ] && echo yes || echo no)"
+    assert_eq "skip wiring: writes the not-needed Delivery line" "yes" \
+        "$(grep -qF -- '- **Delivery:** not needed (repo-only paths)' <<<"$sk" && echo yes || echo no)"
+    assert_eq "skip wiring: never writes a runbook" "0" \
+        "$(grep -c 'n1_delivery_runbook "' <<<"$sk" || true)"
+    assert_eq "skip wiring: clears a stale deploy_pending" "yes" \
+        "$(grep -qF 'deploy_pending false' <<<"$sk" && echo yes || echo no)"
+    assert_eq "skip wiring: returns to Step 4 to close the ticket" "yes" \
+        "$(grep -qF 'Return to Step 4 and continue with its After-deploy actions and ticket close' <<<"$sk" && echo yes || echo no)"
+    assert_eq "skip wiring: both Step 6 Delivery grammars list not needed" "2" \
+        "$(grep -cF 'not needed (repo-only paths)' "$s/n1-finish/steps/06-cleanup.md" || true)"
+
     # Non-regression: the PR / local-merge / deploy-watch step files and n1-start's finish step are not touched.
     assert_eq "non-regression: 02-merge has no delivery logic" "0" "$(grep -c 'delivery' "$s/n1-finish/steps/02-merge.md" || true)"
     assert_eq "non-regression: 03-deploy has no delivery logic" "0" "$(grep -c 'delivery\.' "$s/n1-finish/steps/03-deploy.md" || true)"
