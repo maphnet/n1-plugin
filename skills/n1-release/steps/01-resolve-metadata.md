@@ -206,6 +206,7 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    The pre-gate set is Sources A, B and D (Source C needs the GitHub Release, which does not exist yet). Source D ends at the release target and runs only when a previous tag exists, so a first release does not scan all history.
    - `pre-gate-ids:` empty: print nothing; the sub-step ends.
    - `links-op:` empty or `null`: print `Warning: blocker check skipped (getIssueLinks not available).` and end the sub-step. Otherwise the server is `tracker.versionMcp` when set, else `tracker.mcp` (the first and second `links-server:` values; same routing as n1-finish `steps/06-cleanup.md`). Search the tool list (load if deferred, per HOST ROUTING) for `mcp__<server>__<links-op>`; no server configured or no such tool found: print the same Warning line and end the sub-step.
+   - `links-op:` other than `jcm_getIssueLinks` (the helper parses only that result shape): print `Warning: blocker check skipped (<links-op> link format not supported).` and end the sub-step.
    - Call `tracker.operations.getIssueLinks` on that server once per ID in `pre-gate-ids`, in parallel. If any call errors, print one `Warning: blocker check skipped (<reason>).` and end the sub-step; no blocker file is written, so the gate shows no blocker line.
    - Create `$N1_HOME/scratch/release-blocker-links.tsv` directly with a file write, never through a shell command: one line per ID, `<ID><TAB><that call's JSON result on one line>`. Then run:
      ```bash
