@@ -360,27 +360,6 @@ n1_root=$(n1_home)
 scope_note=""
 [ "$TRIGGER" = "compact" ] && scope_note="(Scope: orchestrator session only. If you are a dispatched subagent/persona, ignore this and continue your own task.)
 "
-# deploy_pending listing: local frontmatter only (no gh, no git), independent of the gh scan below
-deploy_context=""
-if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ]; then
-    deploy_n=0
-    for ov in "${n1_root}"/memory/*/overview.md; do
-        [ -f "$ov" ] || continue
-        tid=$(basename "$(dirname "$ov")")
-        [[ "$tid" =~ ^[A-Za-z0-9_-]+$ ]] || continue
-        [[ "$tid" =~ ^[A-Z][A-Z0-9_]*-[0-9]+-old(-[0-9]+)?$ ]] && continue
-        # awaiting-merge overviews already get a line from the gh scan
-        grep -q '^awaiting: merge$' "$ov" 2>/dev/null && continue
-        [ "$(n1_read_frontmatter "$ov" deploy_pending 2>/dev/null)" = "true" ] || continue
-        dsha=$(n1_read_frontmatter "$ov" deploy_merge_sha 2>/dev/null) || dsha=""
-        [[ "$dsha" =~ ^[0-9a-f]{7,40}$ ]] || continue
-        [ "$deploy_n" -ge 10 ] && { deploy_context="${deploy_context}
-- (more deploy-pending tickets exist)"; break; }
-        deploy_n=$(( deploy_n + 1 ))
-        deploy_context="${deploy_context}
-- ${tid}: merged at ${dsha}, deploy pending: run /n1:n1-finish ${tid}"
-    done
-fi
 if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && command -v gh >/dev/null 2>&1; then
     now_epoch=$(date +%s)
     checked=0
@@ -424,6 +403,28 @@ if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && comm
 - ${tid}: PR #${pr_num} was closed without merging — run /n1:n1-finish ${tid} to record it, or /n1:n1-clean"
                 ;;
         esac
+    done
+fi
+# deploy_pending listing: local frontmatter only (no gh, no git); runs after the gh scan so a
+# ticket is skipped only when that scan already emitted a line for it
+deploy_context=""
+if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ]; then
+    deploy_n=0
+    for ov in "${n1_root}"/memory/*/overview.md; do
+        [ -f "$ov" ] || continue
+        tid=$(basename "$(dirname "$ov")")
+        [[ "$tid" =~ ^[A-Za-z0-9_-]+$ ]] || continue
+        [[ "$tid" =~ ^[A-Z][A-Z0-9_]*-[0-9]+-old(-[0-9]+)?$ ]] && continue
+        case "$pending_context" in *"
+- ${tid}: "*) continue;; esac
+        [ "$(n1_read_frontmatter "$ov" deploy_pending 2>/dev/null)" = "true" ] || continue
+        dsha=$(n1_read_frontmatter "$ov" deploy_merge_sha 2>/dev/null) || dsha=""
+        [[ "$dsha" =~ ^[0-9a-f]{7,40}$ ]] || continue
+        [ "$deploy_n" -ge 10 ] && { deploy_context="${deploy_context}
+- (more deploy-pending tickets exist)"; break; }
+        deploy_n=$(( deploy_n + 1 ))
+        deploy_context="${deploy_context}
+- ${tid}: merged at ${dsha}, deploy pending: run /n1:n1-finish ${tid}"
     done
 fi
 if [ -n "$pending_context" ] || [ -n "$deploy_context" ]; then
