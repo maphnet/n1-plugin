@@ -404,13 +404,37 @@ if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && comm
                 ;;
         esac
     done
-    if [ -n "$pending_context" ]; then
-        directive="Surface these to the user as suggested next actions. Do not act without being asked."
-        context="${context}
+fi
+# deploy_pending listing: local frontmatter only (no gh, no git); runs after the gh scan so a
+# ticket is skipped only when that scan already emitted a line for it
+deploy_context=""
+if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ]; then
+    deploy_n=0
+    for ov in "${n1_root}"/memory/*/overview.md; do
+        [ -f "$ov" ] || continue
+        tid=$(basename "$(dirname "$ov")")
+        [[ "$tid" =~ ^[A-Za-z0-9_-]+$ ]] || continue
+        [[ "$tid" =~ ^[A-Z][A-Z0-9_]*-[0-9]+-old(-[0-9]+)?$ ]] && continue
+        case "$pending_context" in *"
+- ${tid}: "*) continue;; esac
+        [ "$(n1_read_frontmatter "$ov" deploy_pending 2>/dev/null)" = "true" ] || continue
+        dsha=$(n1_read_frontmatter "$ov" deploy_merge_sha 2>/dev/null) || dsha=""
+        [[ "$dsha" =~ ^[0-9a-f]{7,40}$ ]] || continue
+        [ "$deploy_n" -ge 10 ] && { deploy_context="${deploy_context}
+- (more deploy-pending tickets exist)"; break; }
+        deploy_n=$(( deploy_n + 1 ))
+        deploy_context="${deploy_context}
+- ${tid}: merged at ${dsha}, deploy pending: run /n1:n1-finish ${tid}"
+    done
+fi
+if [ -n "$pending_context" ] || [ -n "$deploy_context" ]; then
+    pending_src="overview.md Pending blocks"
+    [ -n "$deploy_context" ] && pending_src="overview.md Pending blocks and deploy_pending markers"
+    directive="Surface these to the user as suggested next actions. Do not act without being asked."
+    context="${context}
 
-${scope_note}PENDING N1 WORK (from overview.md Pending blocks):${pending_context}
+${scope_note}PENDING N1 WORK (from ${pending_src}):${pending_context}${deploy_context}
 ${directive}"
-    fi
 fi
 
 # --- Queue digest (fail-open; local events.jsonl only — no network, no LLM) ---

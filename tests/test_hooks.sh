@@ -67,6 +67,26 @@ case "$CTX3" in *"never use subagent_type"*) assert_eq "fork prohibition text pr
 case "$CTX3" in *"COMMIT ATTRIBUTION"*) assert_eq "commit attribution text present" present present;; *) assert_eq "commit attribution text present" present missing;; esac
 rm -rf "$MEM3"
 
+# session-start: deploy_pending listing (N1-529) -- gh-free, validated sha, no duplicate when the merge scan already emitted a line
+DPHOME="$T/dphome"; mkdir -p "$DPHOME/memory"; cp "$N1_HOME/config.json" "$DPHOME/config.json"
+dp_ov() { mkdir -p "$DPHOME/memory/$1"; printf -- "---\nstep: finish\n%s\n---\n" "$2" > "$DPHOME/memory/$1/overview.md"; }
+dp_ctx() { echo '{"session_id":"s-dp","source":"startup"}' | N1_HOME="$DPHOME" PATH="$FAKEBIN" bash "$REPO_ROOT/hooks/session-start.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || true; }
+dp_ov DP-1 $'deploy_pending: true\ndeploy_merge_sha: abc1234'
+dp_ov DP-2 $'deploy_pending: true\ndeploy_merge_sha: not-a-sha; rm'
+dp_ov DP-3 $'awaiting: merge\ndeploy_pending: true\ndeploy_merge_sha: abc1234'
+dp_ov DP-4-old $'deploy_pending: true\ndeploy_merge_sha: abc1234'
+dp_ov DP-5 $'deploy_pending: false\ndeploy_merge_sha: abc1234'
+DPCTX=$(dp_ctx)
+case "$DPCTX" in *"- DP-1: merged at abc1234, deploy pending: run /n1:n1-finish DP-1"*) assert_eq "deploy_pending valid sha listed without gh" ok ok;; *) assert_eq "deploy_pending valid sha listed without gh" ok missing;; esac
+case "$DPCTX" in *"- DP-2:"*) assert_eq "deploy_pending invalid sha not listed" ok listed;; *) assert_eq "deploy_pending invalid sha not listed" ok ok;; esac
+case "$DPCTX" in *"- DP-3: merged at abc1234"*) assert_eq "awaiting+deploy_pending listed when merge scan emits nothing" ok ok;; *) assert_eq "awaiting+deploy_pending listed when merge scan emits nothing" ok missing;; esac
+case "$DPCTX" in *"- DP-4-old:"*) assert_eq "deploy_pending -old skipped" ok listed;; *) assert_eq "deploy_pending -old skipped" ok ok;; esac
+case "$DPCTX" in *"- DP-5:"*) assert_eq "deploy_pending false not listed" ok listed;; *) assert_eq "deploy_pending false not listed" ok ok;; esac
+assert_eq "PENDING header emitted once" "1" "$(grep -o 'PENDING N1 WORK' <<<"$DPCTX" | wc -l | tr -d ' ')"
+for i in $(seq 10 21); do dp_ov "DC-$i" $'deploy_pending: true\ndeploy_merge_sha: abc1234'; done
+DPCTX=$(dp_ctx)
+assert_eq "deploy_pending capped at 10 plus more-line" "10:1" "$(grep -c '^- D[CP]-[0-9]*: merged at' <<<"$DPCTX"):$(grep -c 'more deploy-pending tickets exist' <<<"$DPCTX")"
+
 # --- enforce-agent-policy ---------------------------------------------------
 FX="$REPO_ROOT/tests/fixtures/hooks"
 cat > "$N1_HOME/config.json" <<'EOF'
@@ -1104,7 +1124,7 @@ printf -- '---\nstep: analysis\n---\n' > "$N1_HOME/memory/Q-1/overview.md"
 echo '{}' > "$N1_HOME/config.json"
 nq() {  # nq [VAR=val ...] -> prints hook exit code; the fake Orca CLI logs every call (the card update is backgrounded)
   local rc=0; : > "$NQLOG"
-  jq -cn --arg c "$NQDIR" '{session_id:"s-nq",tool_name:"AskUserQuestion",cwd:$c}' | env -u N1_HEADLESS -u N1_QUEUE_RUN_ID -u N1_RUN_ID ORCA_CLI_COMMAND="$NQBIN/fake-orca" "$@" bash "$NQ" >"$T/nq.out" 2>&1 || rc=$?
+  cd "$NQDIR" && jq -cn --arg c "$NQDIR" '{session_id:"s-nq",tool_name:"AskUserQuestion",cwd:$c}' | env -u N1_HEADLESS -u N1_QUEUE_RUN_ID -u N1_RUN_ID ORCA_CLI_COMMAND="$NQBIN/fake-orca" "$@" bash "$NQ" >"$T/nq.out" 2>&1 || rc=$?
   echo "$rc"
 }
 nq_calls() { sleep 0.3; wc -l < "$NQLOG" | tr -d ' '; }  # guard cases: give a wrongly-spawned update time to log
