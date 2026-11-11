@@ -386,8 +386,9 @@ if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && comm
         [ "$last_epoch" -gt 0 ] && [ $(( now_epoch - last_epoch )) -lt 1800 ] && continue
         [ -n "$pr_num" ] || continue
         checked=$(( checked + 1 ))
-        state=$(timeout 5 gh pr view "$pr_num" --json state,mergedAt \
-            --jq '.state' 2>/dev/null) || state=""
+        out=$(timeout 5 gh pr view "$pr_num" --json state,baseRefName \
+            --jq '.state + " " + .baseRefName' 2>/dev/null) || out=""
+        read -r state base <<< "$out"
         # refresh last_checked only when gh answered; a failed call must not consume the throttle window
         if [ -n "$state" ]; then
             ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -395,8 +396,15 @@ if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && comm
         fi
         case "$state" in
             MERGED)
-                pending_context="${pending_context}
+                # N1-532: a child merged into a queue/story integration branch is finished with the final PR
+                if [[ "$base" =~ ^(queue|story)/[A-Za-z0-9._-]+$ ]]; then
+                    hint="<final PR>"; [ "${base%%/*}" = story ] && hint="<story id>"   # story final PR: /n1:n1-finish <STORY_ID> (n1_queue_final_body)
+                    pending_context="${pending_context}
+- ${tid}: PR #${pr_num} merged into integration branch ${base}; finish happens with the final PR (/n1:n1-finish ${hint})"
+                else
+                    pending_context="${pending_context}
 - ${tid}: PR #${pr_num} was MERGED externally — finish is pending. Suggested next action: run /n1:n1-finish ${tid}"
+                fi
                 ;;
             CLOSED)
                 pending_context="${pending_context}

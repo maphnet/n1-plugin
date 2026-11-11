@@ -53,6 +53,23 @@ echo '{"session_id":"s-archived","source":"startup"}' | PATH="$T/ghbin:$PATH" ba
 assert_eq "archived -old memory skipped by pending-merge scan" "last_checked: 2026-01-01T00:00:00Z" "$(grep '^last_checked:' "$MEMOLD/overview.md")"
 rm -rf "$MEMOLD"
 
+# session-start: a child PR merged into a queue/ or story/ integration branch gets no finish-pending line (N1-532)
+MEM4="$N1_HOME/memory/T-13"; mkdir -p "$MEM4"
+printf -- '---\nstep: pr\nawaiting: merge\npr: 44\ncreated: 2099-01-01T00:00:00Z\nlast_checked: 2026-01-01T00:00:00Z\n---\n' > "$MEM4/overview.md"
+printf '#!/usr/bin/env bash\necho "MERGED queue/q-20261111T000000Z"\n' > "$T/ghbin/gh"
+CTX4=$(echo '{"session_id":"s-integ","source":"startup"}' | PATH="$T/ghbin:$PATH" bash "$REPO_ROOT/hooks/session-start.sh" 2>/dev/null \
+    | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null) || CTX4=""
+assert_eq "integration base: points to the final PR" 1 \
+    "$(grep -cF 'T-13: PR #44 merged into integration branch queue/q-20261111T000000Z; finish happens with the final PR' <<< "$CTX4" || true)"
+assert_eq "integration base: no finish-pending line" 0 "$(grep -cF 'T-13: PR #44 was MERGED externally' <<< "$CTX4" || true)"
+printf -- '---\nstep: pr\nawaiting: merge\npr: 44\ncreated: 2099-01-01T00:00:00Z\nlast_checked: 2026-01-01T00:00:00Z\n---\n' > "$MEM4/overview.md"
+printf '#!/usr/bin/env bash\necho "MERGED main"\n' > "$T/ghbin/gh"
+CTX4=$(echo '{"session_id":"s-integ2","source":"startup"}' | PATH="$T/ghbin:$PATH" bash "$REPO_ROOT/hooks/session-start.sh" 2>/dev/null \
+    | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null) || CTX4=""
+assert_eq "default base: finish-pending line unchanged" 1 "$(grep -cF 'T-13: PR #44 was MERGED externally' <<< "$CTX4" || true)"
+rm -rf "$MEM4"
+printf '#!/usr/bin/env bash\necho MERGED\n' > "$T/ghbin/gh"   # restore the stub later blocks expect
+
 # session-start: awaiting-merge overview with missing created/pr/last_checked fields must not crash the hook (NP-232)
 MEM3="$N1_HOME/memory/T-11"; mkdir -p "$MEM3"
 printf -- '---\nstep: pr\nawaiting: merge\n---\n' > "$MEM3/overview.md"
