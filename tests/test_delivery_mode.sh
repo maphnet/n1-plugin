@@ -137,11 +137,11 @@ test_covered() {
     export GIT_CEILING_DIRECTORIES="$TMP"
     g() { git -C "$repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
     git init -q -b main "$repo"
-    g commit -q --allow-empty -m A; a=$(g rev-parse HEAD)
-    g commit -q --allow-empty -m B; b=$(g rev-parse HEAD)
-    g commit -q --allow-empty -m X; x=$(g rev-parse HEAD)
+    g commit -q --allow-empty -m 'A [T-1] [T-8] [T-9] [T-7-old] bad.id T-130 [T-6]'; a=$(g rev-parse HEAD)
+    g commit -q --allow-empty -m 'B (OWN) T-2 [T-4]'; b=$(g rev-parse HEAD)
+    g commit -q --allow-empty -m 'X [T-10]'; x=$(g rev-parse HEAD)
     g checkout -q -b side "$a"
-    g commit -q --allow-empty -m S; side=$(g rev-parse HEAD)
+    g commit -q --allow-empty -m 'S [T-3]'; side=$(g rev-parse HEAD)
     g checkout -q main
     mk() {
         mkdir -p "$home/memory/$1"
@@ -161,6 +161,8 @@ test_covered() {
     mk T-9 true "$a"                 # all actions ticked -> ok
     printf '# R\n\n## Deployment Actions\n\n### After deploy\n\n- [x] #1 restart worker\n' > "$home/memory/T-9/runbook.md"
     mk T-10 true "$x"                # equal to X -> ok
+    mk T-12 true "$a"                # commit does not name T-12 -> skipped (identity binding)
+    mk T-13 true "$a"                # only T-130 is named -> skipped (boundary)
     mkdir -p "$home/memory/T-11"     # no overview.md -> skipped
 
     before=$(cat "$home"/memory/*/overview.md "$home"/memory/*/runbook.md | cksum)
@@ -407,6 +409,8 @@ test_wiring_covered() {
         "$(grep -qF 'Never run a deploy, Step 5 or Step 6 for a covered ticket' "$cc" && echo yes || echo no)"
     assert_eq "covered wiring: both Step 6 Delivery grammars list covered" "2" \
         "$(grep -cF 'succeeded (covered by <owner ID> at <sha>)' "$c6" || true)"
+    assert_eq "covered wiring: mode:runbook exit runs the covered close" "yes" \
+        "$(grep -qF 'including the `mode:runbook` exit' "$c4" && grep -qF 'covered-tickets paragraph' "$c4" && echo yes || echo no)"
     assert_eq "covered wiring: Step 6 Report has a Covered line" "yes" \
         "$(grep -q '^Covered: <' "$c6" && echo yes || echo no)"
     assert_eq "covered wiring: 03b untouched (no covered text)" "0" \
