@@ -375,6 +375,46 @@ test_wiring() {
     assert_eq "non-regression: n1-start finish gate has no delivery logic" "0" "$(grep -c 'delivery' "$s/n1-start/steps/finish.md" || true)"
 }
 
+# --- N1-528: covered-close wiring ------------------------------------------------
+test_wiring_covered() {
+    local s="$REPO_ROOT/skills" cc="$REPO_ROOT/skills/n1-finish/references/covered-close.md"
+    local c4="$REPO_ROOT/skills/n1-finish/steps/04-close-ticket.md" c6="$REPO_ROOT/skills/n1-finish/steps/06-cleanup.md"
+    local lr lt
+    assert_eq "covered wiring: reference exists" "yes" "$([ -f "$cc" ] && echo yes || echo no)"
+    assert_eq "covered wiring: Step 4 points at covered-close.md" "yes" \
+        "$(grep -qF 'skills/n1-finish/references/covered-close.md' "$c4" && echo yes || echo no)"
+    assert_eq "covered wiring: Step 4 runs it only after a succeeded delivery" "yes" \
+        "$(grep -qF 'recorded `- **Delivery:** succeeded (`' "$c4" && echo yes || echo no)"
+    assert_eq "covered wiring: scan uses the helper with own ID excluded" "yes" \
+        "$(grep -qF 'n1_delivery_covered "$X" "$ID"' "$cc" && echo yes || echo no)"
+    assert_eq "covered wiring: batch prompt skipped only under fullAuto" "yes" \
+        "$(grep -qF 'n1_fullauto_enabled' "$cc" && echo yes || echo no)"
+    assert_eq "covered wiring: skipped delivery steps disable the auto close" "yes" \
+        "$(grep -qF 'skipped steps' "$cc" && echo yes || echo no)"
+    assert_eq "covered wiring: unticked actions are never closed" "yes" \
+        "$(grep -qF 'never closed' "$cc" && echo yes || echo no)"
+    assert_eq "covered wiring: records the covered Delivery value" "yes" \
+        "$(grep -qF 'n1_finish_line_set "$OV" Delivery "succeeded (covered by $ID at $X)"' "$cc" && echo yes || echo no)"
+    assert_eq "covered wiring: clears deploy_pending and the pending marker" "yes" \
+        "$(grep -qF 'deploy_pending false' "$cc" && grep -qF 'n1_pending_clear "$OV"' "$cc" && echo yes || echo no)"
+    lr=$(grep -n -m1 -F 'n1_finish_line_set "$OV" Delivery' "$cc" | cut -d: -f1 || true)
+    lt=$(grep -n -m1 -F 'moveStatus' "$cc" | cut -d: -f1 || true)
+    assert_eq "covered wiring: local record precedes the tracker close" "yes" \
+        "$([ -n "$lr" ] && [ -n "$lt" ] && [ "$lr" -lt "$lt" ] && echo yes || echo no)"
+    assert_eq "covered wiring: tracker failure never blocks" "yes" \
+        "$(grep -qF 'warn, never block' "$cc" && echo yes || echo no)"
+    assert_eq "covered wiring: never deploys or runs Step 5/6 for covered tickets" "yes" \
+        "$(grep -qF 'Never run a deploy, Step 5 or Step 6 for a covered ticket' "$cc" && echo yes || echo no)"
+    assert_eq "covered wiring: both Step 6 Delivery grammars list covered" "2" \
+        "$(grep -cF 'succeeded (covered by <owner ID> at <sha>)' "$c6" || true)"
+    assert_eq "covered wiring: Step 6 Report has a Covered line" "yes" \
+        "$(grep -q '^Covered: <' "$c6" && echo yes || echo no)"
+    assert_eq "covered wiring: 03b untouched (no covered text)" "0" \
+        "$(grep -c 'covered by' "$s/n1-finish/steps/03b-ssh-deploy.md" || true)"
+    assert_eq "docs: architecture documents the covered close" "yes" \
+        "$(grep -qF 'n1_delivery_covered' "$REPO_ROOT/references/architecture.md" && echo yes || echo no)"
+}
+
 # --- NP-240: multi-step wiring ---------------------------------------------------
 test_wiring_multi_step() {
     local step="$REPO_ROOT/skills/n1-finish/steps/03b-ssh-deploy.md" ms xb rb
@@ -414,6 +454,7 @@ test_wiring_multi_step() {
 
 test_wiring
 test_wiring_multi_step
+test_wiring_covered
 test_action
 test_action_no_jq
 test_skip

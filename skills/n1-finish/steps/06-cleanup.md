@@ -13,7 +13,7 @@
    - **Deploy:** <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <evidence>) | none triggered | skipped (local merge) | not watched; delivery not run (queue final PR)>
    - **Verification:** <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
    - **Verification details:** when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, this invocation's validated per-criterion table from `memory/<ID>/post-deploy-verification.md` (include status, concise evidence, and reason; exclude dev-access contents, credentials, raw commands, and raw command output); otherwise omit this line.
-   - **Delivery:** <pending (runbook: memory/<ID>/runbook.md) | succeeded (<verified | not verified>) | not needed (repo-only paths) | n/a (delivery.mode is not ssh)>
+   - **Delivery:** <pending (runbook: memory/<ID>/runbook.md) | succeeded (<verified | not verified>) | succeeded (covered by <owner ID> at <sha>) | not needed (repo-only paths) | n/a (delivery.mode is not ssh)>
    - **Ticket:** <moved to <done status> | left open (<reason>) | tracker not configured>
    pr_url: <PR URL from the `## Pending` section being removed below; omit this line on the local-merge path, which has no PR>
    ```
@@ -70,7 +70,8 @@ Deploy: <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <
 Verification: <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
 Verification details: <this invocation's validated per-criterion table when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`; otherwise omitted>
 Deferred to release (n1-release walks these before the tag push): <items> (PR #<n>)   ← only when Step 4 § Parse printed `deferred:<M>` with M > 0
-Delivery: <pending — runbook: memory/<ID>/runbook.md, resume with /n1:n1-finish <ID> | succeeded (<verified | not verified>) | not needed (repo-only paths) | n/a (delivery.mode is not ssh)>
+Delivery: <pending — runbook: memory/<ID>/runbook.md, resume with /n1:n1-finish <ID> | succeeded (<verified | not verified>) | succeeded (covered by <owner ID> at <sha>) | not needed (repo-only paths) | n/a (delivery.mode is not ssh)>
+Covered: <closed <IDs>; excluded (unticked actions) <IDs>; left pending (<declined | record failed>) <IDs> | none>   ← only when Step 4 read covered-close.md; non-empty parts only
 Cleanup: <the status tokens, e.g. worktree:removed, branch:deleted | worktree:kept (dirty), branch:kept (checked out in <path>) | worktree:none, branch:none>
 Next tickets: <ID title [status]; ... | none | lookup failed (<reason>)>
 Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never runs releases automatically.
