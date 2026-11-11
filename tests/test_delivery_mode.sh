@@ -251,6 +251,10 @@ test_wiring() {
     assert_eq "init: step grammar explained" "yes" "$(grep -qF 'saved as a manual step' "$init" && echo yes || echo no)"
     assert_eq "init: reconfiguration shows steps" "yes" "$(grep -qF 'steps         →' "$init" && echo yes || echo no)"
     assert_eq "init: never writes both shapes" "yes" "$(grep -qF 'Never write both' "$init" && echo yes || echo no)"
+    assert_eq "init: asks for repo-only skipPaths" "yes" "$(grep -qF '"skipPaths": [' "$init" && echo yes || echo no)"
+    assert_eq "init: reconfiguration shows skipPaths" "yes" "$(grep -qF 'skipPaths     →' "$init" && echo yes || echo no)"
+    assert_eq "docs: architecture documents skipPaths" "yes" \
+        "$(grep -qF 'delivery.skipPaths' "$REPO_ROOT/references/architecture.md" && echo yes || echo no)"
     # SEC-1/SEC-2: failure/pending tracker comments never carry command text or raw output.
     assert_eq "wiring: deploy-failed comment has no command interpolation" "0" \
         "$(grep -c '<command>' <<<"$xb" || true)"

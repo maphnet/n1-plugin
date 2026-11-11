@@ -162,6 +162,20 @@ Several steps:
 }
 ```
 
+**Repo-only paths (only when a `delivery` block is written above)**, ask:
+- "Paths that never need a deploy (repo-only, e.g. `docs/`, `.github/`)? Comma-separated globs. When every file of a merged PR matches one, n1-finish skips the deploy, also in queued and headless runs, and closes the ticket with `Delivery: not needed (repo-only paths)`. A glob ending in `/` covers that directory; `*` also matches `/`, so `*.md` covers Markdown files in every directory. Press enter or answer `none` to skip."
+
+Split the answer on commas, trim spaces, drop empty items, and add them as `skipPaths` inside the `delivery` block, JSON-escaped. Write nothing when the list is empty. Example:
+```json
+{
+  "delivery": {
+    "mode": "ssh",
+    "command": "<deploy command>",
+    "skipPaths": ["docs/", ".github/"]
+  }
+}
+```
+
 ### On reconfiguration (n1-init re-run):
 
 If `delivery` already exists in the current config, show the current state and offer:
@@ -171,6 +185,7 @@ Current delivery:
   command       → <command, or none>
   steps         → <N steps, or none>
   verifyCommand → <verifyCommand or none>
+  skipPaths     → <globs, or none>
 
 1 — Keep current
 2 — Change settings (re-ask the questions above)
