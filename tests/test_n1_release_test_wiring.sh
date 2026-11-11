@@ -114,6 +114,36 @@ condition: dev build not verified as HEAD" "$(sandbox "$SIG")"
 echo 'Dev build: verified (health reports abc1234)' > "$D/release-test-results.md"
 expect "signal: build with evidence reaches GO" "GO" "$(sandbox "$SIG")"
 
+# --- Step 3b dev observability (N1-179).
+S3B=$S/steps/03b-dev-observability.md
+OBSGATE=$(snip "## 3b-1." "$S3B"); OBSGATE=${OBSGATE//<LABEL>/1.1.0}
+obs_gate() { (cd "$G" && sandbox "${OBSGATE//<PREV, or empty>/$1}"); }
+# Bug: with no previous tag the window has no start, and a scan would label every error new.
+expect "3b: no previous tag skips with one line" "obs:skip Dev observability skipped: no previous tag, nothing to compare against." "$(obs_gate '')"
+# Bug (AC1): pilots set observability.default=prod; a default-filtered read scans prod or nothing.
+cfg '{"observability":{"default":"prod","providers":{"loki":{"env":"prod","mcp":"prod-loki","operations":{"query":"loki_query"},"instructions":"x"},"loki-dev":{"env":"dev","mcp":"publius-dev-loki-mcp","operations":{"query":"loki_query"},"instructions":"x"}}}}'
+echo stale > "$D/obs-groups.tsv"
+OUT=$(obs_gate v1.0.0)
+expect "3b: only env dev providers, default prod ignored" "provider: loki-dev	publius-dev-loki-mcp	loki	loki_query" "$(grep '^provider:' <<<"$OUT")"
+# Bug: a groups file from an earlier run feeds this run's readiness signal.
+expect "3b: stale artifacts removed" "no" "$([ -e "$D/obs-groups.tsv" ] && echo yes || echo no)"
+cfg '{"observability":{"default":"prod","providers":{}}}'
+# Bug (AC1): no dev provider must be exactly one skip line, nothing else.
+expect "3b: no dev provider is one skip line" "obs:skip dev observability not configured" "$(obs_gate v1.0.0)"
+OBSGROUP=$(snip "## 3b-3." "$S3B"); OBSGROUP=${OBSGROUP//<LABEL>/1.1.0}; OBSGROUP=${OBSGROUP//<PREV>/v1.0.0}
+printf '%s\t%s\t%s\t%s\n' 2000-01-01T00:00:00Z 2000-01-01T00:00:00Z 1 'old error 1' 2999-01-01T00:00:00Z 2999-01-01T00:00:00Z 2 'new error 7' > "$D/obs-rows.tsv"
+# Bug: the group snippet compares against the wrong cutoff, so the new/pre-existing split is wrong.
+expect "3b: groups split at the previous tag date" "groups=2 new=1 pre=1" "$(cd "$G" && sandbox "$OBSGROUP")"
+rm -f "$D/obs-rows.tsv" "$D/obs-groups.tsv"
+check "SKILL.md lists step 3b" '03b-dev-observability\.md' "$S/SKILL.md"
+check "run step continues to Step 3b" 'go to Step 3b' "$S3"
+# Bug: 3b inheriting Step 3's dev-access skip hides errors for services with providers but no dev-access.md.
+lacks "3b does not condition on access:no" 'access:no' "$S3B"
+check "3b reports a failing provider as unavailable" ': unavailable \(' "$S3B"
+check "3b next actions mark one recommendation" '^1 — re-check \(Recommended\): a log or error signature' "$S3B"
+expect "3b next-action list marks exactly one recommendation" "1" "$(grep -cF '(Recommended)' "$S3B")"
+check "3b writes provider text only via the file-write mechanism" 'obs-rows\.tsv. with the file-write mechanism' "$S3B"
+
 # --- Text rules
 check "scope step calls n1_release_prev_tag" 'n1_release_prev_tag' "$S1"
 check "scope step calls n1_release_ticket_ids" 'n1_release_ticket_ids' "$S1"
