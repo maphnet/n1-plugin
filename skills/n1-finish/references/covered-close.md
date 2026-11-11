@@ -16,7 +16,7 @@ Each `<C> <merge-sha> ok` line is a covered ticket. Each `<C> <merge-sha> action
 
 ## 2. Decide (once for the whole batch)
 
-- `fullauto:true` and the `- **Delivery:** succeeded (` value just recorded for <ID> has no `skipped steps:` part, or says `skipped steps: none` → close every `ok` ticket without a prompt. Print the list first: "Delivery of <SHA> also covers: <C> (<merge-sha>), ...".
+- `fullauto:true` and the `- **Delivery:** succeeded (` value just recorded for <ID> has no `skipped steps:` part, or says `skipped steps: none` → close every `ok` ticket whose key prefix `${C%-*}` equals `${ID%-*}` without a prompt; any other-project ticket goes to the prompt below. Print the list first: "Delivery of <SHA> also covers: <C> (<merge-sha>), ...".
 - Otherwise ask the user once (a delivery that skipped steps never auto-closes: the covered tickets' own steps may not have run, so add the line `The delivery skipped steps <numbers>.` to the prompt). If `N1_HEADLESS=1` is set anyway, take option 2 and do not ask.
   ```
   Delivery of <SHA> (<ID>) also shipped these deploy-pending tickets:
