@@ -1773,6 +1773,28 @@ test_retry_wiring() {
     assert_eq "retry-wiring: architecture documents the resumable exception" "yes" "$(_hasF 'n1_orca_worktree_resumable' "$REPO_ROOT/references/architecture.md")"
 }
 
+# N1-536: --run on a done/halted/interrupted queue re-reads the tracker before launching. Bugs caught: done/halted
+# still stopping with "No saved plan"; the helper not called; the tag-mode TODO_STATUS test used instead of the
+# done-class list; released rows skipping the blocker check; a done queue with nothing left launched; the re-read
+# placed before the busy guard (tracker calls on a live queue); RESUME=1 not covering the relaunch.
+test_rerun_wiring() {
+    local r="$REPO_ROOT/skills/n1-queue/steps/run.md"
+    _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
+    assert_eq "rerun-wiring: routes done, halted and interrupted" "yes" "$(_hasF '`STEP` is `done` or `halted`, or `INTERRUPTED=yes`' "$r")"
+    assert_eq "rerun-wiring: Re-read subsection" "yes" "$(_hasF '### Re-read (step done, halted or interrupted run)' "$r")"
+    assert_eq "rerun-wiring: lists the re-read rows" "yes" "$(_hasF "n1_queue_pending_rows \"\$QUEUE_DIR/queue.md\" 'failed|escalated|skip|pending|held'" "$r")"
+    assert_eq "rerun-wiring: done-class list in every mode" "yes" "$(_hasF 'one of `done`, `closed`, `resolved`, `fixed`, `verified` (intake.md § Story mode status classification), in every queue mode' "$r")"
+    assert_eq "rerun-wiring: calls the helper" "yes" "$(_hasF 'n1_queue_rerun_release "$QUEUE_DIR/queue.md"' "$r")"
+    assert_eq "rerun-wiring: blocker check on released rows" "yes" "$(_hasF '**Blocker check (every `released` row):**' "$r")"
+    assert_eq "rerun-wiring: nothing left stops, step unchanged" "yes" "$(_hasF 'Nothing left to run for `<QUEUE_ID>`; the step is unchanged.' "$r")"
+    assert_eq "rerun-wiring: interrupted run always relaunches" "yes" "$(_hasF '`INTERRUPTED=yes`: go to § Launch with `RESUME=1` whatever `LEFT` is.' "$r")"
+    assert_eq "rerun-wiring: Launch RESUME covers the relaunch" "yes" "$(_hasF 'or § Re-read relaunches a done or halted queue' "$r")"
+    assert_eq "rerun-wiring: other steps still stop" "yes" "$(_hasF 'No saved plan for `<QUEUE_ID>`' "$r")"
+    assert_eq "rerun-wiring: planned STALE path kept" "yes" "$(_hasF '`STALE=yes` (planned more than `STALE_HOURS` hours ago' "$r")"
+    local bg rr; bg=$(grep -n -m1 -F '**Busy guard' "$r" | cut -d: -f1); rr=$(grep -n -m1 -F '### Re-read (' "$r" | cut -d: -f1)
+    assert_eq "rerun-wiring: busy guard precedes the re-read" "yes" "$([ -n "$bg" ] && [ -n "$rr" ] && [ "$bg" -lt "$rr" ] && echo yes || echo no)"
+}
+
 # N1-481: --close routing, operand parsing and the abandon gate.
 test_close_wiring() {
     local s="$REPO_ROOT/skills/n1-queue"
@@ -2816,6 +2838,7 @@ test_title_vague
 test_desc_chain_wiring
 test_brief_wiring
 test_retry_wiring
+test_rerun_wiring
 test_close_wiring
 test_form_repair_wiring
 test_overlap_order
