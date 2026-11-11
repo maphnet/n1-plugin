@@ -196,6 +196,13 @@ test_wiring() {
     head4=$(sed -n '1,6p' "$s/n1-finish/steps/04-close-ticket.md")
     assert_eq "wiring: Step 4 enters the delivery step first" "yes" \
         "$(grep -qF '03b-ssh-deploy.md' <<<"$head4" && echo yes || echo no)"
+    local succ
+    succ=$(grep -F -- '- **Delivery:** succeeded (' "$step")
+    assert_eq "wiring: delivery step has two success exits" "2" "$(grep -c . <<<"$succ")"
+    assert_eq "wiring: each success exit continues through Step 6" "2" \
+        "$(grep -F 'continue with its After-deploy actions and ticket close, then Step 5 and Step 6' <<<"$succ" | grep -cF 'incomplete until Step 6 runs' || true)"
+    assert_eq "wiring: Step 4 gate says delivery success continues in the same run" "yes" \
+        "$(grep -qF 'a successful delivery continues with the rest of Step 4' <<<"$head4" && echo yes || echo no)"
     assert_eq "wiring: resume skips merge on recorded sha" "yes" \
         "$(grep -qF 'deploy_merge_sha' "$s/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
     assert_eq "wiring: SKILL.md documents delivery keys" "yes" \
