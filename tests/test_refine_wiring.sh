@@ -214,7 +214,8 @@ lacks "N1-296: refine never transitions status" 'operations.transition' skills/n
 lacks "N1-296: refine never creates a branch" 'git checkout' skills/n1-refine
 
 # --- N1-296: dispatcher + docs
-has "N1-296: SKILL states actions run only when picked" 'only for actions the user picks in the preview' skills/n1-refine/SKILL.md
+has "N1-557: SKILL states children only for confirmed actions" 'only for actions the user confirmed in `02-loop.md` Step 4' skills/n1-refine/SKILL.md
+lacks "N1-557: SKILL has no preview" 'preview' skills/n1-refine/SKILL.md
 has "N1-296: SKILL loop blurb names scope classification" 'scope classification' skills/n1-refine/SKILL.md
 line_has "N1-296: architecture row describes decomposition" '| n1-refine |' 'Epic into Stories, Story into Sub-tasks' references/architecture.md
 has "N1-296: duplicate-check lists n1-refine as caller" 'n1-ticket, n1-story and n1-refine (before creation)' references/duplicate-check.md
@@ -380,5 +381,10 @@ lacks "N1-557: no draft helper in lib" 'n1_refine_draft_state' lib/config.sh
 lacks "N1-557: no draft helper in hooks" 'n1_refine_draft_state' hooks
 lacks "N1-557: session-start drops the refine-draft expiry" 'refine-draft' hooks/session-start.sh
 lacks "N1-557: architecture drops the refine pointer" 'refine-draft' references/architecture.md
+lacks "N1-557: list mode has no Cancel outcome" '(Cancel, Redirect' skills/n1-refine/steps/00-list.md
+lacks "N1-557: list mode records no adopted keys" 'created or adopted' skills/n1-refine/steps/00-list.md
+has "N1-557: list handoff names the listed line" '`Refined`, `Actions` and `Listed, not run` lines' skills/n1-refine/steps/00-list.md
+lacks "N1-557: architecture has no refine approval" 'on approval writes the refined block' references/architecture.md
+lacks "N1-557: architecture row has no picked actions" 'only for actions the user picks' references/architecture.md
 
 exit $FAIL

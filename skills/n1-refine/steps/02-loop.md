@@ -46,7 +46,7 @@ Exactly one `(Recommended)`, with codebase evidence right after it. Every other 
 
 ## Step 4: Scope Classification
 
-Classify with `<N1_ROOT>/references/ticket-scope.md` § Decomposition by ticket type, using `ISSUE_TYPE` and `CHILDREN` (`01-fetch.md` Steps 3-3c) and the latest confirmed scope. Runs for every ticket type, and again after any answer that adds a repository, a deliverable or user-visible behavior outside the ticket's stated scope. For such a widening, first run `<N1_ROOT>/references/duplicate-check.md` § Check on the widened summary, the way `<N1_ROOT>/skills/n1-ticket/steps/02-create.md` does; show any hits; apply no links. Widening never ends refine: the new classification feeds the draft.
+Classify with `<N1_ROOT>/references/ticket-scope.md` § Decomposition by ticket type, using `ISSUE_TYPE` and `CHILDREN` (`01-fetch.md` Steps 3-3c) and the latest confirmed scope. Runs for every ticket type, and again after any answer that adds a repository, a deliverable or user-visible behavior outside the ticket's stated scope. For such a widening, first run `<N1_ROOT>/references/duplicate-check.md` § Check on the widened summary, the way `<N1_ROOT>/skills/n1-ticket/steps/02-create.md` does; show any hits; apply no links. Widening never ends refine: the new classification feeds `PROPOSED`/`CONVERT`.
 
 Results, carried into `03-write.md`:
 - `PROPOSED`: children to create. Epic: Stories. Story, or a Task converting to Story: Sub-tasks. Each has a summary, a description and acceptance criteria as plain bullets. Propose only missing children: drop any child that an entry in `CHILDREN` already covers, so a re-run never re-proposes an existing child.
