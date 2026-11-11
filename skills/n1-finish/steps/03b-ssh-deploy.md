@@ -89,7 +89,7 @@ Headless runs **never** run `delivery.command`, any `delivery.steps` item, or `d
    case "<ID>" in *[!A-Za-z0-9_-]*) echo id:invalid; exit 1;; esac
    n1_write_frontmatter "$N1_HOME/memory/<ID>/overview.md" deploy_pending false || true
    ```
-   Add this line to the `## Finish` section of overview.md: `- **Delivery:** succeeded (<verified | not verified>)`. Return to Step 4 and continue. Step 4's close comment gets the delivery suffix.
+   Add this line to the `## Finish` section of overview.md: `- **Delivery:** succeeded (<verified | not verified>)`. Return to Step 4 and continue with its After-deploy actions and ticket close, then Step 5 and Step 6 (One Cleanup Call) in this same run; the finish is incomplete until Step 6 runs. Step 4's close comment gets the delivery suffix.
 
 ## Multi-step execute (interactive runs only, `delivery.steps`)
 
@@ -191,7 +191,7 @@ rm -f "$N1_HOME/memory/<ID>/deploy-step.cmd"
    n1_write_frontmatter "$N1_HOME/memory/<ID>/overview.md" deploy_pending false || true
    n1_write_frontmatter "$N1_HOME/memory/<ID>/overview.md" deploy_next_step 0 || true
    ```
-   Add this line to the `## Finish` section of overview.md: `- **Delivery:** succeeded (<verified | not verified>; skipped steps: <numbers, or none>)`. Return to Step 4 and continue. Step 4's close comment gets the delivery suffix.
+   Add this line to the `## Finish` section of overview.md: `- **Delivery:** succeeded (<verified | not verified>; skipped steps: <numbers, or none>)`. Return to Step 4 and continue with its After-deploy actions and ticket close, then Step 5 and Step 6 (One Cleanup Call) in this same run; the finish is incomplete until Step 6 runs. Step 4's close comment gets the delivery suffix.
 5. **Abort at step `<K+1>`:**
    - Run Cleanup.
    - Run Runbook branch steps 1–3, calling `n1_delivery_runbook "<ID>" "<SHA>" <K>` in step 1. This lists step `<K+1>` onward and records `deploy_next_step`. Step 2's comment carries no step text, and any failed step's output stays in `memory/<ID>/deploy-output.log`, kept locally in N1 memory.
