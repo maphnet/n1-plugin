@@ -299,6 +299,27 @@ sigs=$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'te
 eq "obs group: signal: SIGKILL and SIGSEGV stay two groups" "2" "$sigs"
 eq "obs group: unauthorized text kept" "unauthorized: user not found" \
   "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'unauthorized: user not found' | n1_release_obs_group "$CUT" | cut -f1)"
+# Cycle 4 (SEC-10, SEC-11, CR-7, CR-8): short-key suffixes and RFC-valid userinfo characters.
+obs_leak "auth_key" 'deepl auth_key=hunter2pw x' hunter2pw
+obs_leak "authKey" 'authKey=hunter2pw x' hunter2pw
+obs_leak "auth_code" 'oauth redirect auth_code=hunter2pw x' hunter2pw
+obs_leak "jwt_key" 'jwt_key=hunter2pw x' hunter2pw
+obs_leak "sig_key" 'sig_key=hunter2pw x' hunter2pw
+obs_leak "signing_key" 'signing_key=hunter2pw x' hunter2pw
+obs_leak "bare PHPSESSID" 'GET /x?PHPSESSID=abcdefghijklmnopqrstuvwxyz ok' abcdefghijklmnopqrstuvwxyz
+obs_leak "oauth" 'oauth=hunter2pw x' hunter2pw
+obs_leak "proxyauth" 'proxyauth=hunter2pw x' hunter2pw
+obs_leak "basicauth" 'basicauth=hunter2pw x' hunter2pw
+obs_leak "userinfo with & in password" 'could not connect to postgres://app:p&ss@db:5432/app' 'p&ss'
+obs_leak "userinfo with ' in password" "could not connect to postgres://app:pa'ss@db" "pa'ss"
+obs_leak "userinfo with # in password" 'could not connect to postgres://u:pa#ss@h' 'pa#ss'
+obs_leak "userinfo with ? in password" 'could not connect to postgres://u:pa?ss@h' 'pa?ss'
+obs_leak "userinfo before a host named auth" 'postgres://app:hunter2pw@auth:5432/db' hunter2pw
+obs_leak "userinfo before a host named sid" 'postgres://app:hunter2pw@sid:5432/db' hunter2pw
+eq "obs group: design: x keeps its text" "design: x" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'design: x' | n1_release_obs_group "$CUT" | cut -f1)"
+eq "obs group: UUIDs still become {id}" "job {id} failed" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'job 123e4567-e89b-12d3-a456-426614174000 failed' | n1_release_obs_group "$CUT" | cut -f1)"
 # Bug: an unparsable cutoff labels every group against epoch 0 or -1, so all of them read as new.
 eq "obs group: bad cutoff gives no output" "" "$(n1_release_obs_group 'not-a-date' <<<"$ROWS" 2>/dev/null)"
 
