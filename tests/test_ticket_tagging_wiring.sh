@@ -79,4 +79,10 @@ else
 fi
 check "tail-worker files follow-ups via followup-filing" 'followup-filing\.md` § File' agents/tail-worker.md
 
+# Docs describe the label and point at the rule.
+for f in README.md references/architecture.md; do
+    check "$f points at ticket-tagging.md" 'references/ticket-tagging\.md' "$f"
+    check "$f mentions the service label" 'service label' "$f"
+done
+
 exit $FAIL
