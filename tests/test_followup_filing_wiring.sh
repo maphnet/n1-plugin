@@ -58,4 +58,9 @@ check "Gate 3 template carries Follow-ups line" 'Follow-ups: <KEY>' skills/n1-st
 
 check "Codex step appends human-review items" 'followup-filing\.md` § Append' skills/n1-pr/steps/03-codex-review.md
 
+check "developer deferral entries carry location and fix direction" 'Findings deferred: <list: file:line, problem, fix direction, reason>' agents/developer.md
+check "Codex Append takes detail from scratch files" 'followup-filing\.md` § Append \(source `codex`.*detail-file fields from .*`<S>/confirmed\.md` or `<S>/candidates\.md`' skills/n1-pr/procedures/codex-triage-worker.md
+check "Codex report phase may read scratch detail" 'Phase `report` reads only `<S>/state\.md`, `<S>/developer\.md`, follow-up detail from' skills/n1-pr/procedures/codex-triage-worker.md
+check "Codex report phase reads scratch detail files" 'when they exist, `<S>/developer\.md`, `<S>/confirmed\.md` and `<S>/candidates\.md`' skills/n1-pr/procedures/codex-triage-worker.md
+
 exit $FAIL

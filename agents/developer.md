@@ -78,7 +78,7 @@ When spawned for review fix cycle, you receive:
 
 ## Summary
 - Findings fixed: N/M
-- Findings deferred: <list with reason>
+- Findings deferred: <list: file:line, problem, fix direction, reason>
 - Tests: all passing / N failures
 - Commits: <list of commit hashes and messages>
 ```
