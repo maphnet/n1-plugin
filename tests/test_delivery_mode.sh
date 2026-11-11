@@ -131,6 +131,81 @@ test_runbook_never_executes() {
     assert_eq "runbook-unmerged: no verify section" "0" "$(grep -c 'Verify command' "$out" || true)"
 }
 
+# --- N1-528: covered deploy_pending tickets ---------------------------------------
+test_covered() {
+    local repo="$TMP/cov-repo" home="$TMP/cov-home" a b x side out exp before after nf_before nf_after
+    export GIT_CEILING_DIRECTORIES="$TMP"
+    g() { git -C "$repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+    git init -q -b main "$repo"
+    g commit -q --allow-empty -m A; a=$(g rev-parse HEAD)
+    g commit -q --allow-empty -m B; b=$(g rev-parse HEAD)
+    g commit -q --allow-empty -m X; x=$(g rev-parse HEAD)
+    g checkout -q -b side "$a"
+    g commit -q --allow-empty -m S; side=$(g rev-parse HEAD)
+    g checkout -q main
+    mk() {
+        mkdir -p "$home/memory/$1"
+        printf -- '---\nstep: done\ndeploy_pending: %s\ndeploy_merge_sha: %s\n---\n# %s\n' "$2" "$3" "$1" > "$home/memory/$1/overview.md"
+    }
+    mk OWN true "$b"                 # the owner ticket: excluded
+    mk T-1 true "$a"                 # ancestor -> ok
+    mk T-2 true "${b:0:7}"           # short SHA, ancestor -> ok
+    mk T-3 true "$side"              # not an ancestor (side branch / force-push) -> skipped
+    mk T-4 true deadbeefdeadbeef     # unknown SHA (another repo in a shared N1_HOME) -> skipped
+    mk T-5 true 'abc;rm'             # malformed SHA -> skipped
+    mk T-6 false "$a"                # not pending -> skipped
+    mk T-7-old true "$a"             # archived dir -> skipped
+    mk bad.id true "$a"              # ID outside [A-Za-z0-9_-] -> skipped
+    mk T-8 true "$a"                 # unticked Deployment Actions -> actions
+    printf '# R\n\n## Deployment Actions\n\n### After deploy\n\n- [ ] #1 restart worker\n' > "$home/memory/T-8/runbook.md"
+    mk T-9 true "$a"                 # all actions ticked -> ok
+    printf '# R\n\n## Deployment Actions\n\n### After deploy\n\n- [x] #1 restart worker\n' > "$home/memory/T-9/runbook.md"
+    mk T-10 true "$x"                # equal to X -> ok
+    mkdir -p "$home/memory/T-11"     # no overview.md -> skipped
+
+    before=$(cat "$home"/memory/*/overview.md "$home"/memory/*/runbook.md | cksum)
+    nf_before=$(find "$home" | wc -l)
+    out=$(cd "$repo" && N1_HOME="$home" n1_delivery_covered "$x" OWN | LC_ALL=C sort)
+    exp=$(printf '%s\n' "T-1 $a ok" "T-10 $x ok" "T-2 ${b:0:7} ok" "T-8 $a actions" "T-9 $a ok" | LC_ALL=C sort)
+    assert_eq "covered: exact candidate set" "$exp" "$out"
+    after=$(cat "$home"/memory/*/overview.md "$home"/memory/*/runbook.md | cksum)
+    nf_after=$(find "$home" | wc -l)
+    assert_eq "covered: pure (memory content unchanged)" "$before" "$after"
+    assert_eq "covered: pure (no files created)" "$nf_before" "$nf_after"
+
+    assert_eq "covered: own ID is listed when not excluded" "yes" \
+        "$(grep -q '^OWN ' <<<"$(cd "$repo" && N1_HOME="$home" n1_delivery_covered "$x")" && echo yes || echo no)"
+    assert_eq "covered: malformed X -> nothing" "" "$(cd "$repo" && N1_HOME="$home" n1_delivery_covered "$x;rm" OWN)"
+    assert_eq "covered: unknown X -> nothing" "" \
+        "$(cd "$repo" && N1_HOME="$home" n1_delivery_covered 0123456789abcdef0123 OWN)"
+    assert_eq "covered: empty X -> nothing" "" "$(cd "$repo" && N1_HOME="$home" n1_delivery_covered '' OWN)"
+    assert_eq "covered: outside a git repo -> nothing" "" "$(cd "$home" && N1_HOME="$home" n1_delivery_covered "$x" OWN)"
+    assert_eq "covered: empty N1_HOME -> nothing" "" "$(cd "$repo" && N1_HOME='' n1_delivery_covered "$x" OWN)"
+    assert_eq "covered: earlier X covers fewer tickets" "T-1 $a ok" \
+        "$(cd "$repo" && N1_HOME="$home" n1_delivery_covered "$a" OWN | grep -v -e '^T-8 ' -e '^T-9 ')"
+    unset GIT_CEILING_DIRECTORIES
+}
+
+test_finish_line_set() {
+    local ov="$TMP/fls.md"
+    printf -- '---\nstep: done\n---\n# T\n\n## Finish\n- **Merged:** abc\n- **Delivery:** pending (runbook: memory/T/runbook.md)\n- **Ticket:** left open (deploy pending)\n\n## Notes\nkeep\n' > "$ov"
+    n1_finish_line_set "$ov" Delivery "succeeded (covered by OWN at 1234567)"
+    assert_eq "finish-line: one Delivery line" "1" "$(grep -c '^- \*\*Delivery:\*\*' "$ov" || true)"
+    assert_eq "finish-line: new value inside ## Finish" "yes" \
+        "$(grep -qF -- '- **Delivery:** succeeded (covered by OWN at 1234567)' <<<"$(section "$ov" '## Finish')" && echo yes || echo no)"
+    assert_eq "finish-line: other Finish lines kept" "yes" \
+        "$(grep -qF -- '- **Merged:** abc' <<<"$(section "$ov" '## Finish')" && grep -qF -- '- **Ticket:** left open' "$ov" && echo yes || echo no)"
+    assert_eq "finish-line: other sections kept" "keep" "$(section "$ov" '## Notes')"
+    assert_eq "finish-line: frontmatter kept" "done" "$(n1_read_frontmatter "$ov" step)"
+    n1_finish_line_set "$ov" Delivery "succeeded (covered by OWN at 1234567)"
+    assert_eq "finish-line: idempotent re-run" "1" "$(grep -c '^- \*\*Delivery:\*\*' "$ov" || true)"
+    printf -- '---\n---\n# T\n' > "$ov"
+    n1_finish_line_set "$ov" Ticket "moved to Done"
+    assert_eq "finish-line: appends ## Finish when absent" "- **Ticket:** moved to Done" "$(section "$ov" '## Finish')"
+    assert_eq "finish-line: missing file -> rc 1" "1" \
+        "$(n1_finish_line_set "$TMP/nope.md" Ticket x && echo 0 || echo 1)"
+}
+
 # --- NP-240: multi-step delivery helpers ---------------------------------------
 test_multi_step_helpers() {
     local cf="$TMP/step.cmd" out
@@ -346,6 +421,8 @@ test_skip_no_jq
 test_runbook_never_executes
 test_multi_step_helpers
 test_runbook_steps
+test_covered
+test_finish_line_set
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
