@@ -115,7 +115,7 @@ When `ticketTagging.enabled` is true, `n1-start` prefixes created tickets with `
 
 **Follow-up filing.** `references/followup-filing.md` is a shared, model-driven procedure (N1-102). The review fix, QA fix, n1-pr Codex step, and FINALIZE MEMORY append proposed follow-ups to `## Follow-ups` in overview.md instead of offering them. n1-start FINALIZE MEMORY then files them before Gate 3:
 - runs the duplicate check (`CONTEXT=create`); a duplicate hit is linked, not recreated
-- creates each ticket under the ticket-scope rule, at most 5 per ticket (resume-aware)
+- creates each ticket under the ticket-scope rule, at most 5 per ticket (resume-aware); the description comes from the candidate's detail file (`followups/<n>.md`, the line's 4th field), falling back to the short reason; `Security-relevant:` candidates carry only the summary
 - marks each line in place: `[pending]` before create (resume reconciles by tracker search), `[<KEY> unlinked]` after create, `[<KEY>]` after the Relates link succeeds; this makes resume idempotent and retries failed links
 - posts one tracker comment and adds a `Follow-ups:` line to Gate 3
 
