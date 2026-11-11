@@ -10,17 +10,7 @@ Show the resulting **Type: Story** and child count before creation.
 
 ## Step 8: Create Story
 
-**Resolve ticket tagging:**
-```bash
-TAGGING_ENABLED=$(n1_config_val '.ticketTagging.enabled')
-TAGGING_SERVICE=$(n1_config_val '.ticketTagging.service')
-```
-
-If `TAGGING_ENABLED` is `true` and `TAGGING_SERVICE` is non-empty:
-- `summary` = `<TAGGING_SERVICE> | <title>` (skip prefix if title already starts with `<TAGGING_SERVICE> |`)
-- Prepend `**Service:** <TAGGING_SERVICE>` line to description
-
-Otherwise: `summary` = title as-is.
+**Ticket tagging:** apply `<N1_ROOT>/references/ticket-tagging.md` § Resolve to build `summary` and the description.
 
 **Escape description for JSON:**
 ```bash
@@ -45,6 +35,8 @@ DESC_ESCAPED=$(escape_json_val "$DESCRIPTION")
 
 Store the returned story ticket ID as `STORY_ID`.
 
+**Label:** apply `<N1_ROOT>/references/ticket-tagging.md` § Label after create with `STORY_ID`.
+
 **Assign story to creator** (if configured):
 
 Skip if ANY of: `ASSIGN_TO_CREATOR` is `false`, `GET_USER_OP` is empty, `ASSIGN_OP` is empty (warning already shown at collect).
@@ -66,8 +58,8 @@ Create each subtask sequentially, linked to the parent story.
 For each subtask:
 
 1. **Build summary and description:**
-   - Apply ticket tagging (same logic as story)
    - Description = subtask description + acceptance criteria formatted as checklist
+   - Tag `summary` and the description per `<N1_ROOT>/references/ticket-tagging.md` § Resolve (reuse the Step 8 values)
    - **Jira formatting:** If `TRACKER_TYPE == "jira"`, convert any checkbox syntax in the description: replace `- [ ] ` with `- ` and `- [x] ` with `- ` (Jira does not support GitHub-flavored Markdown checkboxes and silently strips the brackets).
    - Escape the description:
      ```bash
@@ -80,6 +72,8 @@ For each subtask:
    - **Jira, other op, `VERSION_MCP` empty:** call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `cloudId`, `projectKey: <PROJECT_KEY>`, `issueTypeName: "Task"`, `summary`, `description: SUBTASK_DESC_ESCAPED`. Warn after creation: "⚠ Subtask <SUBTASK_ID> created without parent link (jc-mcp not configured)."
    - **YouTrack:** Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `project: <PROJECT_KEY>`, `summary`, `description: SUBTASK_DESC_ESCAPED`. Then link to the story: call `mcp__<TRACKER_MCP>__<LINK_OP>` with source = `<subtask_id>`, target = `<STORY_ID>`, link type = `subtask of` (the YouTrack direction name for subtask → parent), using the tool's own argument names. On failure: warn "Could not link <subtask_id> → <STORY_ID>: <error>" and continue — do not block subtask creation.
 
+   Then apply `<N1_ROOT>/references/ticket-tagging.md` § Label after create with the new subtask ID.
+
 3. **Assign to creator** (if configured): same pattern as story assignment, substituting `<subtask_id>` for the issue identifier.
 
 4. Report each subtask as created: "  Created **[<SUBTASK_ID>]**: <title>"
@@ -88,7 +82,7 @@ No per-subtask approval — all were approved in Step 7.
 
 ## Step 9b: Adopt Existing Tickets
 
-Skip if `ADOPT_KEYS` is empty or `VERSION_MCP` is empty. Adopted tickets keep their current assignee (no Step 9 sub-step 3). Never create a ticket for a key that fails to adopt.
+Skip if `ADOPT_KEYS` is empty or `VERSION_MCP` is empty. Adopted tickets keep their current assignee (no Step 9 sub-step 3). Adopted tickets get no tagging or label (`ticket-tagging.md` is creation only). Never create a ticket for a key that fails to adopt.
 
 1. **Type name:** set `SUBTASK_TYPE` to the sub-task type name the user gave in this run, else `Sub-task`.
 2. **Convert all keys in one call:** call `mcp__<VERSION_MCP>__jcm_convertIssueType` with: `issueKeys: <ADOPT_KEYS>`, `issueTypeName: <SUBTASK_TYPE>`, `parentKey: <STORY_ID>`.

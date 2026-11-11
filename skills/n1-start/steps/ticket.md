@@ -33,7 +33,7 @@ printf 'QUEUE_RUN_ID=%s\nHEADLESS=%s\n' "${N1_QUEUE_RUN_ID:-}" "${N1_HEADLESS:-}
 
 **ID-Final:** no memory file/branch until `<ID>` final. product-analyst writes ticket.md directly to `ticketMdPath`.
 
-**Tracker ticket creation** (brain-dump/file/error-tracker+`createIssue`): Create without a prompt + ledger. →`createIssue`, final `<ID>`, **Reconcile Memory ID & Branch**, assign, record URL. Type: `<N1_ROOT>/references/ticket-scope.md` § Free-form creation.
+**Tracker ticket creation** (brain-dump/file/error-tracker+`createIssue`): Create without a prompt + ledger. →`createIssue` (summary/description per `<N1_ROOT>/references/ticket-tagging.md` § Resolve, then § Label after create), final `<ID>`, **Reconcile Memory ID & Branch**, assign, record URL. Type: `<N1_ROOT>/references/ticket-scope.md` § Free-form creation.
 
 ```bash
 source ~/.n1/preamble.sh

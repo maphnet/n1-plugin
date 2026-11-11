@@ -68,7 +68,7 @@ Skip for: documentation updates, chore/version-bump-only commits, non-behavioral
    Open N1 telemetry. Filter to sessions where plugin version >= <PLUGIN_VERSION>. Confirm the expected signal/field is present. If usage is below ~50 sessions at check date, extend the window by another 7 days.
    ```
 
-7. **Create the follow-up ticket** via `mcp__<tracker.mcp>__` prefix:
+7. **Create the follow-up ticket** via `mcp__<tracker.mcp>__` prefix. First apply `<N1_ROOT>/references/ticket-tagging.md` § Resolve to `<title>` and `<body>`; the calls below pass the tagged summary and description.
 
    - **YouTrack** (`tracker.type == "youtrack"`):
      Call `mcp__<tracker.mcp>__create_issue` with:
@@ -78,7 +78,7 @@ Skip for: documentation updates, chore/version-bump-only commits, non-behavioral
    - **Jira** (`tracker.type == "jira"`):
      Call `mcp__<tracker.mcp>__<CREATE_ISSUE_OP>` (`CREATE_ISSUE_OP=$(n1_config_val '.tracker.operations.createIssue')`, default `createJiraIssue`) with project `<PROJECT_KEY>`, summary `<title>`, description `<body>`, and type Task (fixed: a telemetry check is one atomic follow-up), using the parameter names in `<N1_ROOT>/references/ticket-scope.md` § Create-call parameters.
 
-   Extract the new ticket ID and URL from the response. If the response does not include a URL, construct it from the tracker base URL and ticket ID.
+   Extract the new ticket ID and URL from the response. If the response does not include a URL, construct it from the tracker base URL and ticket ID. Then apply `<N1_ROOT>/references/ticket-tagging.md` § Label after create with the new ticket ID.
 
 8. **Link to originating ticket** via `mcp__<tracker.mcp>__<LINK_OP>` (resolved from `tracker.operations.linkIssues`; non-blocking — warn and continue if the op is absent or the call fails, never skip silently):
 

@@ -36,17 +36,7 @@ Follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create`,
 
 ## Step 8: Create Ticket
 
-**Resolve ticket tagging:**
-```bash
-TAGGING_ENABLED=$(n1_config_val '.ticketTagging.enabled')
-TAGGING_SERVICE=$(n1_config_val '.ticketTagging.service')
-```
-
-If `TAGGING_ENABLED` is `true` and `TAGGING_SERVICE` is non-empty:
-- `summary` = `<TAGGING_SERVICE> | <title>` (skip prefix if title already starts with `<TAGGING_SERVICE> |`)
-- Prepend `**Service:** <TAGGING_SERVICE>` line to description
-
-Otherwise: `summary` = title as-is.
+**Ticket tagging:** apply `<N1_ROOT>/references/ticket-tagging.md` § Resolve to build `summary` and the description.
 
 **Jira formatting:** If `TRACKER_TYPE == "jira"`, convert any checkbox syntax in the description before creating: replace `- [ ] ` with `- ` and `- [x] ` with `- ` (Jira does not support GitHub-flavored Markdown checkboxes and silently strips the brackets).
 
@@ -71,6 +61,8 @@ DESC_ESCAPED=$(escape_json_val "$DESCRIPTION")
 
 - **YouTrack:**
   1. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `project: <PROJECT_KEY>`, `summary`, `description`; if Step 6 verified Bug, also set the project's "Type" field to Bug.
+
+**Label:** apply `<N1_ROOT>/references/ticket-tagging.md` § Label after create with `<ticketId>`.
 
 **Assign to creator** (if configured):
 
