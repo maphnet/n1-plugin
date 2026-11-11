@@ -59,7 +59,6 @@ for f in skills/n1-start/steps/investigation-deliverable.md skills/n1-start/step
     check "$f labels via ticket-tagging" '§ Label after create' "$f"
 done
 lacks "investigation has no vague tagging line" 'Apply ticketTagging rules' skills/n1-start/steps/investigation-deliverable.md
-check "n1-refine adopt gets no tagging or label" 'Adopted tickets get no tagging or label' skills/n1-refine/steps/03-write.md
 
 # Create sites run by tail-worker: follow-up filing, n1-finish telemetry follow-up.
 F=references/followup-filing.md

@@ -55,11 +55,11 @@ Change order: set `ORDER`, show this step again. Cancel: say "Nothing refined." 
 
 For each ticket in `ORDER`: set `<ID>` to it, reset `INVESTIGATE` to the Input flag value (`01-fetch.md` Step 3 may set it for one ticket only), say "Refining <ID> (<n>/<total>)", then follow `01-fetch.md`, `02-loop.md` and `03-write.md` as in a single-ticket run, with these list-mode rules:
 - **Reset per ticket:** before `01-fetch.md`, clear every value those files hold for one ticket (`DESC_ORIG`, `CHILDREN`, `PARENT`, `GRANDPARENT`, `SIBLINGS`, `LINKS`, `CONVERT`, `PROPOSED`, `DUP_LINKS`); only `IDS`, `AFTER`, `ORDER`, `PRIOR` and `OUTCOMES` carry over.
-- **Scope of a stop:** a **STOP**, "refine ends here", a Redirect, a Cancel or a failed check (`exit 1`) inside those files ends only the current ticket. Record its outcome and go on with the next ticket in `ORDER`: one skipped or failed ticket does not stop the rest.
+- **Scope of a stop:** a **STOP**, "refine ends here", a Redirect or a failed check (`exit 1`) inside those files ends only the current ticket. Record its outcome and go on with the next ticket in `ORDER`: one skipped or failed ticket does not stop the rest.
 - **PRIOR:** the earlier tickets' written Scope, Decisions and Assumptions (`03-write.md` Step 3 appends to it). `01-fetch.md` Step 4 passes it to the solution-architect and `02-loop.md` Step 2 carries its Decisions over. A ticket with no written block adds nothing.
-- **Handoff:** `03-write.md` Step 4 prints only its `Refined` and `Actions` lines, makes no Sub-task offer, and returns here.
+- **Handoff:** `03-write.md` Step 4 prints only its `Refined`, `Actions` and `Listed, not run` lines, makes no Sub-task offer, and returns here.
 
-Record one `OUTCOMES` row per ticket: `refined (description|comment)`, `skipped: <reason>` (Cancel, Redirect, nothing implementable) or `failed: <reason>` (tracker error, failed check), plus the Sub-task keys `03-write.md` Step 3c created or adopted.
+Record one `OUTCOMES` row per ticket: `refined (description|comment)`, `skipped: <reason>` (Redirect, nothing implementable) or `failed: <reason>` (tracker error, description changed again, failed check), plus the Sub-task keys `03-write.md` Step 3c created.
 
 ## Step 6: Report
 
