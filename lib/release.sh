@@ -253,13 +253,15 @@ n1_release_page_results() {
     '
 }
 
-# n1_release_signal <verified|unverified> [<warning-count>]: stdin lines are <risk><TAB><class><TAB><status>.
+# n1_release_signal <verified|unverified> [<warning-count>] [<new-obs-groups>]: stdin lines are <risk><TAB><class><TAB><status>.
 # Prints NO-GO, GO with conditions or GO, then one "condition: ..." line per condition (D2, D4).
 # Fails closed: a FAIL with no Low/Medium tier is NO-GO, an unknown status is UNVERIFIED, no cases is a condition.
+# New-since-release dev observability groups (N1-179) are a condition only; they never reach NO-GO.
 n1_release_signal() {
-    local build="${1:-unverified}" warn="${2:-0}"
+    local build="${1:-unverified}" warn="${2:-0}" obs="${3:-0}"
     [[ "$warn" =~ ^[0-9]+$ ]] || warn=1
-    awk -F'\t' -v build="$build" -v warn="$warn" '
+    [[ "$obs" =~ ^[0-9]+$ ]] || obs=1
+    awk -F'\t' -v build="$build" -v warn="$warn" -v obs="$obs" '
         /^[[:space:]]*$/ { next }
         {
             total++
@@ -274,6 +276,7 @@ n1_release_signal() {
             if (pending) cond = cond "condition: " pending " pending MANUAL or assisted case(s)\n"
             if (lowfail) cond = cond "condition: " lowfail " Low/Medium FAIL case(s)\n"
             if (warn + 0 > 0) cond = cond "condition: " warn " scope or publish warning(s)\n"
+            if (obs + 0 > 0) cond = cond "condition: " obs " new-since-release dev observability group(s)\n"
             if (build != "verified") cond = cond "condition: dev build not verified as HEAD\n"
             print (nogo ? "NO-GO" : (cond != "" ? "GO with conditions" : "GO"))
             printf "%s", cond

@@ -253,5 +253,14 @@ eq "obs group: signature 120 and sample 160 chars max" "120 160" \
 # Bug: an unparsable cutoff labels every group against epoch 0 or -1, so all of them read as new.
 eq "obs group: bad cutoff gives no output" "" "$(n1_release_obs_group 'not-a-date' <<<"$ROWS" 2>/dev/null)"
 
+# --- n1_release_signal observability argument (N1-179)
+# Bug (AC5): new observability groups must cap readiness at conditions and never turn a GO or a Low FAIL into NO-GO.
+eq "obs groups: a condition, never NO-GO" "GO with conditions
+condition: 1 Low/Medium FAIL case(s)
+condition: 2 new-since-release dev observability group(s)" "$(printf 'Low\tauto\tFAIL\n' | n1_release_signal verified 0 2)"
+# Bug: a malformed count must fail toward a condition, not toward GO.
+eq "obs groups: malformed count is a condition" "GO with conditions
+condition: 1 new-since-release dev observability group(s)" "$(printf 'Low\tauto\tPASS\n' | n1_release_signal verified 0 x)"
+
 echo "passed=$PASS failed=$FAIL"
 [ "$FAIL" -eq 0 ]
