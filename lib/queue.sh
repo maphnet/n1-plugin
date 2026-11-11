@@ -503,7 +503,7 @@ n1_queue_desc_blockers() {
     local self="${1^^}" prefix re
     [[ "$self" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] || return 1
     prefix="${self%-*}"
-    re="\\b(blocked[[:space:]]+by|depends[[:space:]]+on|after|requires)([^[:alnum:].;:()]+[[:alnum:]_'-]+){0,3}[^[:alnum:].;:()]+${prefix}-[0-9]+"
+    re="\\b(blocked[[:space:]]+by|depends[[:space:]]+on|after|requires)[*]*:?[*]*([^[:alnum:].;:()]+[[:alnum:]_'-]+){0,3}[^[:alnum:].;:()]+${prefix}-[0-9]+"
     { command grep -oiE -- "$re" || :; } | { command grep -oiE -- "\\b${prefix}-[0-9]+" || :; } \
         | tr '[:lower:]' '[:upper:]' | awk -v s="$self" '$0 != s && !seen[$0]++'
 }
@@ -2301,13 +2301,17 @@ n1_queue_plan_unstarted() {
     # Usage: n1_queue_plan_unstarted <queue-dir> — N1-524: rc 0 only for a saved plan that never started: queue.md
     # present (not a symlink), frontmatter step: planned with no run_id/pid, every Plan row pending|held|skip, no
     # ## Runs data row, no .unattended-claim. queue.md is child-writable (SEC-3), so any doubt is rc 1 (fail closed).
-    local dir="$1" q="$1/queue.md" num t repo n1h model st
-    [ -f "$q" ] && [ ! -L "$q" ] && [ ! -e "$dir/.unattended-claim" ] || return 1
+    # Optional 2nd arg `claimed`: the caller already holds .unattended-claim (N1-524 discard), so skip the absence test.
+    local dir="$1" q="$1/queue.md" num t repo n1h model st rows
+    [ -f "$q" ] && [ ! -L "$q" ] || return 1
+    [ "${2:-}" = claimed ] || [ ! -e "$dir/.unattended-claim" ] || return 1
     [ "$(n1_read_frontmatter "$q" step)" = planned ] || return 1
     [ -z "$(n1_read_frontmatter "$q" run_id)" ] && [ -z "$(n1_read_frontmatter "$q" pid)" ] || return 1
+    # An empty row list (unparseable file, no Plan section) is not "unstarted": fail closed.
+    rows=$(n1_queue_pending_rows "$q" '.*') && [ -n "$rows" ] || return 1
     while IFS=$'\t' read -r num t repo n1h model st; do
         case "$st" in pending|held|skip) ;; *) return 1 ;; esac
-    done < <(n1_queue_pending_rows "$q" '.*')
+    done <<<"$rows"
     awk '/^## /{ r = ($0 ~ /^## Runs/) }
         r && /^\|/ && !/^\|[[:space:]]*Ticket[[:space:]]*\|/ && !/^\|[-:| ]+$/ { n++ }
         END { exit n > 0 }' "$q"
@@ -2323,7 +2327,11 @@ n1_queue_plan_discard() {
     home=$(n1_home) && [ -n "$home" ] || return 1
     dir="$home/queue/$id"
     [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
-    if [ "$mode" = saved ]; then n1_queue_plan_unstarted "$dir" || return 1
+    if [ "$mode" = saved ]; then
+        # N1-524: hold the unattended claim (atomic mkdir, the one n1_queue_claim and the precheck honor) from check
+        # to removal, so a trigger cannot start the plan in between. A pre-existing claim means refuse (fail closed).
+        mkdir "$dir/.unattended-claim" 2>/dev/null || return 1
+        n1_queue_plan_unstarted "$dir" claimed || { rmdir "$dir/.unattended-claim" 2>/dev/null; return 1; }
     elif [ -e "$dir/queue.md" ] || [ -e "$dir/.unattended-claim" ]; then return 1; fi
     rm -rf -- "$dir"
 }

@@ -1714,6 +1714,8 @@ test_desc_blockers() {
     assert_eq "desc-blockers: blocked by" "VEL-4137" "$(db VEL-4162 'Blocked by VEL-4137')"
     assert_eq "desc-blockers: depends on, word between" "VEL-4137" "$(db VEL-4162 'This depends on the VEL-4137 work.')"
     assert_eq "desc-blockers: requires a key list" "VEL-4137,VEL-4146" "$(db VEL-4162 'Requires VEL-4137 and VEL-4146.')"
+    assert_eq "desc-blockers: label form Blocked by:" "VEL-4137" "$(db VEL-4162 'Blocked by: VEL-4137')"
+    assert_eq "desc-blockers: markdown label Depends on:" "VEL-4137" "$(db VEL-4162 '**Depends on:** VEL-4137')"
     assert_eq "desc-blockers: after" "VEL-4137" "$(db VEL-4162 'Start after VEL-4137 merges')"
     assert_eq "desc-blockers: comma list after one phrase" "VEL-1,VEL-2,VEL-3" "$(db VEL-4162 'blocked by VEL-1, VEL-2 and VEL-3')"
     assert_eq "desc-blockers: lowercase key uppercased" "VEL-4137" "$(db VEL-4162 'blocked by vel-4137')"
@@ -2324,6 +2326,19 @@ EOF
     _kept() { [ -d "$h/queue/$1" ] && echo yes || echo no; }
     _mksaved s1 planned held; qdis s1 saved && rc=0 || rc=$?
     assert_eq "discard-saved: unstarted saved plan removed" "0|no" "$rc|$(_kept s1)"
+    mkdir -p "$h/queue/s0"; printf -- '---\nstep: planned\n---\nno plan table\n' > "$h/queue/s0/queue.md"
+    qdis s0 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: queue.md with no Plan rows kept" "1|yes" "$rc|$(_kept s0)"
+    _mksaved sc planned held; mkdir "$h/queue/sc/.unattended-claim"
+    qdis sc saved && rc=0 || rc=$?
+    assert_eq "discard-saved: existing claim kept" "1|yes" "$rc|$(_kept sc)"
+    _mksaved sf planned bogus; qdis sf saved && rc=0 || rc=$?
+    assert_eq "discard-saved: refused discard releases its own claim" "1|no" "$rc|$([ -e "$h/queue/sf/.unattended-claim" ] && echo yes || echo no)"
+    _mksaved sr planned held;
+    # claim taken before removal: a launch trigger cannot win after validation
+    ( export N1_HOME="$h"; rm() { [ "$1" = -rf ] && { n1_queue_claim "$h/queue/sr" && echo LAUNCHED || echo BLOCKED; } > "$h/race.out"; command rm "$@"; }
+      n1_queue_plan_discard sr saved )
+    assert_eq "discard-saved: launch claim blocked during removal" "BLOCKED" "$(cat "$h/race.out")"
     _mksaved s2 planned held 'run_id: R1'; qdis s2 saved && rc=0 || rc=$?
     assert_eq "discard-saved: run_id kept" "1|yes" "$rc|$(_kept s2)"
     _mksaved s3 run held; qdis s3 saved && rc=0 || rc=$?
