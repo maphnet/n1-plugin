@@ -1667,6 +1667,20 @@ test_close_wiring() {
     assert_eq "close-wiring: abandon gate has no recommendation" "yes" "$(_hasF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$s/steps/close.md")"
 }
 
+# N1-524: --discard routing, required id and the saved-plan helper call.
+test_discard_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue"
+    _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
+    assert_eq "discard-wiring: argument-hint offers --discard" "yes" "$(grep -q '^argument-hint:.*\[--discard <id>\]' "$s/SKILL.md" && echo yes || echo no)"
+    assert_eq "discard-wiring: description usage offers --discard" "yes" "$(grep -q '^description:.*\[--discard <id>\]' "$s/SKILL.md" && echo yes || echo no)"
+    assert_eq "discard-wiring: step 1 routes --discard" "yes" "$(_hasF 'If `--discard`: read and follow `<N1_ROOT>/skills/n1-queue/steps/discard.md`. **STOP.**' "$s/SKILL.md")"
+    assert_eq "discard-wiring: id required" "yes" "$(_hasF '--discard needs a queue id.' "$s/steps/discard.md")"
+    assert_eq "discard-wiring: id validated before interpolation" "yes" "$(_hasF '^[A-Za-z0-9][A-Za-z0-9._-]*$' "$s/steps/discard.md")"
+    assert_eq "discard-wiring: step calls the saved-plan helper" "yes" "$(_hasF "n1_queue_plan_discard '<QUEUE_ID>' saved" "$s/steps/discard.md")"
+    assert_eq "discard-wiring: refusal points to --close" "yes" "$(_hasF 'Use --close for a started queue.' "$s/steps/discard.md")"
+    assert_eq "discard-wiring: architecture documents --discard" "yes" "$(_hasF 'n1-queue --discard <id>' "$REPO_ROOT/references/architecture.md")"
+}
+
 
 # N1-61: placeholder titles and form-dump descriptions are repaired at intake.
 test_form_repair_wiring() {
@@ -1689,6 +1703,34 @@ test_form_repair_wiring() {
     assert_eq "repair: queue brief re-fetches and skips a changed ticket" "yes" "$(_hasF 'brief skipped (changed)' "$q/preview.md")"
 }
 
+# N1-524: a description line makes a blocker only when the dependency phrase applies to the key.
+test_desc_blockers() {
+    local rc
+    db() { n1_queue_desc_blockers "$1" <<< "$2" | paste -sd, -; }
+    assert_eq "desc-blockers: VEL-4162 line 1 (key in a later clause) yields nothing" "" \
+        "$(db VEL-4162 'Map the error after missing_required_input ... The draft API (VEL-4137, VEL-4146) reuses the same path.')"
+    assert_eq "desc-blockers: VEL-4162 line 2 (needs, parenthesized key) yields nothing" "" \
+        "$(db VEL-4162 'Out: ... new sources and needs (VEL-4166)')"
+    assert_eq "desc-blockers: blocked by" "VEL-4137" "$(db VEL-4162 'Blocked by VEL-4137')"
+    assert_eq "desc-blockers: depends on, word between" "VEL-4137" "$(db VEL-4162 'This depends on the VEL-4137 work.')"
+    assert_eq "desc-blockers: requires a key list" "VEL-4137,VEL-4146" "$(db VEL-4162 'Requires VEL-4137 and VEL-4146.')"
+    assert_eq "desc-blockers: label form Blocked by:" "VEL-4137" "$(db VEL-4162 'Blocked by: VEL-4137')"
+    assert_eq "desc-blockers: markdown label Depends on:" "VEL-4137" "$(db VEL-4162 '**Depends on:** VEL-4137')"
+    assert_eq "desc-blockers: after" "VEL-4137" "$(db VEL-4162 'Start after VEL-4137 merges')"
+    assert_eq "desc-blockers: comma list after one phrase" "VEL-1,VEL-2,VEL-3" "$(db VEL-4162 'blocked by VEL-1, VEL-2 and VEL-3')"
+    assert_eq "desc-blockers: lowercase key uppercased" "VEL-4137" "$(db VEL-4162 'blocked by vel-4137')"
+    assert_eq "desc-blockers: self key skipped" "" "$(db VEL-4162 'Blocked by VEL-4162')"
+    assert_eq "desc-blockers: other prefix ignored" "" "$(db VEL-4162 'Blocked by OTHER-12')"
+    assert_eq "desc-blockers: trigger must be a whole word" "" "$(db VEL-4162 'thereafter VEL-4137')"
+    assert_eq "desc-blockers: bare needs is not a trigger" "" "$(db VEL-4162 'needs VEL-4137')"
+    assert_eq "desc-blockers: more than 3 words between is no match" "" "$(db VEL-4162 'after we finish the API work VEL-4137')"
+    assert_eq "desc-blockers: multi-line, deduped, first-seen order" "VEL-1,VEL-2" \
+        "$(db VEL-4162 "$(printf 'Blocked by VEL-1\nDepends on VEL-2\nblocked by VEL-1')")"
+    assert_eq "desc-blockers: empty description" "" "$(db VEL-4162 '')"
+    n1_queue_desc_blockers 'V.*-1' <<< 'Blocked by V.*-1' >/dev/null && rc=0 || rc=$?
+    assert_eq "desc-blockers: invalid self key refused" "1" "$rc"
+}
+
 # NP-203: overlapping tickets run in creation order; disjoint tickets keep input order.
 test_overlap_order() {
     local out
@@ -1701,6 +1743,18 @@ test_overlap_order() {
     assert_eq "overlap: disjoint keeps input order" "T-7,T-1" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
     out=$(printf '%s\t%s\n' 'T-8' 'x' 'T-4' 'y' 'T-6' 'x,y' | n1_queue_overlap_order)
     assert_eq "overlap: transitive chain" "T-4,T-6,T-8" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
+    # N1-524: a held row runs after its in-plan blocker and never holds back unblocked overlappers.
+    out=$(printf '%s\t%s\t%s\n' 'T-1' 'r:a' 'T-5' 'T-2' 'r:a' '' 'T-3' 'r:a' '' 'T-5' 'r:b' '' | n1_queue_overlap_order)
+    assert_eq "overlap: unblocked overlappers not behind a held row" "T-2,T-3,T-5,T-1" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
+    assert_eq "overlap: held row noted after its nearest overlapper" "after T-3 (r:a)" "$(printf '%s\n' "$out" | awk -F'\t' '$1=="T-1"{print $2}')"
+    out=$(printf '%s\t%s\t%s\n' 'T-1' 'x' 'T-2' 'T-2' 'y' '' 'T-3' 'x' '' | n1_queue_overlap_order)
+    assert_eq "overlap: held row waits for a higher-numbered unblocked overlapper" "T-2,T-3,T-1" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
+    out=$(printf '%s\t%s\t%s\n' 'T-1' 'x' 'T-4' 'T-4' 'x' '' | n1_queue_overlap_order)
+    assert_eq "overlap: held row after its in-plan blocker" "T-4,T-1" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
+    out=$(printf '%s\t%s\t%s\n' 'T-1' 'x' 'T-99' 'T-2' 'x' '' | n1_queue_overlap_order)
+    assert_eq "overlap: blocker outside the input ignored" "T-1,T-2" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
+    out=$(printf '%s\t%s\t%s\n' 'T-1' 'x' 'T-2' 'T-2' 'y' 'T-1' | n1_queue_overlap_order)
+    assert_eq "overlap: blocker cycle still prints every row once" "T-1,T-2" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
 }
 
 # N1-303: plan-time schedule (every earlier Touches overlapper is a predecessor), its wave line, and the
@@ -2040,6 +2094,9 @@ test_plan_wiring() {
     assert_eq "plan-wiring: queue steps never write overview.md" "no" \
         "$(cat "$s/steps/intake.md" "$s/steps/preview.md" "$s/steps/run.md" | grep -qE 'n1_write_frontmatter[^|]*overview' && echo yes || echo no)"
     assert_eq "plan-wiring: staleness re-plan re-orders every pending row (CR-1)" "yes" "$(has 'Re-run overlap order globally' "$s/steps/run.md")"
+    assert_eq "plan-wiring: preview passes blockers to overlap order (N1-524)" "yes" "$(grep -qF "'<BLOCKER2-or-empty>' | n1_queue_overlap_order" "$s/steps/preview.md" && echo yes || echo no)"
+    assert_eq "plan-wiring: re-plan passes blockers to overlap order (N1-524)" "yes" "$(grep -qF "'<BLOCKER2-or-empty>' | n1_queue_overlap_order" "$s/steps/run.md" && echo yes || echo no)"
+    assert_eq "plan-wiring: re-plan reorders held rows too (N1-524)" "yes" "$(grep -qF 'n1_queue_blocker_of "$QUEUE_FILE" <#>' "$s/steps/run.md" && echo yes || echo no)"
     assert_eq "plan-wiring: staleness recheck uses the sha256 hash helper, not cksum" "yes" "$(has 'n1_queue_content_hash' "$s/steps/run.md")"
     assert_eq "plan-wiring: run.md no longer pipes through cksum" "no" "$(has 'cksum <' "$s/steps/run.md")"
     assert_eq "plan-wiring: preview snapshot uses the sha256 hash helper, not cksum" "yes" "$(has 'n1_queue_content_hash' "$s/steps/preview.md")"
@@ -2248,6 +2305,64 @@ test_queue_plan_state() {
     assert_eq "discard: claimed dir kept" "1|yes" "$rc|$([ -d "$h/queue/claimed" ] && echo yes)"
     qdis '../x' && rc=0 || rc=$?
     assert_eq "discard: bad id refused" "1" "$rc"
+    # N1-524: --discard removes a saved plan only while it never started; anything else is kept (fail closed).
+    _mksaved() { # <id> <step> <row-2 status> [frontmatter line] [## Runs row]
+        mkdir -p "$h/queue/$1"; cat > "$h/queue/$1/queue.md" <<EOF
+---
+queue_id: $1
+step: $2
+${4:-}
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | r | h | sonnet | pending | |
+| 2 | T-2 | B | r | h | sonnet | $3 | blocked_on T-1 |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|---|---|---|---|---|---|
+${5:-}
+EOF
+    }
+    _kept() { [ -d "$h/queue/$1" ] && echo yes || echo no; }
+    _mksaved s1 planned held; qdis s1 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: unstarted saved plan removed" "0|no" "$rc|$(_kept s1)"
+    mkdir -p "$h/queue/s0"; printf -- '---\nstep: planned\n---\nno plan table\n' > "$h/queue/s0/queue.md"
+    qdis s0 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: queue.md with no Plan rows kept" "1|yes" "$rc|$(_kept s0)"
+    _mksaved sc planned held; mkdir "$h/queue/sc/.unattended-claim"
+    qdis sc saved && rc=0 || rc=$?
+    assert_eq "discard-saved: existing claim kept" "1|yes" "$rc|$(_kept sc)"
+    _mksaved sf planned bogus; qdis sf saved && rc=0 || rc=$?
+    assert_eq "discard-saved: refused discard releases its own claim" "1|no" "$rc|$([ -e "$h/queue/sf/.unattended-claim" ] && echo yes || echo no)"
+    _mksaved sr planned held;
+    # claim taken before removal: a launch trigger cannot win after validation
+    ( export N1_HOME="$h"; rm() { [ "$1" = -rf ] && { n1_queue_claim "$h/queue/sr" && echo LAUNCHED || echo BLOCKED; } > "$h/race.out"; command rm "$@"; }
+      n1_queue_plan_discard sr saved )
+    assert_eq "discard-saved: launch claim blocked during removal" "BLOCKED" "$(cat "$h/race.out")"
+    _mksaved s2 planned held 'run_id: R1'; qdis s2 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: run_id kept" "1|yes" "$rc|$(_kept s2)"
+    _mksaved s3 run held; qdis s3 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: step run kept" "1|yes" "$rc|$(_kept s3)"
+    _mksaved s4 planned pr; qdis s4 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: started row kept" "1|yes" "$rc|$(_kept s4)"
+    _mksaved s5 planned held '' '| T-1 | s | 0 | pr | u | |'; qdis s5 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: ## Runs row kept" "1|yes" "$rc|$(_kept s5)"
+    _mksaved s6 planned held 'pid: 123'; qdis s6 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: pid kept" "1|yes" "$rc|$(_kept s6)"
+    _mksaved s7 planned held; mkdir -p "$h/queue/s7/.unattended-claim"; qdis s7 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: claimed kept" "1|yes" "$rc|$(_kept s7)"
+    _mksaved s8t planned held; ln -s "$h/queue/s8t" "$h/queue/s8"; qdis s8 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: symlinked dir kept" "1|yes" "$rc|$(_kept s8t)"
+    qdis '../x' saved && rc=0 || rc=$?
+    assert_eq "discard-saved: bad id refused" "1" "$rc"
+    qdis missing saved && rc=0 || rc=$?
+    assert_eq "discard-saved: missing queue refused" "1" "$rc"
+    _mksaved s10 planned held; sed -i 's/^## Runs$/## Runs (archive)/; $a | T-1 | s | 0 | pr | u | |' "$h/queue/s10/queue.md"; qdis s10 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: renamed Runs heading with a row kept" "1|yes" "$rc|$(_kept s10)"
+    _mksaved s9 planned held; qdis s9 && rc=0 || rc=$?
+    assert_eq "discard: without saved, queue.md still kept" "1|yes" "$rc|$(_kept s9)"
     rm -rf "$h"
 }
 
@@ -2545,6 +2660,7 @@ test_row_status
 test_queue_retry
 test_queue_reconcile_force
 test_queue_close
+test_discard_wiring
 test_write_plan_cells
 test_pending_rows
 test_decisions_and_stale
@@ -2557,6 +2673,7 @@ test_retry_wiring
 test_close_wiring
 test_form_repair_wiring
 test_overlap_order
+test_desc_blockers
 test_schedule_helpers
 test_eligible_rows
 test_schedule_cycle_and_merge_final

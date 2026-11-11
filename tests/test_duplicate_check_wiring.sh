@@ -125,6 +125,9 @@ check "N1-231: queue intake does not exclude on a failed lookup" "SKIP_REASON=er
 check "N1-231: queue intake keeps the held prefix" "blocked_on <ID> · " "$I"
 check "N1-231: queue intake keeps the cycle rule" "blocked by <ID> \(cycle\)" "$I"
 check "N1-231: queue intake keeps the description grep" "Additionally grep the description" "$I"
+check "N1-524: queue intake runs the description-blocker helper" "n1_queue_desc_blockers '<KEY>'" "$I"
+check "N1-524: same-plan held rule covers description blockers" "whichever check found it" "$I"
+if grep -qF 'always excluded outright' "$I" 2>/dev/null; then echo "FAIL: N1-524: description blockers no longer always excluded"; FAIL=1; else echo "PASS: N1-524: description blockers no longer always excluded"; fi
 
 # N1-231: n1-start runs the blocker check after the duplicate check, before In Progress
 T=skills/n1-start/steps/ticket.md

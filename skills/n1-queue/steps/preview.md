@@ -117,17 +117,17 @@ For each candidate whose Reason intake annotated with `possible duplicate:` or `
 
 Touches: for each candidate, list up to 4 components it will likely change, taken from its title and description (backtick-quoted paths, `dir/` mentions, file and command names), normalized to the names under Modules / Key Files in the cached project map `$N1_HOME/cache/project-map.md` when it exists (read-only). Prefix each with the candidate's repo directory name (`<repo>:<component>`) so tickets in different repos never overlap. Lowercase, only `[a-z0-9._/:-]`; never invent a component, and an empty list is fine (no ordering asserted).
 
-Then run, with one `'<KEY>' '<touches>'` pair per candidate in current plan order:
+Then run, with one `'<KEY>' '<touches>' '<BLOCKER-or-empty>'` triple per candidate in current plan order. The blocker is the `<ID>` of a held candidate's `blocked_on <ID>` Reason, and empty otherwise. A held candidate then lands after its in-plan blocker and never ahead of unblocked overlapping candidates:
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
-printf '%s\t%s\n' '<KEY1>' '<touches1>' '<KEY2>' '<touches2>' | n1_queue_overlap_order
+printf '%s\t%s\t%s\n' '<KEY1>' '<touches1>' '<BLOCKER1-or-empty>' '<KEY2>' '<touches2>' '<BLOCKER2-or-empty>' | n1_queue_overlap_order
 ```
 
 Reorder the plan to the printed order and renumber `#`. For each printed non-empty note, set the `DECISIONS` Order cell to it and append ` · <note>` to the candidate's Reason. Record Touches as the comma list.
 
-**Schedule and concurrency (N1-303).** Run the same pairs again in the NEW plan order. Pass each candidate's blocker (empty when it is not held) as the third field, and add one `'<HELD_KEY>' '<BLOCKER>'` line for each held candidate (Reason `blocked_on <BLOCKER>`); omit the second `printf` when no candidate is held. Blocks edges are display-only, because the runner's held sweep gates them:
+**Schedule and concurrency (N1-303).** Run the same triples again in the NEW plan order, and add one `'<HELD_KEY>' '<BLOCKER>'` line for each held candidate (Reason `blocked_on <BLOCKER>`); omit the second `printf` when no candidate is held. Blocks edges are display-only, because the runner's held sweep gates them:
 
 ```bash
 source ~/.n1/preamble.sh

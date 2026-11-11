@@ -492,6 +492,22 @@ n1_queue_blocker_of() {
     n1_queue_row_reason "$1" "$2" | sed -n 's/^blocked_on \([A-Za-z0-9_-]*\).*/\1/p'
 }
 
+n1_queue_desc_blockers() {
+    # Usage: n1_queue_desc_blockers <SELF_KEY> < description — N1-524: the keys a description names as blockers, one
+    # per line, uppercased, deduped, SELF_KEY excluded. The prefix is SELF_KEY's own (VEL-4162 -> VEL). A key counts
+    # only when a dependency phrase (blocked by, depends on, after, requires) precedes it in the same clause: at most
+    # 3 words between, and no . ; : ( ) between (so "..." and a parenthesized key break it). The keys listed right after
+    # a match ("KEY, KEY", "KEY and KEY") count too: a key is itself a word, so the 3-word window spans the list.
+    # rc 1 on an invalid SELF_KEY (it becomes part of a regex). Uses `command grep` and `\b`, not an anchor-or-negated-class alternation: N1-169.
+    # ponytail: 3-word window is a heuristic; the tracker-link check stays the primary blocker source.
+    local self="${1^^}" prefix re
+    [[ "$self" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] || return 1
+    prefix="${self%-*}"
+    re="\\b(blocked[[:space:]]+by|depends[[:space:]]+on|after|requires)[*]*:?[*]*([^[:alnum:].;:()]+[[:alnum:]_'-]+){0,3}[^[:alnum:].;:()]+${prefix}-[0-9]+"
+    { command grep -oiE -- "$re" || :; } | { command grep -oiE -- "\\b${prefix}-[0-9]+" || :; } \
+        | tr '[:lower:]' '[:upper:]' | awk -v s="$self" '$0 != s && !seen[$0]++'
+}
+
 n1_queue_ticket_status() {
     # Usage: n1_queue_ticket_status <queue.md> <ticket> — Status of the ticket's LAST Plan row
     # (a defer-once retry appends a new row, so the last one is current).
@@ -1082,7 +1098,7 @@ n1_queue_stale() {
 }
 
 n1_queue_overlap_order() {
-    # Usage: printf '%s\t%s\n' <ticket> <touches> ... | n1_queue_overlap_order
+    # Usage: printf '%s\t%s[\t%s]\n' <ticket> <touches> [<blocker>] ... | n1_queue_overlap_order
     # Prints "<ticket>\t<note>" in execution order (NP-203). Tickets whose comma-separated
     # Touches share a token (case-insensitive) run lowest ticket number first; all other
     # ordering keeps input order. Note: "after <ticket> (<token>)" for the nearest earlier
@@ -1091,6 +1107,10 @@ n1_queue_overlap_order() {
     # the ready-scan skipping a blocked, unrelated ticket; that case is flagged
     # "moved up (unrelated overlap elsewhere)" so the plan table never shows a silent
     # reorder with no explanation. All other unchanged slots print an empty note.
+    # N1-524: optional third field = the ticket a held row waits on (its blocked_on <ID>). A row whose blocker is in
+    # the input runs after that blocker and never holds back other rows. A non-held row is gated only by lower-numbered
+    # non-held overlappers; a held row also waits for every remaining non-held overlapper, whatever its number. Blockers outside the input are ignored. If no row is ready (a blocker cycle intake
+    # should have excluded), the first remaining row is taken, so every row still prints exactly once.
     # ponytail: O(n^3) Kahn sort; fine at queue.maxTickets scale, index tokens if batches grow.
     awk -F'\t' '
     function num(k) { sub(/.*-/, "", k); return k + 0 }
@@ -1100,7 +1120,8 @@ n1_queue_overlap_order() {
         return ""
     }
     {
-        n++; key[n] = $1; list[n] = ""
+        n++; key[n] = $1; list[n] = ""; idx[$1] = n
+        b = $3; gsub(/^[[:space:]]+|[[:space:]]+$/, "", b); blk[n] = b
         m = split(tolower($2), parts, ",")
         for (i = 1; i <= m; i++) {
             c = parts[i]; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c)
@@ -1108,20 +1129,24 @@ n1_queue_overlap_order() {
         }
     }
     END {
+        for (i = 1; i <= n; i++) held[i] = (blk[i] != "" && (blk[i] in idx) && idx[blk[i]] != i)
         for (a = 1; a <= n; a++)
             for (b = 1; b <= n; b++)
                 if (a != b && shared(a, b) != "") { related[a] = 1; related[b] = 1 }
         for (out = 1; out <= n; out++) {
+            pick = 0; first = 0
             for (i = 1; i <= n; i++) {
                 if (done[i]) continue
-                ready = 1
-                for (j = 1; j <= n; j++)
-                    if (!done[j] && j != i && num(key[j]) < num(key[i]) && shared(i, j) != "") { ready = 0; break }
-                if (ready) break
+                if (!first) first = i
+                ready = !(held[i] && !done[idx[blk[i]]])
+                for (j = 1; ready && j <= n; j++)
+                    if (!done[j] && j != i && !held[j] && (held[i] || num(key[j]) < num(key[i])) && shared(i, j) != "") ready = 0
+                if (ready) { pick = i; break }
             }
+            i = pick ? pick : first
             done[i] = 1; seq[out] = i; note = ""
             for (k = out - 1; k >= 1; k--) { c = shared(i, seq[k]); if (c != "") { note = "after " key[seq[k]] " (" c ")"; break } }
-            if (note == "" && !related[i] && out != i) note = "moved up (unrelated overlap elsewhere)"
+            if (note == "" && !related[i] && !held[i] && out != i) note = "moved up (unrelated overlap elsewhere)"
             printf "%s\t%s\n", key[i], note
         }
     }'
@@ -2272,15 +2297,41 @@ n1_queue_plan_state() {
     esac
 }
 
+n1_queue_plan_unstarted() {
+    # Usage: n1_queue_plan_unstarted <queue-dir> — N1-524: rc 0 only for a saved plan that never started: queue.md
+    # present (not a symlink), frontmatter step: planned with no run_id/pid, every Plan row pending|held|skip, no
+    # ## Runs data row, no .unattended-claim. queue.md is child-writable (SEC-3), so any doubt is rc 1 (fail closed).
+    # Optional 2nd arg `claimed`: the caller already holds .unattended-claim (N1-524 discard), so skip the absence test.
+    local dir="$1" q="$1/queue.md" num t repo n1h model st rows
+    [ -f "$q" ] && [ ! -L "$q" ] || return 1
+    [ "${2:-}" = claimed ] || [ ! -e "$dir/.unattended-claim" ] || return 1
+    [ "$(n1_read_frontmatter "$q" step)" = planned ] || return 1
+    [ -z "$(n1_read_frontmatter "$q" run_id)" ] && [ -z "$(n1_read_frontmatter "$q" pid)" ] || return 1
+    # An empty row list (unparseable file, no Plan section) is not "unstarted": fail closed.
+    rows=$(n1_queue_pending_rows "$q" '.*') && [ -n "$rows" ] || return 1
+    while IFS=$'\t' read -r num t repo n1h model st; do
+        case "$st" in pending|held|skip) ;; *) return 1 ;; esac
+    done <<<"$rows"
+    awk '/^## /{ r = ($0 ~ /^## Runs/) }
+        r && /^\|/ && !/^\|[[:space:]]*Ticket[[:space:]]*\|/ && !/^\|[-:| ]+$/ { n++ }
+        END { exit n > 0 }' "$q"
+}
+
 n1_queue_plan_discard() {
-    # Usage: n1_queue_plan_discard <queue-id> — Cancel / --dry-run: clear this session's planning pointer and
-    # remove a planning-only queue dir (no queue.md, no unattended claim). rc 1 when the dir is kept.
-    local id="${1:-}" home dir
+    # Usage: n1_queue_plan_discard <queue-id> [saved] — Cancel / --dry-run: clear this session's planning pointer and
+    # remove a planning-only queue dir (no queue.md, no unattended claim). With `saved` (N1-524, --discard) a dir that
+    # holds queue.md is removed only when n1_queue_plan_unstarted passes. rc 1 when the dir is kept.
+    local id="${1:-}" mode="${2:-}" home dir
     n1_queue_plan_state clear 2>/dev/null || true
     [[ "$id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || return 1
     home=$(n1_home) && [ -n "$home" ] || return 1
     dir="$home/queue/$id"
     [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
-    if [ -e "$dir/queue.md" ] || [ -e "$dir/.unattended-claim" ]; then return 1; fi
+    if [ "$mode" = saved ]; then
+        # N1-524: hold the unattended claim (atomic mkdir, the one n1_queue_claim and the precheck honor) from check
+        # to removal, so a trigger cannot start the plan in between. A pre-existing claim means refuse (fail closed).
+        mkdir "$dir/.unattended-claim" 2>/dev/null || return 1
+        n1_queue_plan_unstarted "$dir" claimed || { rmdir "$dir/.unattended-claim" 2>/dev/null; return 1; }
+    elif [ -e "$dir/queue.md" ] || [ -e "$dir/.unattended-claim" ]; then return 1; fi
     rm -rf -- "$dir"
 }
