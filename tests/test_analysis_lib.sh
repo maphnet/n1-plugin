@@ -55,7 +55,7 @@ SA=$(printf '%s\n' 'Summary line' \
     'LITE_ESCALATED: touches auth' 'context: |' '  ctx line one' '  ctx line two' 'done')
 
 fin_fixture simple
-OUT=$(printf '%s\n' "$SA" | n1_analysis_finalize "https://tracker/AN-1" 2>&1)
+OUT=$(printf '%s\n' "$SA" | n1_analysis_finalize 2>&1)
 has "finalize: missing snapshot reported" "$OUT" "Snapshot persistence failed."
 has "finalize: missing project map reported (cold, non-lite)" "$OUT" "Project map persistence failed."
 has "finalize: LITE_ESCALATED relayed" "$OUT" "LITE_ESCALATED: touches auth"
@@ -65,7 +65,7 @@ has "finalize: SELF_RESOLVED and SIMPLE_PATH printed" "$OUT" "SELF_RESOLVED=1 SI
 has "finalize: context block delimited" "$OUT" $'CONTEXT_BLOCK<<\nctx line one\nctx line two\nCONTEXT_BLOCK>>'
 eq "finalize: signals written" "low" "$(n1_read_signal "$MEM/analysis.md" blast_radius)"
 eq "finalize: self_resolved signal written" "1" "$(n1_read_signal "$MEM/analysis.md" self_resolved)"
-eq "finalize: ticket_url frontmatter written" "https://tracker/AN-1" "$(n1_read_frontmatter "$MEM/overview.md" ticket_url)"
+eq "finalize: ticket_url left to the ticket step (SEC-1)" "" "$(n1_read_frontmatter "$MEM/overview.md" ticket_url)"
 eq "finalize: SIMPLE_PATH persisted" "true" "$(ctx_val SIMPLE_PATH)"
 eq "finalize: records simple-path" "simple-path true" "$(last_decision)"
 if [ -e "$MEM/xrepo-pending.tsv" ]; then no "finalize: xrepo-pending reset"; else ok "finalize: xrepo-pending reset"; fi
@@ -92,8 +92,25 @@ OUT=$( eval "$(fence "$STEP" 1)" 2>&1 )
 has "wiring: entry fence prints LITE_MODE" "$OUT" "LITE_MODE=true CACHE_STATE="
 has "wiring: entry fence prints SA_MODEL" "$OUT" "SA_MODEL="
 fin_fixture simple; printf '%s\n' "$SA" > "$MEM/sa-return.md"
-OUT=$( eval "$(fence "$STEP" 3 | sed 's/<ticket URL, or empty>//')" 2>&1 )
+lacks "wiring: finalize fence passes no ticket URL (SEC-1)" "$(fence "$STEP" 3)" 'ticket URL'
+OUT=$( eval "$(fence "$STEP" 3)" 2>&1 )
 has "wiring: finalize fence reads sa-return.md" "$OUT" "SELF_RESOLVED=1 SIMPLE_PATH=true"
 has "wiring: finalize fence prints the context block" "$OUT" "CONTEXT_BLOCK<<"
+# CR-3: the Fresh fence derives SNAPSHOT_PATH itself and prints what the spawn prose uses.
+SNAP=$(n1_snapshot_path "$N1_HOME"); mkdir -p "$(dirname "$SNAP")"
+printf -- '---\ngit_sha_short: abc1234\ngenerated_at: 2026-11-01T00:00:00Z\n---\nsnap body line\n' > "$SNAP"
+eq "wiring: Fresh fence sets SNAPSHOT_PATH itself (CR-3)" "1" "$(fence "$STEP" 2 | grep -c '^source "$N1_ROOT/lib/cache.sh"; SNAPSHOT_PATH=$(n1_snapshot_path "$N1_HOME")$')"
+OUT=$( unset SNAPSHOT_PATH; eval "$(fence "$STEP" 2)" 2>&1 )
+has "wiring: Fresh fence prints sha and age" "$OUT" "SNAPSHOT_AGE_RAW=2026-11-01T00:00:00Z SNAPSHOT_SHA=abc1234"
+has "wiring: Fresh fence prints the body" "$OUT" $'SNAPSHOT_BODY<<\nsnap body line'
+
+# --- CR-1/SEC-2, CR-2: procedure text names printed values / memory files, not dead shell variables ---
+XR="$REPO_ROOT/skills/n1-start/procedures/analysis-xrepo.md"
+lacks "xrepo: no XREPO_PENDING_FILE anchor (CR-1)" "$(cat "$XR")" 'XREPO_PENDING_FILE='
+lacks "xrepo: no \$AGENT_OUTPUT read (SEC-2)" "$(cat "$XR")" '$AGENT_OUTPUT'
+has "xrepo: reads sa-return.md" "$(cat "$XR")" '$N1_HOME/memory/$ID/sa-return.md'
+RI="$REPO_ROOT/skills/n1-start/procedures/review-incremental.md"
+lacks "review-incremental: FIX_FILES not a shell variable (CR-2)" "$(cat "$RI")" '$FIX_FILES'
+lacks "review.md: FIX_FILES not a shell variable (CR-2)" "$(cat "$REPO_ROOT/skills/n1-start/steps/review.md")" '$FIX_FILES'
 
 exit $FAIL

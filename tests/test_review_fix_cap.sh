@@ -87,7 +87,7 @@ eq "V4 review FAIL routes to the fix-step cap gate" "1" "$(grep -cF '**FAIL → 
 
 eq "V5 old full-scope security wording is gone" "0" "$(grep -cF 'security-reviewer keeps full scope' "$R")"
 eq "V10 incremental security-reviewer gets fix.diff + prior [SEC-N] by id" "1" "$(grep -cE 'security-reviewer gets the same fix\.diff path.*FIX_FILES.*prior `\[SEC-N\]` list from review-prev\.md.*re-report unfixed' "$RI")"
-eq "V11 parallel spawn scopes security-reviewer to fix.diff when incremental" "1" "$(grep -cF 'on `INCREMENTAL=true`: fix.diff + `$FIX_FILES`' "$R")"
+eq "V11 parallel spawn scopes security-reviewer to fix.diff when incremental" "1" "$(grep -cF 'on `INCREMENTAL=true`: fix.diff + `<printed FIX_FILES>`' "$R")"
 eq "V6 CYCLE guarded as numeric (both sites)" "2" "$(grep -cF '[[ $CYCLE =~ ^[0-9]+$ ]] || CYCLE=1' "$RL")"
 eq "V7 fix.md increments the counter before the developer dispatch (resume-safe)" "yes" "$(il=$(grep -n 'n1_increment_counter.*review_fix_cycle' skills/n1-start/steps/fix.md | head -1 | cut -d: -f1); sp=$(grep -n 'spawn developer' skills/n1-start/steps/fix.md | head -1 | cut -d: -f1); [ -n "$il" ] && [ "$il" -lt "$sp" ] && echo yes || echo no)"
 eq "V8 cycle emit MAX has a source" "1" "$(grep -c 'echo "MAX=\$REVIEW_FIX_MAX"' skills/n1-start/steps/fix.md)"
