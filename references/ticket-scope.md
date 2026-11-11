@@ -34,6 +34,8 @@ The type argument depends on the configured create op (`CREATE_ISSUE_OP=$(n1_con
 - **Jira, any other op** (Atlassian Rovo `createJiraIssue`): `cloudId` (`n1_config_val '.tracker.cloudId'`, else the `id` from `getAccessibleAtlassianResources`), `projectKey`, `issueTypeName`, `summary`, `description`.
 - **YouTrack:** `project`, `summary`, `description`, using the tool's own argument names. For a non-default type, set the project's enum field named "Type" to it in the create call (verify the value via `getProjectFields` when configured, as in `<N1_ROOT>/skills/n1-ticket/steps/02-create.md` Step 6); if the value is unavailable or unverifiable, create with the default type.
 
+Every create call also applies `<N1_ROOT>/references/ticket-tagging.md` § Resolve before the call and § Label after create once the new key is known.
+
 ## Handoffs
 
 Carry the confirmed goal, title/description, acceptance criteria, repository requirements, `SCOPE_TYPE`, analysis/discovery results, tracker settings, and any completed duplicate check with `DUP_LINKS`. Reuse confirmations and completed work still valid for the current scope; initialize any missing tracker operations in the destination's tracker gate. Execute the remaining collection steps in order, including analysis/discovery not already completed for that scope. Skip a completed duplicate search only when its scope is unchanged. The destination still runs its creation approval gate for the resulting type.
