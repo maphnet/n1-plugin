@@ -34,7 +34,7 @@ n1_qa_verify() {
 
 n1_qa_break_check() {
     # Usage: n1_qa_break_check <worktree dir> — reverts the change under the qa.md Regression/New test lines (n1_break_check),
-    # writes break_check_verdict frontmatter, prints BC_VERDICT=, BC_MSG= (when set) and the TQ list between
+    # writes break_check_verdict frontmatter, prints BC_VERDICT=, BC_MODE=, BC_MSG= (when set) and the TQ list between
     # BREAK_CHECK_TQ<< and BREAK_CHECK_TQ>>. rc 1 on an invalid story base.
     local WT="$1" QD="$N1_HOME/memory/$ID" BC_MODE BC_MAX TASK_TYPE SB BC_DEF BC_BASE BC_LOG BREAK_CHECK_TQ="" BC_VERDICT="skipped"
     local REG_LINE REG_NAME REG_CMD BC_V BC_JSON BC_MSG line N C
@@ -55,7 +55,7 @@ n1_qa_break_check() {
     done > "$QD/break-check.new-tests"
     BREAK_CHECK_TQ=$(awk -F'\t' '$2 !~ /^(red-then-green|no-diff)$/ {print $1" ("$2")"}' "$QD/break-check.new-tests")
     n1_write_frontmatter "$QD/overview.md" "break_check_verdict" "$BC_VERDICT"
-    echo "BC_VERDICT=$BC_VERDICT"
+    echo "BC_VERDICT=$BC_VERDICT"; echo "BC_MODE=$BC_MODE"
     [ -n "$BC_MSG" ] && echo "BC_MSG=$BC_MSG"
     printf 'BREAK_CHECK_TQ<<\n%s\nBREAK_CHECK_TQ>>\n' "$BREAK_CHECK_TQ"
     return 0
