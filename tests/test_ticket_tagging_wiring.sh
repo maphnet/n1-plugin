@@ -70,6 +70,12 @@ done
 check "follow-up reconcile accepts plain or tagged summary" 'summary equals the title or the tagged summary' "$F"
 check "follow-up markers keep the plain title" 'markers and the duplicate-check `TEXT` keep the plain title' "$F"
 check "follow-up label never changes the marker" 'never changes the line.s marker' "$F"
+check "follow-up adopted key is never labeled" 'adopted key is never labeled' "$F"
+check "follow-up labels before the marker rewrite" 'first apply .*Label after create.* Then rewrite the line as `- \[<KEY> unlinked\]' "$F"
+check "missing editTicket warns" 'tracker\.operations\.editTicket is not configured' "$R"
+check "collision note makes no guard claim" 'Nothing refuses this collision' "$R"
+lacks "no queue-guard claim" 'refuse a tag equal' "$R"
+lacks "no silent skip on missing editTicket" 'skip silently' "$R"
 
 # Agent audit: no agent creates tickets directly; tail-worker files through followup-filing.
 if grep -qE 'createIssue|create_issue|createJiraIssue|CREATE_ISSUE_OP|CREATE_OP' agents/*.md 2>/dev/null; then
