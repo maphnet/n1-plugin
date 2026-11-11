@@ -52,7 +52,7 @@ Print the verdict line from `02-loop.md` Step 5, then the block, then the Action
 
 ## Step 3c: Children
 
-**Child type rule:** the child type follows the parent: Story under an Epic, Sub-task under a Story. Never `Task` under a Story: Jira rejects it (N1-294). YouTrack: create the child with the project's default type, then link it `subtask of` the parent.
+**Child type rule:** the child type follows the parent: Story under an Epic, Sub-task under a Story. Never `Task` under a Story: Jira rejects it (N1-294). YouTrack: create the child with the project's default type, then link it `subtask of` the parent. Scope and decomposition follow `references/ticket-scope.md` § Decomposition by ticket type.
 
 For each listed `C<n>`, in order:
 
