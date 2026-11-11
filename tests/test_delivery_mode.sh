@@ -159,7 +159,7 @@ test_covered() {
     mk T-8 true "$a"                 # unticked Deployment Actions -> actions
     printf '# R\n\n## Deployment Actions\n\n### After deploy\n\n- [ ] #1 restart worker\n' > "$home/memory/T-8/runbook.md"
     mk T-9 true "$a"                 # all actions ticked -> ok
-    printf '# R\n\n## Deployment Actions\n\n### After deploy\n\n- [x] #1 restart worker\n' > "$home/memory/T-9/runbook.md"
+    printf '# R\n\n## Deployment Actions\n\n### After deploy\n\n- [x] #1 restart worker\n\n## Notes\n\n- [ ] unrelated todo\n' > "$home/memory/T-9/runbook.md"
     mk T-10 true "$x"                # equal to X -> ok
     mk T-12 true "$a"                # commit does not name T-12 -> skipped (identity binding)
     mk T-13 true "$a"                # only T-130 is named -> skipped (boundary)

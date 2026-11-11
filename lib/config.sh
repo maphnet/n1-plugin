@@ -653,7 +653,7 @@ n1_delivery_covered() {
         msg=$(git log -1 --format=%B "$sha^{commit}" 2>/dev/null) || continue
         [[ "$msg" =~ (^|[^A-Za-z0-9_-])$id([^A-Za-z0-9_-]|$) ]] || continue
         rb="${ov%overview.md}runbook.md"
-        if [ -f "$rb" ] && awk '/^## Deployment Actions\r?$/ { s = 1 } s && /^- \[ \] / { f = 1; exit } END { exit !f }' "$rb"; then
+        if [ -f "$rb" ] && awk '/^## / { s = ($0 ~ /^## Deployment Actions\r?$/) } s && /^- \[ \] / { f = 1; exit } END { exit !f }' "$rb"; then
             printf '%s %s actions\n' "$id" "$sha"
         else
             printf '%s %s ok\n' "$id" "$sha"

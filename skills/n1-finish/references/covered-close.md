@@ -72,4 +72,4 @@ Use only the literal values above (no quotes, `$` or backticks in the value).
 
 ## 6. Return
 
-Never run a deploy, Step 5 or Step 6 for a covered ticket. Their worktrees are left to `/n1:n1-clean`. Keep the result for this ticket's Step 6 Report as `Covered: closed <IDs>; excluded (unticked actions) <IDs>; left pending (<declined | record failed>) <IDs>`, including only the non-empty parts. Return to Step 4, which continues with Step 5.
+Never run a deploy, Step 5 or Step 6 for a covered ticket. Their worktrees are left to `/n1:n1-clean`. Keep the result for this ticket's Step 6 Report as `Covered: closed <IDs> (only those whose Ticket line is `moved to <done status>`); tracker open (no done status, tracker not configured or close failed) <IDs>; excluded (unticked actions) <IDs>; left pending (<declined | record failed>) <IDs>`, including only the non-empty parts. Return to Step 4, which continues with Step 5.
