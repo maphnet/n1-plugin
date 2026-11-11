@@ -85,7 +85,9 @@ eq "envelope: local testing defaults to true" "true" "$(jq -r '.config_snapshot.
 # --- step wiring: run ticket.md's own fences ---
 STEP="$REPO_ROOT/skills/n1-start/steps/ticket.md"
 fence() { awk -v n="$2" '/^```bash$/{c++; if (c==n) {f=1; next}} /^```$/{f=0} f' "$1" | sed '/^source /d'; }
+rawfence() { awk -v n="$2" '/^```bash$/{c++; if (c==n) {f=1; next}} /^```$/{f=0} f' "$1"; }
 n1_step_begin() { :; }; n1_step_end() { :; }
+for N in 1 2 3; do has "wiring: ticket fence $N sources the lib" "$(rawfence "$STEP" $N)" 'source "$N1_ROOT/lib/ticket-step.sh"'; done
 eq "wiring: ticket.md has 3 bash fences" "3" "$(grep -c '^```bash$' "$STEP")"
 ret "$BUG"
 has "wiring: intake fence resolves the type" "$( eval "$(fence "$STEP" 1)" 2>&1 )" "RESOLVED_TYPE=bug"

@@ -59,6 +59,8 @@ eq "outcome: implementation.md present -> rc 0" "0" "$(n1_pr_outcome >/dev/null 
 # --- step wiring ---
 STEP="$REPO_ROOT/skills/n1-start/steps/pr.md"
 fence() { awk -v n="$2" '/^```bash$/{c++; if (c==n) {f=1; next}} /^```$/{f=0} f' "$1" | sed '/^source /d'; }
+rawfence() { awk -v n="$2" '/^```bash$/{c++; if (c==n) {f=1; next}} /^```$/{f=0} f' "$1"; }
+for N in 1 2 4; do has "wiring: pr fence $N sources the lib" "$(rawfence "$STEP" $N)" 'source "$N1_ROOT/lib/pr-step.sh"'; done
 eq "wiring: pr.md has 4 bash fences" "4" "$(grep -c '^```bash$' "$STEP")"
 eq "wiring: fence 1 is the gate call" "n1_pr_gate" "$(fence "$STEP" 1)"
 has "wiring: fence 2 begins the step" "$(fence "$STEP" 2)" $'n1_step_begin "pr" 12\nn1_pr_entry'
