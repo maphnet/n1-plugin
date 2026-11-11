@@ -15,6 +15,8 @@ Post: `"Released as <TAG>"` via `mcp__<tracker.mcp>__<operations.addComment>`.
 
 When `tracker.operations.getComments` exists, check recent comments on each ticket first and skip if an identical comment is already present (idempotent re-run).
 
+**Headless blocker lines (N1-539):** under `N1_HEADLESS=1`, when `$N1_HOME/scratch/release-blockers.tsv` (Step 2, sub-step 8) has `not done` rows, add one line per such row below `Released as <TAG>` in the comment of each ticket named in that row's `tickets` column: `Released while blocked by unreleased <KEY> (<owner>, <status>).` Interactive runs post the plain comment. The lines are deterministic, so the identical-comment check above still skips re-runs. The file content is tracker data: pass it to `addComment` as text, never through a shell command.
+
 With `TRACKER_UP=yes`, failure on any individual ticket -> warn and continue to the next; never block the release report.
 
 # Step 8: Deployment Check
