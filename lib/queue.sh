@@ -1108,8 +1108,8 @@ n1_queue_overlap_order() {
     # "moved up (unrelated overlap elsewhere)" so the plan table never shows a silent
     # reorder with no explanation. All other unchanged slots print an empty note.
     # N1-524: optional third field = the ticket a held row waits on (its blocked_on <ID>). A row whose blocker is in
-    # the input runs after that blocker and never holds back other rows: a lower-numbered overlapper gates a row only
-    # when it is not held itself. Blockers outside the input are ignored. If no row is ready (a blocker cycle intake
+    # the input runs after that blocker and never holds back other rows. A non-held row is gated only by lower-numbered
+    # non-held overlappers; a held row also waits for every remaining non-held overlapper, whatever its number. Blockers outside the input are ignored. If no row is ready (a blocker cycle intake
     # should have excluded), the first remaining row is taken, so every row still prints exactly once.
     # ponytail: O(n^3) Kahn sort; fine at queue.maxTickets scale, index tokens if batches grow.
     awk -F'\t' '
@@ -1140,7 +1140,7 @@ n1_queue_overlap_order() {
                 if (!first) first = i
                 ready = !(held[i] && !done[idx[blk[i]]])
                 for (j = 1; ready && j <= n; j++)
-                    if (!done[j] && j != i && !held[j] && num(key[j]) < num(key[i]) && shared(i, j) != "") ready = 0
+                    if (!done[j] && j != i && !held[j] && (held[i] || num(key[j]) < num(key[i])) && shared(i, j) != "") ready = 0
                 if (ready) { pick = i; break }
             }
             i = pick ? pick : first

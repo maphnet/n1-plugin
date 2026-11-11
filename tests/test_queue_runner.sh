@@ -1747,6 +1747,8 @@ test_overlap_order() {
     out=$(printf '%s\t%s\t%s\n' 'T-1' 'r:a' 'T-5' 'T-2' 'r:a' '' 'T-3' 'r:a' '' 'T-5' 'r:b' '' | n1_queue_overlap_order)
     assert_eq "overlap: unblocked overlappers not behind a held row" "T-2,T-3,T-5,T-1" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
     assert_eq "overlap: held row noted after its nearest overlapper" "after T-3 (r:a)" "$(printf '%s\n' "$out" | awk -F'\t' '$1=="T-1"{print $2}')"
+    out=$(printf '%s\t%s\t%s\n' 'T-1' 'x' 'T-2' 'T-2' 'y' '' 'T-3' 'x' '' | n1_queue_overlap_order)
+    assert_eq "overlap: held row waits for a higher-numbered unblocked overlapper" "T-2,T-3,T-1" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
     out=$(printf '%s\t%s\t%s\n' 'T-1' 'x' 'T-4' 'T-4' 'x' '' | n1_queue_overlap_order)
     assert_eq "overlap: held row after its in-plan blocker" "T-4,T-1" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
     out=$(printf '%s\t%s\t%s\n' 'T-1' 'x' 'T-99' 'T-2' 'x' '' | n1_queue_overlap_order)
