@@ -631,7 +631,7 @@ n1_queue_held_sweep() {
         b=$(n1_queue_blocker_of "$q" "$num"); st=$(n1_queue_ticket_status "$q" "$b")
         [ "$st" = escalated ] && n1_queue_ticket_obsolete "$q" "$b" && st=obsolete
         case "$st" in
-            obsolete|no-pr)   # N1-362: a verified obsolete blocker left nothing to merge; N1-470: nor did a no-PR one
+            obsolete|no-pr|done-before-run)   # N1-536: a blocker done in the tracker too; N1-362: a verified obsolete blocker left nothing to merge; N1-470: nor did a no-PR one
                 n1_queue_row_status "$q" "$num" pending "released: $b $st" ;;
             failed|escalated|skip|'')
                 n1_queue_row_status "$q" "$num" skip "blocked by ${b:-?} (${st:-not in plan})"
@@ -1647,6 +1647,66 @@ n1_queue_retry() {
     echo "Retry queued: /n1:n1-queue --run $(n1_read_frontmatter "$q" queue_id)"
 }
 
+n1_queue_rerun_release() {
+    # Usage: n1_queue_rerun_release <queue.md> < done-keys — N1-536 (--run on a done, halted or interrupted queue).
+    # stdin: ticket keys whose tracker status is done-class (run.md reads the tracker; this helper never does).
+    # Mark pass: each failed/escalated/skip/pending/held Plan row of such a key -> done-before-run, Reason "done in tracker".
+    # A failed/escalated row changes only when n1_orca_identity_guard passes (no identity, or a readable worker list with
+    # no live worker for its task); otherwise it is left as is and printed "live".
+    # Release pass, repeated until a pass changes nothing (each change removes a skip row, so it ends): a skip row whose
+    # Reason starts "predecessor <KEY>" or "blocked by <KEY> (" goes back to pending (Reason cleared) when <KEY>'s last
+    # row is done-before-run, no-pr, merged, obsolete (escalated + Reason obsolete), pending or held. Those prefixes are
+    # written only by n1_queue_held_sweep, n1_queue_held_expire, n1_queue_eligible_rows and n1_queue_gated_expire;
+    # "status changed" and the external-blocker "blocked by <ID>" (no parenthesis, run.md) never match. A row skipped on
+    # its first failing predecessor may be re-skipped by n1_queue_eligible_rows on a second one (Orca only).
+    # Never rewrites ## Schedule (plan-time edges stay), never changes step or run_id.
+    # Prints one TAB line per change: done <#> <KEY> <old-status> | live <#> <KEY> | released <#> <KEY>.
+    # rc 1 (stderr): no queue file or a live runner (nothing changed); a failed row write (lines so far printed; re-run is idempotent).
+    local q="$1" k num t n1h st rows r p pst orun changed
+    local kre='^[A-Za-z][A-Za-z0-9_]*-[0-9]+$'
+    local pre='^predecessor ([A-Za-z][A-Za-z0-9_]*-[0-9]+)( |$)' bre='^blocked by ([A-Za-z][A-Za-z0-9_]*-[0-9]+) \('
+    local -A isdone=()
+    [ -n "$q" ] && [ -f "$q" ] || { echo "No queue runs found." >&2; return 1; }
+    if n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then
+        echo "n1-queue: queue $(n1_read_frontmatter "$q" queue_id) is running; nothing changed" >&2; return 1
+    fi
+    while IFS= read -r k; do
+        k=${k//[[:space:]]/}
+        [[ "$k" =~ $kre ]] && isdone[$k]=1
+    done
+    if [ "${#isdone[@]}" -gt 0 ]; then
+        declare -F n1_orca_identity_guard >/dev/null || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/orca-queue.sh" || return 1
+        orun=$(n1_read_frontmatter "$q" orca_run_id)
+        rows=$(n1_queue_pending_rows "$q" 'failed|escalated|skip|pending|held')
+        while IFS=$'\t' read -r num t _ n1h _ st; do
+            [ -n "$num" ] && [[ "$t" =~ $kre ]] && [ -n "${isdone[$t]:-}" ] || continue
+            case "$st" in
+                failed|escalated)
+                    n1_orca_identity_guard "$n1h" "$t" "$orun" >/dev/null || { printf 'live\t%s\t%s\n' "$num" "$t"; continue; } ;;
+            esac
+            n1_queue_row_status "$q" "$num" done-before-run "done in tracker" || return 1
+            printf 'done\t%s\t%s\t%s\n' "$num" "$t" "$st"
+        done <<< "$rows"
+    fi
+    changed=1
+    while [ "$changed" = 1 ]; do
+        changed=0
+        rows=$(n1_queue_pending_rows "$q" skip)
+        while IFS=$'\t' read -r num t _; do
+            [ -n "$num" ] || continue
+            r=$(n1_queue_row_reason "$q" "$num")
+            if [[ "$r" =~ $pre ]] || [[ "$r" =~ $bre ]]; then p=${BASH_REMATCH[1]}; else continue; fi
+            pst=$(n1_queue_ticket_status "$q" "$p")
+            [ "$pst" = escalated ] && n1_queue_ticket_obsolete "$q" "$p" && pst=obsolete
+            case "$pst" in
+                done-before-run|no-pr|merged|obsolete|pending|held)
+                    n1_queue_row_status "$q" "$num" pending "" clear || return 1
+                    printf 'released\t%s\t%s\n' "$num" "$t"; changed=1 ;;
+            esac
+        done <<< "$rows"
+    done
+}
+
 n1_queue_close() {
     # Usage: n1_queue_close <queue.md> [abandon] — N1-481 (n1-queue --close). Refuses (rc 1, nothing removed) while the
     # runner is alive, a row is in-progress/awaiting-human/escalated, a pr row's PR is neither MERGED nor CLOSED (an
@@ -1696,7 +1756,7 @@ n1_queue_close() {
                 url=$(n1_queue_attested_pr "$q" "$t" "$n1h"); ps=$(n1_queue_pr_state "$url")
                 case "$ps" in MERGED|CLOSED) ;; *) hard+="$t: PR ${ps:-unreadable} ${url:-(no PR)}"$'\n' ;; esac ;;
             # queue.md is child-writable: only known terminal statuses settle a row; empty or unknown blocks close
-            skip|skipped|no-pr|stopped|merged|done|failed|blocked|timeout|obsolete|closed) ;;
+            skip|skipped|no-pr|stopped|merged|done|done-before-run|failed|blocked|timeout|obsolete|closed) ;;
             *) hard+="$t: unknown status '${st:-<empty>}'"$'\n' ;;
         esac
     done 3< <(n1_queue_pending_rows "$q" '.*')

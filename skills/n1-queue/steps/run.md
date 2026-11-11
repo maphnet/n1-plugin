@@ -47,9 +47,9 @@ SRC=$(n1_read_frontmatter "$QUEUE_FILE" story_id 2>/dev/null); printf 'SRC=%s\n'
 
 input.md did not run in this session, so use this `SRC` (the story or Epic ID, else the tag) wherever preview.md prints `<SRC>`, e.g. the Hierarchy block on an Edit re-print.
 
-`INTERRUPTED=yes` (`STEP` is `run` but its runner is gone, N1-183): print "Resuming interrupted run of `<QUEUE_ID>`." and go to § Launch with `RESUME=1`. Skip re-validation: the runner re-adopts `in-progress`/`awaiting-human` rows, runs any fullAuto chain still owed, continues `pending` rows, and never re-runs `pr`/`failed`/`skip` rows.
+`STEP` is `done` or `halted`, or `INTERRUPTED=yes` (`STEP` is `run` but its runner is gone, N1-183): follow § Re-read at the end of this section, not the `STALE` paragraphs below. An interrupted run first prints "Resuming interrupted run of `<QUEUE_ID>`."; after the re-read the runner re-adopts `in-progress`/`awaiting-human` rows, runs any fullAuto chain still owed, continues `pending` rows, and never re-runs `pr`/`failed`/`skip` rows.
 
-Otherwise, `STEP` is not `planned` (or queue.md is missing): print "No saved plan for `<QUEUE_ID>` (step: <STEP or none>). Run `/n1:n1-queue --plan` first." **STOP.**
+Otherwise, `STEP` is not `planned` (queue.md is missing, or another step): print "No saved plan for `<QUEUE_ID>` (step: <STEP or none>). Run `/n1:n1-queue --plan` first." **STOP.**
 
 `STALE=no`: print `Schedule: <SCHEDULE>` when it is non-empty. When `PLANNED_MAXC` and `LIVE_MAXC` are both set and differ, print `Using planned max_concurrent=<PLANNED_MAXC> (config now says <LIVE_MAXC>); re-plan with /n1:n1-queue --plan to change it.` The runner uses the stored value. If `PLANNED_MAXC` is empty, the plan was made before N1-303, and the runner falls back to live `queue.maxConcurrent` and logs that. Then go to § Launch (`RESUME=0`).
 
@@ -116,6 +116,35 @@ source "$N1_ROOT/lib/queue.sh"
 n1_write_frontmatter "$QUEUE_DIR/queue.md" planned_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 n1_queue_schedule_write "$QUEUE_DIR/queue.md" || echo "SCHEDULE_WRITE=failed"
 ```
+
+### Re-read (step done, halted or interrupted run)
+
+N1-536: work finished outside the queue (ticket done in the tracker, PR merged by hand) must not leave its row failed and its dependents skipped. The busy guard already ran, so no runner is live. This re-read does not re-run the duplicate, Touches or Decisions checks of the `STALE=yes` path.
+
+1. List the tickets to read:
+   ```bash
+   source ~/.n1/preamble.sh
+   source "$N1_ROOT/lib/queue.sh"
+   n1_queue_pending_rows "$QUEUE_DIR/queue.md" 'failed|escalated|skip|pending|held' | cut -f2 | sort -u
+   ```
+   `pr`, `in-progress`, `awaiting-human`, `merged`, `no-pr` and `done-before-run` rows are not read.
+2. Call `mcp__<TRACKER_MCP>__<READ_OP>` once per listed ticket. A ticket is done-class when its status's lowercase name is one of `done`, `closed`, `resolved`, `fixed`, `verified` (intake.md § Story mode status classification), in every queue mode (not the tag-mode `TODO_STATUS` test). A read error counts as not done: record the ticket for the summary and go on.
+3. Apply the changes. Pass only the done-class keys, never a status name (status names can contain quotes); with no done-class key, run it with no key arguments (`printf '%s\n'`), since the release pass still runs:
+   ```bash
+   source ~/.n1/preamble.sh
+   source "$N1_ROOT/lib/queue.sh"
+   printf '%s\n' '<DONE_KEY1>' '<DONE_KEY2>' | n1_queue_rerun_release "$QUEUE_DIR/queue.md" || echo "RERUN=failed"
+   ```
+   `RERUN=failed`: print its stderr text and **STOP**. Each output line is TAB-separated: `done <#> <KEY> <old status>` (row set to `done-before-run`, Reason `done in tracker`), `live <#> <KEY>` (failed or escalated row left unchanged because its worker may still be running; its dependents stay skipped), `released <#> <KEY>` (a row skipped because of an in-plan predecessor is `pending` again). Rows skipped for `status changed` or an external `blocked by <ID>` are never released.
+4. **Blocker check (every `released` row):** follow intake.md § Blocker check for its ticket, as in step 3 of the `STALE=yes` path above. External blocker -> `n1_queue_row_status "$QUEUE_DIR/queue.md" <#> skip "blocked by <ID>"`. Same-plan blocker -> `n1_queue_row_status "$QUEUE_DIR/queue.md" <#> held "blocked_on <ID>"`. None -> the row stays `pending`.
+5. Count the rows left to run:
+   ```bash
+   source ~/.n1/preamble.sh
+   source "$N1_ROOT/lib/queue.sh"
+   printf 'LEFT=%s\n' "$(n1_queue_pending_rows "$QUEUE_DIR/queue.md" 'pending|held' | wc -l | tr -d ' ')"
+   ```
+   Print the change summary: "Re-read <N> ticket(s) for `<QUEUE_ID>`: done-before-run: <KEYs>; released: <KEYs>; after the blocker check: <KEY: held|skip>; left as is, worker may still be running (stop it first with /n1:n1-queue --stop): <KEYs>; tracker read failed: <KEYs>." Omit empty parts. With no change, print "Re-read <N> ticket(s) for `<QUEUE_ID>`: no change."
+6. `INTERRUPTED=yes`: go to § Launch with `RESUME=1` whatever `LEFT` is. `STEP` `done` or `halted` with `LEFT=0`: print "Nothing left to run for `<QUEUE_ID>`; the step is unchanged." **STOP** (no launch; `step` and `run_id` stay as they are). `LEFT` above 0: go to § Launch with `RESUME=1`; the run keeps its run id and the runner sets `step: run` itself. With the workspace manager running and `queue.backend` not `bg`, a released row waits for its `## Schedule` predecessors; the bg backend runs rows in plan order.
 
 ## Write plan (bare and `--plan`)
 
@@ -199,7 +228,7 @@ Bare and `--unattended`: continue to § Launch.
 
 ## Launch
 
-Launch the runner. The run id is stamped here (the runner reuses it) so the watch knows it up front; `owner_session` records the launching session. `<RESUME>` is `1` only when § Saved plan found an interrupted run (the run keeps its run id, so rows already finished in it are not re-run); every other entry uses `0`:
+Launch the runner. The run id is stamped here (the runner reuses it) so the watch knows it up front; `owner_session` records the launching session. `<RESUME>` is `1` only when § Saved plan found an interrupted run or § Re-read relaunches a done or halted queue (the run keeps its run id, so rows already finished in it are not re-run); every other entry uses `0`:
 
 ```bash
 source ~/.n1/preamble.sh
