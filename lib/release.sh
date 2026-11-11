@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lib/release.sh -- release scope helpers, Confluence Result parser and readiness signal (N1-176).
+# lib/release.sh -- release scope helpers, blocker-link parser (N1-539), Confluence Result parser and readiness signal (N1-176).
 # Callers: skills/n1-release steps 01 and 03b, skills/n1-release-test. Source after the preamble.
 _N1_RELEASE_TAG_RE='^v[0-9]+\.[0-9]+\.[0-9]+([-+.][0-9A-Za-z.-]+)?$'
 
@@ -38,6 +38,51 @@ n1_release_ticket_ids() {
         log=$(git log "${head}" --oneline --no-decorate 2>/dev/null || true)
     fi
     sed -nE "s/^[0-9a-f]+ \[(${prefix}-[0-9]+)\].*/\1/p" <<<"$log" | sort -u
+}
+
+# n1_release_blockers <release-ids>: stdin lines <TICKET><TAB><jcm_getIssueLinks JSON array on one line>.
+# Prints <BLOCKER><TAB><T1,T2,...> once per blocker outside <release-ids> (newline separated), sorted; rc 0.
+# A Blocks link with inwardIssue means the queried ticket "is blocked by" that key (references/blocker-check.md).
+# Keys failing ^[A-Z][A-Z0-9_]*-[0-9]+$, non-arrays and malformed JSON are dropped: tracker data is untrusted (N1-539 D7).
+# ponytail: jc-mcp shape only (type name + bare keys); a renamed blocking link type or YouTrack relations give no rows.
+n1_release_blockers() {
+    local ids="${1:-}" re='^[A-Z][A-Z0-9_]*-[0-9]+$' t j b
+    while IFS=$'\t' read -r t j; do
+        [[ "$t" =~ $re ]] || continue
+        while IFS= read -r b; do
+            [[ "$b" =~ $re ]] || continue
+            grep -qxF -- "$b" <<<"$ids" && continue
+            printf '%s\t%s\n' "$b" "$t"
+        done < <(jq -r 'if type == "array" then .[] else empty end
+            | select(type == "object" and .type == "Blocks" and (.inwardIssue | type) == "string")
+            | .inwardIssue' <<<"$j" 2>/dev/null)
+    done | LC_ALL=C sort -u | LC_ALL=C awk -F'\t' '
+        $1 != k { if (k != "") print k "\t" v; k = $1; v = $2; next }
+        { v = v "," $2 }
+        END { if (k != "") print k "\t" v }'
+    return 0
+}
+
+# n1_release_blocker_rows <done-status> [<prefix>]: stdin lines <KEY><TAB><status><TAB><tickets><TAB><title>
+# (title last; extra tabs are joined into it). Prints <KEY><TAB><done|not done><TAB><owner><TAB><status><TAB><tickets><TAB><title>.
+# done: status equals <done-status> case-insensitively; an empty <done-status> or status is "not done" (fails toward warning).
+# owner: title service tag "<service> | ...", else the key prefix when it differs from <prefix>, else "unknown".
+# <prefix>: argument, else PREFIX env, else .tracker.prefix. Rows whose key fails the key pattern are dropped.
+# ponytail: the tag rule mirrors n1_story_parse_service (lib/queue.sh), which is not sourced here (needs config/host/frontmatter); change both together.
+n1_release_blocker_rows() {
+    local ds="${1:-}" prefix="${2:-${PREFIX:-$(n1_config_val '.tracker.prefix')}}"
+    LC_ALL=C awk -F'\t' -v d="$ds" -v p="$prefix" '
+        { sub(/\r$/, "") }
+        $1 !~ /^[A-Z][A-Z0-9_]*-[0-9]+$/ { next }
+        {
+            st = $2; gsub(/^[ \t]+|[ \t]+$/, "", st)
+            t = $4; for (i = 5; i <= NF; i++) t = t " " $i
+            state = (d != "" && st != "" && tolower(st) == tolower(d)) ? "done" : "not done"
+            own = ""; x = index(t, " |")
+            if (x) { own = substr(t, 1, x - 1); sub(/[ \t]+$/, "", own) }
+            if (own == "") { k = $1; sub(/-[0-9]+$/, "", k); own = (k != p) ? k : "unknown" }
+            print $1 "\t" state "\t" own "\t" st "\t" $3 "\t" t
+        }'
 }
 
 # n1_release_page_results: stdin is a jcm_getArticle body. Prints <case-id><TAB><result>[<TAB><tested-at>] for rows of the first
