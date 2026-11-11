@@ -1124,7 +1124,7 @@ printf -- '---\nstep: analysis\n---\n' > "$N1_HOME/memory/Q-1/overview.md"
 echo '{}' > "$N1_HOME/config.json"
 nq() {  # nq [VAR=val ...] -> prints hook exit code; the fake Orca CLI logs every call (the card update is backgrounded)
   local rc=0; : > "$NQLOG"
-  jq -cn --arg c "$NQDIR" '{session_id:"s-nq",tool_name:"AskUserQuestion",cwd:$c}' | env -u N1_HEADLESS -u N1_QUEUE_RUN_ID -u N1_RUN_ID ORCA_CLI_COMMAND="$NQBIN/fake-orca" "$@" bash "$NQ" >"$T/nq.out" 2>&1 || rc=$?
+  cd "$NQDIR" && jq -cn --arg c "$NQDIR" '{session_id:"s-nq",tool_name:"AskUserQuestion",cwd:$c}' | env -u N1_HEADLESS -u N1_QUEUE_RUN_ID -u N1_RUN_ID ORCA_CLI_COMMAND="$NQBIN/fake-orca" "$@" bash "$NQ" >"$T/nq.out" 2>&1 || rc=$?
   echo "$rc"
 }
 nq_calls() { sleep 0.3; wc -l < "$NQLOG" | tr -d ' '; }  # guard cases: give a wrongly-spawned update time to log
