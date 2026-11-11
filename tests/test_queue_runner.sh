@@ -2604,6 +2604,27 @@ EOF
     _close
     assert_eq "close: integration queue with a merged final PR closed" "0|no" "$rc|$(_qd)"
     assert_eq "close: integration queue skips the hand-merge reconcile" "no" "$(_has 'reconciled: T-1')"
+
+    # N1-532: an integration child that landed (Runs Outcome merged) but was not finished by /n1:n1-finish <final PR> refuses
+    _mkq q5b done failed; n1_write_frontmatter "$q" integration queue
+    printf '\n## Final PRs\n| Repo | PR | Draft | Mergeable | Note |\n|---|---|---|---|---|\n| %s | https://github.com/o/r/pull/9 | no | yes | |\n' \
+        "$tmp/norepo" >> "$q"
+    n1_queue_event "${q%/*}/events.jsonl" q5b R1 final_pr_opened pr=https://github.com/o/r/pull/9
+    n1_queue_runs_outcome "$q" T-1 merged https://github.com/o/r/pull/1
+    mkdir -p "$h/memory/T-1"; printf -- '---\nawaiting: merge\n---\n' > "$h/memory/T-1/overview.md"
+    _close
+    assert_eq "close: landed unfinished integration child refuses (N1-532)" "1|yes|yes" \
+        "$rc|$(_has 'T-1: landed, not finished (run /n1:n1-finish <final PR> first)')|$(_qd)"
+    _close abandon
+    assert_eq "close: abandon waives the unfinished-child refusal (N1-532)" "0|no" "$rc|$(_qd)"
+    _mkq q5c done failed; n1_write_frontmatter "$q" integration queue
+    printf '\n## Final PRs\n| Repo | PR | Draft | Mergeable | Note |\n|---|---|---|---|---|\n| %s | https://github.com/o/r/pull/9 | no | yes | |\n' \
+        "$tmp/norepo" >> "$q"
+    n1_queue_event "${q%/*}/events.jsonl" q5c R1 final_pr_opened pr=https://github.com/o/r/pull/9
+    n1_queue_runs_outcome "$q" T-1 merged https://github.com/o/r/pull/1
+    printf -- '---\nstep: done\n---\n' > "$h/memory/T-1/overview.md"   # a finished child: no awaiting marker
+    _close
+    assert_eq "close: finished integration child does not refuse (N1-532)" "0|no" "$rc|$(_qd)"
 }
 
 

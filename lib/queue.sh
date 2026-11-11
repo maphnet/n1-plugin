@@ -1639,7 +1639,7 @@ n1_queue_close() {
     # Usage: n1_queue_close <queue.md> [abandon] — N1-481 (n1-queue --close). Refuses (rc 1, nothing removed) while the
     # runner is alive, a row is in-progress/awaiting-human/escalated, a pr row's PR is neither MERGED nor CLOSED (an
     # unreadable state counts as open), an integration queue's final PR is not merged, or a pending/held/deferred row is
-    # left. A dead step: run queue returns rc 2 (nothing removed) unless `abandon` is given; abandon waives only
+    # left. N1-532: an integration: queue landed row whose overview still says awaiting: merge is a soft refusal (abandon waives it). A dead step: run queue returns rc 2 (nothing removed) unless `abandon` is given; abandon waives only
     # pending/held/deferred rows. Reconciles first (not on integration queues), so a PR merged by hand counts. Then removes, in order: each merged
     # row's worktree (n1_clean_ticket <T> queue in the row's Repo and N1 Home, queue-event env unset; a skip is
     # reported, never fatal), every row's Orca identity and session pointers, the queue dir. No archive. Prints what it removed.
@@ -1674,7 +1674,13 @@ n1_queue_close() {
             in-progress) if [ "$rstep" = run ]; then soft+="$t: $st"$'\n'; else hard+="$t: $st"$'\n'; fi ;;
             awaiting-human|escalated) hard+="$t: $st"$'\n' ;;
             pending|held|deferred) soft+="$t: $st"$'\n' ;;
-            pr) [ "$(_n1_queue_run_outcome "$q" "$t")" = merged ] && continue
+            pr) if [ "$(_n1_queue_run_outcome "$q" "$t")" = merged ]; then
+                    # N1-532: a landed integration: queue child closes at /n1:n1-finish <final PR>, which reads this queue.md
+                    [ "$(n1_read_frontmatter "$q" integration)" = queue ] && [ -n "$n1h" ] && [[ "$t" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+                        && grep -q '^awaiting: merge$' "$n1h/memory/$t/overview.md" 2>/dev/null \
+                        && soft+="$t: landed, not finished (run /n1:n1-finish <final PR> first)"$'\n'
+                    continue
+                fi
                 url=$(n1_queue_attested_pr "$q" "$t" "$n1h"); ps=$(n1_queue_pr_state "$url")
                 case "$ps" in MERGED|CLOSED) ;; *) hard+="$t: PR ${ps:-unreadable} ${url:-(no PR)}"$'\n' ;; esac ;;
             # queue.md is child-writable: only known terminal statuses settle a row; empty or unknown blocks close
