@@ -273,6 +273,59 @@ n1_queue_final_body() {
     echo "$nl $nr"
 }
 
+n1_queue_final_landed() {
+    # Usage: n1_queue_final_landed <final-pr-url> — N1-532 (n1-finish on a queue final PR). Finds the one integration:
+    # queue queue.md under $N1_HOME/queue whose "## Final PRs" lists <final-pr-url> with a runner-written final_pr_opened
+    # event (n1_queue_final_prs with events), and prints "queue <queue.md>", then one line per Plan row of that row's Repo:
+    # "landed\t<ticket>\t<child-pr-url>" (Runs Outcome merged, row N1 Home is this $N1_HOME, child PR re-read MERGED) or
+    # "unlanded\t<ticket|->\t<why>". queue.md is child-writable: ids are checked, PR state comes from gh. No match prints
+    # queue:none, more than one queue:ambiguous (rc 1 both; nothing is guessed).
+    local pr="$1" f q="" repo="" r n=0 num t h st url
+    [[ "$pr" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || { echo queue:none; return 1; }
+    for f in "$N1_HOME"/queue/*/queue.md; do
+        { [ -f "$f" ] && [ "$(n1_read_frontmatter "$f" integration)" = queue ]; } || continue
+        r=$(n1_queue_final_prs "$f" "$(dirname "$f")/events.jsonl" "$(n1_read_frontmatter "$f" run_id)" \
+            | awk -F'\t' -v u="$pr" '$2 == u { print $1 }')
+        [ -n "$r" ] || continue
+        n=$((n + 1)); q="$f"; repo="$r"
+        [ "$(wc -l <<< "$r")" = 1 ] || n=2   # one final PR listed for two repos: fail closed
+    done
+    [ "$n" = 1 ] || { if [ "$n" = 0 ]; then echo queue:none; else echo queue:ambiguous; fi; return 1; }
+    echo "queue $q"
+    while IFS=$'\t' read -r num t r h _ st; do
+        [ "$r" = "$repo" ] || continue
+        [[ "$t" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { printf 'unlanded\t-\tinvalid ticket id\n'; continue; }
+        if [ "$(_n1_queue_run_outcome "$q" "$t")" != merged ]; then
+            st=$(_n1_queue_sanitize_cell "$st"); printf 'unlanded\t%s\t%s\n' "$t" "${st:0:40}"
+        elif ! [ "$h" -ef "$N1_HOME" ]; then
+            printf 'unlanded\t%s\tother N1 Home\n' "$t"
+        else
+            url=$(n1_queue_attested_pr "$q" "$t" "$h")
+            if [ "$(n1_queue_pr_state "$url")" = MERGED ]; then printf 'landed\t%s\t%s\n' "$t" "$url"
+            else printf 'unlanded\t%s\tchild PR not merged\n' "$t"; fi
+        fi
+    done < <(n1_queue_pending_rows "$q" '.*')
+}
+
+n1_queue_finish_child() {
+    # Usage: n1_queue_finish_child <ticket> <child-pr-url> <final-pr-url> <ticket-line> — N1-532: after n1-finish moved a
+    # landed queue child to done, upserts its overview "## Finish" (as n1-finish Step 6 item 4), clears the awaiting-merge
+    # marker, sets step done, then removes its worktree and branch (n1_clean_ticket <T> queue, queue env unset, as
+    # n1_queue_close does). Run it in the row's repo. Safe to re-run.
+    local t="$1" ov tmp
+    [[ "$t" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "$t: skipped (invalid ticket id)"; return 1; }
+    ov="$N1_HOME/memory/$t/overview.md"
+    if [ -f "$ov" ]; then
+        tmp=$(mktemp "$ov.XXXXXX") || return 1
+        awk '/^## /{s=/^## Finish\r?$/} !s' "$ov" > "$tmp" && mv "$tmp" "$ov"
+        printf '\n## Finish\n- **Merged:** via queue final PR %s\n- **Deploy:** not watched; delivery not run (queue final PR)\n- **Ticket:** %s\npr_url: %s\n' \
+            "$3" "$4" "$2" >> "$ov"
+        n1_pending_clear "$ov"; n1_write_frontmatter "$ov" step done
+        echo "$t: memory:done"
+    else echo "$t: memory:none"; fi
+    ( unset N1_QUEUE_DIR N1_QUEUE_RUN_ID N1_RUN_ID; n1_clean_ticket "$t" queue </dev/null 2>&1 )
+}
+
 n1_queue_final_cmd() {
     # Usage: n1_queue_final_cmd <worktree> <n1-home> <run-id> <session-name> <id> <default-branch> <body-file> <draft:0|1> [kind=story|queue]
     # N1-293 (N1-289 D7): background n1-run session, cwd a detached worktree of origin/<kind>/<id>, that applies the
