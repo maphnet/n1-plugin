@@ -2604,6 +2604,27 @@ EOF
     _close
     assert_eq "close: integration queue with a merged final PR closed" "0|no" "$rc|$(_qd)"
     assert_eq "close: integration queue skips the hand-merge reconcile" "no" "$(_has 'reconciled: T-1')"
+
+    # N1-532: an integration child that landed (Runs Outcome merged) but was not finished by /n1:n1-finish <final PR> refuses
+    _mkq q5b done failed; n1_write_frontmatter "$q" integration queue
+    printf '\n## Final PRs\n| Repo | PR | Draft | Mergeable | Note |\n|---|---|---|---|---|\n| %s | https://github.com/o/r/pull/9 | no | yes | |\n' \
+        "$tmp/norepo" >> "$q"
+    n1_queue_event "${q%/*}/events.jsonl" q5b R1 final_pr_opened pr=https://github.com/o/r/pull/9
+    n1_queue_runs_outcome "$q" T-1 merged https://github.com/o/r/pull/1
+    mkdir -p "$h/memory/T-1"; printf -- '---\nawaiting: merge\n---\n' > "$h/memory/T-1/overview.md"
+    _close
+    assert_eq "close: landed unfinished integration child refuses (N1-532)" "1|yes|yes" \
+        "$rc|$(_has 'T-1: landed, not finished (run /n1:n1-finish <final PR> first)')|$(_qd)"
+    _close abandon
+    assert_eq "close: abandon waives the unfinished-child refusal (N1-532)" "0|no" "$rc|$(_qd)"
+    _mkq q5c done failed; n1_write_frontmatter "$q" integration queue
+    printf '\n## Final PRs\n| Repo | PR | Draft | Mergeable | Note |\n|---|---|---|---|---|\n| %s | https://github.com/o/r/pull/9 | no | yes | |\n' \
+        "$tmp/norepo" >> "$q"
+    n1_queue_event "${q%/*}/events.jsonl" q5c R1 final_pr_opened pr=https://github.com/o/r/pull/9
+    n1_queue_runs_outcome "$q" T-1 merged https://github.com/o/r/pull/1
+    printf -- '---\nstep: done\n---\n' > "$h/memory/T-1/overview.md"   # a finished child: no awaiting marker
+    _close
+    assert_eq "close: finished integration child does not refuse (N1-532)" "0|no" "$rc|$(_qd)"
 }
 
 
@@ -2865,8 +2886,8 @@ test_final_body() {
     assert_eq "final-body queue: heading" "## Queue sq-20261106T000000Z: final PR" "$(head -n1 "$tmp/qbody.md")"
     assert_eq "final-body queue: opened from the queue branch" yes \
         "$(grep -qF 'from queue/sq-20261106T000000Z (N1-293)' "$tmp/qbody.md" && echo yes || echo no)"
-    assert_eq "final-body queue: finish closes no ticket" yes \
-        "$(grep -qF 'After the merge, run /n1:n1-finish with this PR number; it closes no ticket and deletes the local queue branch; the remote branch follows' "$tmp/qbody.md" && echo yes || echo no)"
+    assert_eq "final-body queue: finish closes landed children" yes \
+        "$(grep -qF 'After the merge, run /n1:n1-finish with this PR number; it moves each landed child to done, removes its worktree and deletes the local queue branch; the remote branch follows' "$tmp/qbody.md" && echo yes || echo no)"
     n1_queue_final_body "$q" /r1 S-1 "$tmp/sbody2.md" story >/dev/null
     assert_eq "final-body: explicit story kind equals the default" "" "$(cmp "$tmp/sbody.md" "$tmp/sbody2.md" 2>&1)"
     assert_eq "final-body: unknown kind -> 1" 1 "$(n1_queue_final_body "$q" /r1 S-1 "$tmp/x.md" release >/dev/null 2>&1; echo $?)"
@@ -3041,6 +3062,14 @@ test_queue_chain_wiring() {
         "$(grep -qF '**Queue chain (N1-447).**' "$REPO_ROOT/skills/n1-queue/steps/run.md" && echo yes || echo no)"
     assert_eq "chain-wiring: architecture documents it" yes \
         "$(grep -qF '**Queue chain (N1-447).**' "$REPO_ROOT/references/architecture.md" && echo yes || echo no)"
+    assert_eq "close-wiring: step 7 lists landed children (N1-532)" yes \
+        "$(grep -qF 'n1_queue_final_landed "<merged final PR url>"' "$f7" && echo yes || echo no)"
+    assert_eq "close-wiring: step 7 finishes each child after the tracker move" yes \
+        "$(grep -qF 'n1_queue_finish_child "<T>" "<child PR url>" "<merged final PR url>"' "$f7" && echo yes || echo no)"
+    assert_eq "close-wiring: step 1 names the child close" yes \
+        "$(grep -qF 'closes the landed children' "$REPO_ROOT/skills/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
+    assert_eq "close-wiring: a closed final PR lists children left open" yes \
+        "$(grep -qF 'left open:' "$REPO_ROOT/skills/n1-finish/steps/02-merge.md" && echo yes || echo no)"
 }
 
 test_queue_integration_wiring() {

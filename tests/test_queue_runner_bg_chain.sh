@@ -627,6 +627,11 @@ test_queue_merge_green() {
         "$(jq -r '[.env.N1_STORY_ID,.env.N1_STORY_BRANCH]|join(",")' "$tmp/fake/settings.n1-sq-T-A-1")"
     assert_eq "queue-merge: local queue branch fast-forwarded" "$(git -C "$tmp/origin" rev-parse "$QB")" \
         "$(git -C "$tmp/repo" rev-parse "$QB" 2>/dev/null)"
+    assert_eq "queue-merge: no Done session (N1-532)" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-A-1-done')"
+    assert_eq "queue-merge: Status pr, Reason defers Done" "pr|merged; done at final PR" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "queue-merge: log names the deferral" yes \
+        "$(grep -qF 'T-A done deferred to the final PR' "$tmp/output.txt" && echo yes || echo no)"
     rm -rf "$tmp"
 }
 
@@ -639,6 +644,8 @@ test_queue_held_released_after_runner_merge() {
     run_bg_queue "$tmp" >/dev/null
     assert_eq "queue-held: blocker merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
     assert_eq "queue-held: successor launched" 1 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-B-2')"
+    assert_eq "queue-held: no Done session for either child (N1-532)" "0|0" \
+        "$(count_x "$tmp/fake/events" 'launch n1-sq-T-A-1-done')|$(count_x "$tmp/fake/events" 'launch n1-sq-T-B-2-done')"
     rm -rf "$tmp"
 }
 

@@ -738,15 +738,19 @@ story_merge() {
 
 # story_merged <num> <ticket> <repo> <n1-home> <pr-url> <reason> — N1-292. Records Runs Outcome merged and Reason <reason>.
 # The Reason is not a finish:* value, so it overwrites a stale finish:* that would block dependents (an empty Reason
-# would keep the old one). Then: ticket_finished event, best-effort local fast-forward of SB, one Done session.
-# There is no default-branch sync and no n1-clean (story children keep their worktrees).
+# would keep the old one). Then: ticket_finished event, best-effort local fast-forward of SB, and in story mode one Done
+# session. N1-532: in queue mode (integration: queue) the ticket stays open; the Reason gains "; done at final PR" and
+# /n1:n1-finish <final PR> moves every landed child to done. There is no default-branch sync and no n1-clean (children
+# keep their worktrees).
 story_merged() {
+    local why="$6"
+    [ "$RUN_MODE" = queue ] && why="$6; done at final PR"
     n1_queue_runs_outcome "$QUEUE" "$2" merged "$5"
-    n1_queue_row_status "$QUEUE" "$1" pr "$6"
-    ev ticket_finished ticket="$2" outcome=merged pr="$5" session="$(n1_queue_session_id "$QUEUE" "$2")" reason="$6"
-    echo "[$1] $2 -> merged $5 ($6)"
+    n1_queue_row_status "$QUEUE" "$1" pr "$why"
+    ev ticket_finished ticket="$2" outcome=merged pr="$5" session="$(n1_queue_session_id "$QUEUE" "$2")" reason="$why"
+    echo "[$1] $2 -> merged $5 ($why)"
     n1_queue_sync_story "$3" "$SB" </dev/null || echo "[$1] $2: local $SB not fast-forwarded in $3 (children branch from origin/$SB)"
-    story_done "$1" "$2" "$3" "$4"
+    if [ "$RUN_MODE" = queue ]; then echo "[$1] $2 done deferred to the final PR"; else story_done "$1" "$2" "$3" "$4"; fi
 }
 
 # story_done <num> <ticket> <repo> <n1-home> — N1-292: one headless n1-run session that moves the ticket to the
