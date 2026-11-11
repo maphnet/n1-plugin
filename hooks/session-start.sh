@@ -398,9 +398,13 @@ if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && comm
             MERGED)
                 # N1-532: a child merged into a queue/story integration branch is finished with the final PR
                 if [[ "$base" =~ ^(queue|story)/[A-Za-z0-9._-]+$ ]]; then
-                    hint="<final PR>"; [ "${base%%/*}" = story ] && hint="<story id>"   # story final PR: /n1:n1-finish <STORY_ID> (n1_queue_final_body)
-                    pending_context="${pending_context}
-- ${tid}: PR #${pr_num} merged into integration branch ${base}; finish happens with the final PR (/n1:n1-finish ${hint})"
+                    if [ "${base%%/*}" = story ]; then   # story children are already Done at merge; n1-finish <story id> does not clear the marker
+                        pending_context="${pending_context}
+- ${tid}: PR #${pr_num} merged into integration branch ${base}; ticket already done at merge; clear with /n1:n1-clean --ticket ${tid} after the story final PR merges"
+                    else
+                        pending_context="${pending_context}
+- ${tid}: PR #${pr_num} merged into integration branch ${base}; finish happens with the final PR (/n1:n1-finish <final PR>)"
+                    fi
                 else
                     pending_context="${pending_context}
 - ${tid}: PR #${pr_num} was MERGED externally — finish is pending. Suggested next action: run /n1:n1-finish ${tid}"
