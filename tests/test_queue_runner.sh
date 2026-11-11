@@ -350,6 +350,127 @@ EOF
     assert_eq "retry: no queue" "1|No queue runs found." "$rc|$out"
 }
 
+# N1-536: --run on a done/halted/interrupted queue marks tracker-done rows done-before-run and releases rows skipped only
+# because of an in-plan predecessor. Skip rows are built by the real writers (eligible_rows, gated_expire, held_sweep,
+# held_expire), so a reworded writer Reason fails here. Bugs caught: a still-failed, not-in-plan or at-pr predecessor
+# releasing its dependent; "status changed" or an external "blocked by <ID>" released; a chain released one level only;
+# a row with a possibly live Orca worker changed; a live runner's queue changed; a second call not idempotent.
+test_rerun_release() {
+    local tmp q q2 h out rc; source "$REPO_ROOT/lib/orca-queue.sh"   # before the RETURN trap: sourcing fires it
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q="$tmp/queue/q1/queue.md"; h="$tmp/h"; mkdir -p "${q%/*}" "$h/queue/sentinels"
+    cat > "$q" <<EOF
+---
+queue_id: q1
+run_id: R1
+step: done
+orca_run_id: run-1
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | /r | $h | sonnet | failed | child-exited-incomplete |
+| 2 | T-2 | B | /r | $h | sonnet | pending | |
+| 3 | T-3 | C | /r | $h | sonnet | pending | |
+| 4 | T-4 | D | /r | $h | sonnet | held | blocked_on T-1 |
+| 5 | T-5 | E | /r | $h | sonnet | failed | boom |
+| 6 | T-6 | F | /r | $h | sonnet | pending | |
+| 7 | T-7 | G | /r | $h | sonnet | pending | |
+| 8 | T-8 | H | /r | $h | sonnet | skip | status changed |
+| 9 | T-9 | I | /r | $h | sonnet | skip | blocked by EXT-1 |
+| 10 | T-10 | J | /r | $h | sonnet | held | blocked_on T-99 |
+| 11 | T-11 | K | /r | $h | sonnet | pr | |
+| 12 | T-12 | L | /r | $h | sonnet | deferred | |
+| 13 | T-13 | M | /r | $h | sonnet | pending | |
+| 14 | T-14 | N | /r | $h | sonnet | pending | |
+| 15 | T-15 | O | /r | $h | sonnet | skip | status changed |
+
+## Schedule
+| Ticket | After |
+|--------|-------|
+| T-2 | T-1 |
+| T-3 | T-2 |
+| T-6 | T-5 |
+| T-7 | T-98 |
+| T-13 | T-14 |
+EOF
+    # Build the skip rows with the runner's own writers.
+    n1_queue_eligible_rows "$q" false > /dev/null
+    n1_queue_gated_expire "$q"
+    n1_queue_held_sweep "$q" > /dev/null
+    n1_queue_row_status "$q" 12 held "blocked_on T-11"; n1_queue_held_expire "$q"
+    local n r=""; for n in 2 3 4 6 7 10 12 13 14; do r+="$(plan_cell "$q" "$n" 9)|"; done
+    assert_eq "rerun: writers produced the parsed Reasons" \
+        "predecessor T-1 failed|predecessor T-2 skip|blocked by T-1 (failed)|predecessor T-5 failed|predecessor T-98 not in plan|blocked by T-99 (not in plan)|blocked by T-11 (not merged)|predecessor T-14 not released (not at PR or not merged)|predecessor not released (not at PR or not merged)|" "$r"
+    _st() { local n s=""; for n in "$@"; do s+="$(plan_cell "$q" "$n" 8),"; done; printf '%s' "${s%,}"; }
+
+    # AC1 chain + AC4: T-1 done in the tracker releases T-2, T-3 (transitively) and T-4 (held-sweep form); nothing else.
+    out=$(printf 'T-1\nT-15\nbad;key\n' | n1_queue_rerun_release "$q")
+    assert_eq "rerun: change lines in plan order" "$(printf 'done\t1\tT-1\tfailed\ndone\t15\tT-15\tskip\nreleased\t2\tT-2\nreleased\t3\tT-3\nreleased\t4\tT-4')" "$out"
+    assert_eq "rerun: done row marked with fixed Reason" "done-before-run|done in tracker" "$(plan_cell "$q" 1 8)|$(plan_cell "$q" 1 9)"
+    assert_eq "rerun: released rows pending, Reason cleared" "pending,pending,pending||||" "$(_st 2 3 4)|$(plan_cell "$q" 2 9)|$(plan_cell "$q" 3 9)|$(plan_cell "$q" 4 9)|"
+    # AC3: still-failed predecessor; AC4: status changed / external blocker; tightened list: not in plan, at pr, keyless.
+    assert_eq "rerun: unreleasable skips stay skip" "skip,skip,skip,skip,skip,skip,skip,skip" "$(_st 6 7 8 9 10 12 13 14)"
+    assert_eq "rerun: status changed and external blocker Reasons kept" "status changed|blocked by EXT-1" "$(plan_cell "$q" 8 9)|$(plan_cell "$q" 9 9)"
+    assert_eq "rerun: status-changed row whose own ticket is done" "done-before-run" "$(plan_cell "$q" 15 8)"
+    assert_eq "rerun: pr row and failed row untouched" "pr,failed" "$(_st 11 5)"
+    assert_eq "rerun: step and run_id untouched" "done|R1" "$(n1_read_frontmatter "$q" step)|$(n1_read_frontmatter "$q" run_id)"
+    # Idempotent.
+    out=$(printf 'T-1\nT-15\n' | n1_queue_rerun_release "$q")
+    assert_eq "rerun: second call changes nothing" "" "$out"
+    # A done keyless gated row (its own ticket done) releases the row gated on it.
+    out=$(printf 'T-14\n' | n1_queue_rerun_release "$q")
+    assert_eq "rerun: gated predecessor done releases its successor" "$(printf 'done\t14\tT-14\tskip\nreleased\t13\tT-13')" "$out"
+
+    # AC5: a failed row whose Orca worker may be live stays failed and keeps its dependent skipped; fail closed.
+    printf 'N1_ORCA_TASK=task-5\nN1_ORCA_RUN=run-1\n' > "$h/queue/sentinels/T-5.env"
+    n1_orca_liveness() { printf 'd-5\ttask-5\tlive\t\n'; }
+    out=$(printf 'T-5\n' | n1_queue_rerun_release "$q")
+    assert_eq "rerun: live worker row left, dependent kept" "$(printf 'live\t5\tT-5')|failed,skip" "$out|$(_st 5 6)"
+    n1_orca_liveness() { return 1; }
+    out=$(printf 'T-5\n' | n1_queue_rerun_release "$q")
+    assert_eq "rerun: unreadable worker list counts as live" "$(printf 'live\t5\tT-5')|failed" "$out|$(_st 5)"
+    n1_orca_liveness() { :; }
+    out=$(printf 'T-5\n' | n1_queue_rerun_release "$q")
+    assert_eq "rerun: no live worker marks and releases" "$(printf 'done\t5\tT-5\tfailed\nreleased\t6\tT-6')" "$out"
+
+    # pending/held rows, escalated live guard, live runner, missing file, invalid key.
+    q2="$tmp/queue/q2/queue.md"; mkdir -p "${q2%/*}"
+    cat > "$q2" <<EOF
+---
+queue_id: q2
+run_id: R2
+step: halted
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | U-1 | A | /r | $h | sonnet | pending | |
+| 2 | U-2 | B | /r | $h | sonnet | held | blocked_on U-1 |
+| 3 | U-3 | C | /r | $h | sonnet | escalated | review fix cap |
+EOF
+    _same() { cmp -s "$q2" "$tmp/orig.md" && echo same || echo changed; }
+    cp "$q2" "$tmp/orig.md"
+    rc=0; out=$(printf 'U-1;rm\n' | n1_queue_rerun_release "$q2") || rc=$?
+    assert_eq "rerun: invalid key ignored" "0||same" "$rc|$out|$(_same)"
+    start_fake_runner "$REPO_ROOT" "$q2"; n1_write_frontmatter "$q2" pid "$FAKE_RUNNER_PID"; cp "$q2" "$tmp/orig.md"
+    rc=0; out=$(printf 'U-1\n' | n1_queue_rerun_release "$q2" 2>&1) || rc=$?
+    assert_eq "rerun: live runner refused, nothing changed" "1|yes|same" "$rc|$(grep -qF 'is running' <<< "$out" && echo yes || echo no)|$(_same)"
+    stop_fake_runner
+    rc=0; out=$(printf 'U-1\n' | n1_queue_rerun_release "$tmp/none.md" 2>&1) || rc=$?
+    assert_eq "rerun: missing queue file" "1|No queue runs found." "$rc|$out"
+    printf 'N1_ORCA_TASK=task-u3\nN1_ORCA_RUN=run-1\n' > "$h/queue/sentinels/U-3.env"
+    n1_orca_liveness() { printf 'd-3\ttask-u3\tlive\t\n'; }
+    out=$(printf 'U-1\nU-2\nU-3\n' | n1_queue_rerun_release "$q2")
+    assert_eq "rerun: pending and held marked, live escalated left" \
+        "$(printf 'done\t1\tU-1\tpending\ndone\t2\tU-2\theld\nlive\t3\tU-3')|done-before-run,done-before-run,escalated" \
+        "$out|$(plan_cell "$q2" 1 8),$(plan_cell "$q2" 2 8),$(plan_cell "$q2" 3 8)"
+    n1_orca_liveness() { :; }
+    out=$(printf 'U-3\n' | n1_queue_rerun_release "$q2")
+    assert_eq "rerun: escalated row with no live worker marked" "$(printf 'done\t3\tU-3\tescalated')|halted" "$out|$(n1_read_frontmatter "$q2" step)"
+    unset -f n1_orca_liveness; source "$REPO_ROOT/lib/orca-queue.sh"   # restore the real helper
+}
+
 # --- run.md § Write plan cell-fill snippet (NP-203): free text with quotes via cells.tsv ---
 test_write_plan_cells() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
@@ -2679,6 +2800,7 @@ test_story_base_wiring
 test_story_branch_wiring
 test_row_status
 test_queue_retry
+test_rerun_release
 test_queue_reconcile_force
 test_queue_close
 test_discard_wiring
