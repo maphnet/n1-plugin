@@ -191,7 +191,8 @@ eq "n1_head_record: no active run (standalone n1-pr) stays silent" "0:" "$rc:$ou
 echo fix > lt.txt; git add lt.txt; H13=$(gc local-test-fix); tip "$H13"
 eq "gate: unrecorded local-test fix commit -> rc 3" "3" "$(n1_review_artifacts_ok "$T/home" "$H13" >/dev/null; echo $?)"
 blk() { awk -v p="$2" '/^```bash/{b="";f=1;next} f&&/^```/{f=0;if(index(b,p)){printf "%s",b;exit};next} f{b=b $0 "\n"}' "$1"; }
-GB=$(blk "$ROOT/skills/n1-start/steps/pr.md" pre_pr_review_cycle | sed '/^source /d')
+source "$ROOT/lib/pr-step.sh"  # N1-476: the gate body is n1_pr_gate
+GB=$(blk "$ROOT/skills/n1-start/steps/pr.md" n1_pr_gate | sed '/^source /d')
 if [ -n "$GB" ]; then ok "gate: pr.md carries the pre-PR gate fence"; else no "gate: pr.md carries the pre-PR gate fence"; fi
 echo stale > "$R/fix.diff"; ( n1_increment_counter() { :; }; ID=T-1; eval "$GB" ) >/dev/null
 eq "gate: fix-changed-files lists the post-review commit" "lt.txt" "$(cat "$R/fix-changed-files" 2>/dev/null)"
@@ -243,7 +244,7 @@ if grep -qF '| 0 | `head` |' skills/n1-start/procedures/telemetry.md; then ok "t
 
 # N1-439: the pre-PR gate runs before the pr step begins and before n1-pr; local testing points at it.
 PM=skills/n1-start/steps/pr.md
-G=$(grep -nF 'GATE_ID=$(n1_review_artifacts_ok "$N1_HOME" "$(git rev-parse HEAD)"); GATE_RC=$?' "$PM" | head -1 | cut -d: -f1)
+G=$(grep -nF 'n1_pr_gate' "$PM" | head -1 | cut -d: -f1)
 SB=$(grep -nF 'n1_step_begin "pr" 12' "$PM" | head -1 | cut -d: -f1)
 NP=$(grep -nF '`n1:n1-pr`' "$PM" | head -1 | cut -d: -f1)
 if [ -n "$G" ] && [ -n "$SB" ] && [ -n "$NP" ] && [ "$G" -lt "$SB" ] && [ "$SB" -lt "$NP" ]; then ok "pr.md gate runs before the pr step and n1-pr"; else no "pr.md gate runs before the pr step and n1-pr"; fi

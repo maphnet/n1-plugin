@@ -26,9 +26,10 @@ n1_analysis_entry() {
 }
 
 n1_analysis_finalize() {
-    # Usage: n1_analysis_finalize [<ticket url>] < <SA return text> — persistence checks, drift, signal writes,
+    # Usage: n1_analysis_finalize < <SA return text> — persistence checks, drift, signal writes,
     # simple-path gate (n1_write_context); prints the status lines analysis.md keys on and the context block.
-    local AGENT_OUTPUT TICKET_URL="${1:-}" CACHE_ENABLED SNAPSHOT_PATH PROJECT_MAP_PATH CACHE_STATE DRIFT CONTEXT_BLOCK
+    # ticket_url frontmatter is owned by the ticket step (N1-476 SEC-1: no tracker text in a shell argument).
+    local AGENT_OUTPUT CACHE_ENABLED SNAPSHOT_PATH PROJECT_MAP_PATH CACHE_STATE DRIFT CONTEXT_BLOCK
     local SIGNAL_LINE PAIRS ESCALATED SELF_RESOLVED BLAST FILES_CHANGED_A SECURITY HAS_ROOT_CAUSE CONTRADICTIONS XREPO_PENDING_FILE
     AGENT_OUTPUT=$(cat)
     n1_verify_dependencies "$N1_HOME/memory/$ID" analysis.md; n1_read_context
@@ -39,7 +40,6 @@ n1_analysis_finalize() {
     [ "$CACHE_STATE" != "fresh" ] && [ "$CACHE_ENABLED" = "true" ] && [ "$LITE_MODE" != "true" ] && { [ ! -f "$PROJECT_MAP_PATH" ] || [ ! -s "$PROJECT_MAP_PATH" ]; } && echo "Project map persistence failed."
     DRIFT=$(echo "$AGENT_OUTPUT" | grep -m1 '^SNAPSHOT_DRIFT:'); [ -n "$DRIFT" ] && rm -f "$SNAPSHOT_PATH"
     CONTEXT_BLOCK=$(echo "$AGENT_OUTPUT" | sed -n '/^context: |$/,/^[^ ]/{/^context: |$/d;/^[^ ]/d;s/^  //;p}')
-    [ -n "$TICKET_URL" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url" "$TICKET_URL"
     SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
     # shellcheck disable=SC2086 # PAIRS splits into key=value words on purpose
     [ -n "$SIGNAL_LINE" ] && { PAIRS=$(echo "$SIGNAL_LINE" | sed 's/^n1:signals //'); n1_write_signals "$N1_HOME/memory/$ID/analysis.md" $PAIRS; }

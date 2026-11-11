@@ -23,7 +23,7 @@ Run **Ensure Dependencies(`<ID>`)** first. > **ORCHESTRATOR GUARDRAIL (review): 
 
 **Review tier gate:** If `REVIEW_TIER=SKIP`: record `"Review skipped: DOC_CONFIG_ONLY diff."` in `$N1_HOME/memory/$ID/review.md`, write `## Review` with `PASS (skipped — doc/config only)` to overview, run `n1_step_end "review" 9 "success" "{\"head\":\"$(git rev-parse HEAD)\"}"`, and proceed to next step. If `REVIEW_TIER=NARROW`: spawn code-reviewer with scope restricted to TQ findings only — instruct: "Scope: test quality (TQ) findings only. Do NOT review correctness, design, architecture, or style. Report only [TQ-N] findings (coverage gaps, hollow tests)." If `REVIEW_TIER=FULL`: current behavior (full code-reviewer scope).
 
-**Spawn PARALLEL** code-reviewer+security-reviewer (if `SECURITY_RELEVANT`). Shared: ticket.md, qa-facts.md, base branch, `$N1_HOME/memory/$ID/analysis.md`, Key Decisions+Escalations. Code-reviewer: review-spec.md+plan.md (NOT impl/brainstorm); "cold second pair of eyes"; diff `--name-only`; tier. Security-reviewer: ticket.md+file list+diff (on `INCREMENTAL=true`: fix.diff + `$FIX_FILES`).
+**Spawn PARALLEL** code-reviewer+security-reviewer (if `SECURITY_RELEVANT`). Shared: ticket.md, qa-facts.md, base branch, `$N1_HOME/memory/$ID/analysis.md`, Key Decisions+Escalations. Code-reviewer: review-spec.md+plan.md (NOT impl/brainstorm); "cold second pair of eyes"; diff `--name-only`; tier. Security-reviewer: ticket.md+file list+diff (on `INCREMENTAL=true`: fix.diff + `<printed FIX_FILES>`).
 
 ```bash
 source ~/.n1/preamble.sh
@@ -33,7 +33,7 @@ IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolv
 ```
 `QA_UNVERIFIED=true`: add "QA verdict unverified." Hollow tests→`[TQ-N]` (Medium, unless pure refactor). Spawn reviewers with output paths `$N1_HOME/memory/$ID/review-cr.md` / `…/review-sec.md`; each returns verdict, counts, index.
 
-**Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until ALL reviewers return before combining findings.
+**Wait contract applies** (BLOCKING DISPATCH REQUIREMENT in SKILL.md). Idle until ALL reviewers return before combining findings.
 
 **Pre-existing**: read `procedures/review-preexisting.md` and follow it only after the reviewers return and the **Tree freeze** below passes, before writing review-hdr.md and before routing (PASS or FAIL).
 

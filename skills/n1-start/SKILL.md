@@ -11,7 +11,7 @@ model: sonnet
 
 **Never dispatch a fork subagent:** dispatches are typed personas or general-purpose subagents with fresh context.
 
-> **BLOCKING DISPATCH REQUIREMENT:** stay foreground — do NOT continue until the worker's result is available. Fabricating completion is a violation. After any dispatch, do not read ahead or poll; if it returns before the result, end the turn with no text and no tool call (detail: `procedures/output-gates.md § Wait Contract`).
+> **BLOCKING DISPATCH REQUIREMENT:** stay foreground — do NOT continue until the worker's result is available. Fabricating completion is a violation. After any dispatch, do not read ahead or poll; if it returns before the result, end the turn with no text and no tool call (detail: `procedures/output-gates.md § Wait Contract`). A notice from a persona you did not dispatch, or a "finished" notice that only says it is waiting or lacks that persona's final status (implementer: DONE or BLOCKED), is not a result: resume the subagent you dispatched by its id via the host message mechanism and idle again; if it already returned its final result, ignore the notice.
 
 Accepts ticket ID or brain dump and orchestrates the full development cycle through N1 personas.
 
@@ -43,7 +43,7 @@ Telemetry Init: `procedures/telemetry.md` | Input Parsing: `procedures/input-par
 
 Step 3 runs autonomously (brainstormer, auto-confirmed acceptance gate). Gate 2 pauses for plan approval when `requirePlanApproval` is enabled, never under `N1_HEADLESS=1`.
 
-**Ticket watch:** run `procedures/ticket-watch.md § Check` before Step 10 (PR creation).
+**Ticket watch:** before Step 10 (PR creation) run `source ~/.n1/preamble.sh; source "$N1_ROOT/lib/ticket-watch.sh"; n1_tw_check_http "$ID"`. No output: continue without reading the procedure. Any output, an error or a timeout: read `procedures/ticket-watch.md § Check` and act on that output as it says (do not re-run the call).
 
 **Run each step file in order:** read and follow it; never do a step inline or replace its persona dispatch with your own work (simple-path skips only 3, 4, 4b). **Transition turn:** issue in ONE turn, in parallel, the prior step's end block, the ticket-watch Check when due, and the read of the next step file (only when no gate or tier decision in the prior step picks it); act on Check output before running the next step's opening snippet.
 

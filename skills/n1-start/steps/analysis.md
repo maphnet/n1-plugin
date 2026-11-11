@@ -22,9 +22,11 @@ Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 **Fresh:**
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/cache.sh"; SNAPSHOT_PATH=$(n1_snapshot_path "$N1_HOME")
 SNAPSHOT_BODY=$(n1_snapshot_read_body "$SNAPSHOT_PATH"); SNAPSHOT_SHA=$(n1_read_frontmatter "$SNAPSHOT_PATH" "git_sha_short"); SNAPSHOT_AGE_RAW=$(n1_read_frontmatter "$SNAPSHOT_PATH" "generated_at")
+echo "SNAPSHOT_AGE_RAW=$SNAPSHOT_AGE_RAW SNAPSHOT_SHA=$SNAPSHOT_SHA"; printf 'SNAPSHOT_BODY<<\n%s\nSNAPSHOT_BODY>>\n' "$SNAPSHOT_BODY"
 ```
-Spawn SA: "SNAPSHOT (age:{SNAPSHOT_AGE_RAW} sha:{SNAPSHOT_SHA}): {SNAPSHOT_BODY}\n\nAnalyze ticket. No re-scan. Flag SNAPSHOT_DRIFT:<desc>. Write [TICKET]. {directives}"
+Spawn SA with the printed values: "SNAPSHOT (age:{SNAPSHOT_AGE_RAW} sha:{SNAPSHOT_SHA}): {lines between SNAPSHOT_BODY<< and SNAPSHOT_BODY>>}\n\nAnalyze ticket. No re-scan. Flag SNAPSHOT_DRIFT:<desc>. Write [TICKET]. {directives}"
 
 **Observability** (skip if LITE): append providers; bugs→`### Observability Findings`; append `$RELATED_CONTEXT`.
 
@@ -33,7 +35,7 @@ Write the SA's full returned text to `$N1_HOME/memory/$ID/sa-return.md` with the
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/analysis.sh"
-n1_analysis_finalize "<ticket URL, or empty>" < "$N1_HOME/memory/$ID/sa-return.md"
+n1_analysis_finalize < "$N1_HOME/memory/$ID/sa-return.md"
 ```
 Output, each only when it applies: `Snapshot persistence failed.`, `Project map persistence failed.`, `SNAPSHOT_DRIFT:<desc>` (snapshot already deleted), `LITE_ESCALATED:<reason>`, `Ticket contradictions found: N`, `Simple-path: skipping brainstorm and plan`; always `SELF_RESOLVED=N SIMPLE_PATH=true|false`; the SA context block between `CONTEXT_BLOCK<<` and `CONTEXT_BLOCK>>`.
 

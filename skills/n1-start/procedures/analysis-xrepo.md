@@ -18,9 +18,9 @@ fi
 echo "RELATED_CONTEXT=$RELATED_CONTEXT"
 ```
 
-## After the post-SA fence (`XREPO_PENDING_FILE=`)
+## After the post-SA fence (the `n1_analysis_finalize` call)
 
-Parse `XREPO_SUGGEST: <slug> <reason>` from `$AGENT_OUTPUT`: `n1_related_add` + B-tier `[auto]` ledger row per slug.
+Parse `XREPO_SUGGEST: <slug> <reason>` lines from `$N1_HOME/memory/$ID/sa-return.md`: `n1_related_add` + B-tier `[auto]` ledger row per slug.
 
 ## After Gate 1
 
@@ -28,4 +28,4 @@ Parse `XREPO_SUGGEST: <slug> <reason>` from `$AGENT_OUTPUT`: `n1_related_add` + 
 
 ## End of step (after the last step fence, `UNKNOWNS=`)
 
-When `RELATED_ENABLED=true`: read `cross_repo_explored` signal; extract comma-separated XREPO_PROJECTS from `### Cross-Repo Context`; count `XREPO_MAPS_GENERATED`+`XREPO_DISCOVERY_NEW` in `$AGENT_OUTPUT`; end the step: `n1_step_end "analysis" 2 success "{\"cross_repo_explored\":${XREPO_EXPLORED_BOOL:-false},\"cross_repo_projects\":\"${XREPO_PROJECTS}\",\"cross_repo_maps_generated\":${XREPO_MAPS_GENERATED},\"cross_repo_discovery_new\":${XREPO_DISCOVERY_NEW}}"`.
+When `RELATED_ENABLED=true`: read `cross_repo_explored` signal; extract comma-separated XREPO_PROJECTS from `### Cross-Repo Context`; count `XREPO_MAPS_GENERATED`+`XREPO_DISCOVERY_NEW` lines in `$N1_HOME/memory/$ID/sa-return.md`; end the step: `n1_step_end "analysis" 2 success "{\"cross_repo_explored\":${XREPO_EXPLORED_BOOL:-false},\"cross_repo_projects\":\"${XREPO_PROJECTS}\",\"cross_repo_maps_generated\":${XREPO_MAPS_GENERATED},\"cross_repo_discovery_new\":${XREPO_DISCOVERY_NEW}}"`.

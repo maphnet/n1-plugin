@@ -99,6 +99,16 @@ assert_contains "output-gates: resume the owning subagent (N1-300)" \
 assert_contains "output-gates: run never stalls with plan tasks left (N1-300)" \
     "skills/n1-start/procedures/output-gates.md" \
     "Never let such a notice end the step or the run while plan tasks remain"
+# N1-476 — re-read cuts: the ticket-watch fast path is inline; the stray-notice rule lives in the always-loaded requirement.
+assert_contains "n1-start: ticket-watch Check fast path inline (N1-476)" \
+    "skills/n1-start/SKILL.md" \
+    'n1_tw_check_http "$ID"`. No output: continue without reading the procedure.'
+assert_contains "n1-start: stray notice rule in the dispatch requirement (N1-476)" \
+    "skills/n1-start/SKILL.md" \
+    "resume the subagent you dispatched by its id via the host message mechanism"
+assert_contains "review: wait points at the dispatch requirement (N1-476)" \
+    "skills/n1-start/steps/review.md" \
+    "Wait contract applies** (BLOCKING DISPATCH REQUIREMENT"
 # N1-300 — nested dispatchers: no return or waiting-text turn end before the child's final report
 assert_contains "implementer: hard stop on pending persona (N1-300)" \
     "agents/implementer.md" \
@@ -136,8 +146,8 @@ assert_contains "review: wait directive" \
 assert_contains "fix: pre-dispatch n1_verify_dependencies" \
     "skills/n1-start/steps/fix.md" \
     "n1_verify_dependencies"
-assert_contains "pr: n1_verify_dependencies" \
-    "skills/n1-start/steps/pr.md" \
+assert_contains "pr: n1_verify_dependencies (lib/pr-step.sh, N1-476)" \
+    "lib/pr-step.sh" \
     "n1_verify_dependencies"
 assert_contains "plan-review: n1_verify_dependencies" \
     "skills/n1-start/steps/plan-review.md" \

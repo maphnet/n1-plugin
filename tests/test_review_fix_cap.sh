@@ -87,7 +87,7 @@ eq "V4 review FAIL routes to the fix-step cap gate" "1" "$(grep -cF '**FAIL → 
 
 eq "V5 old full-scope security wording is gone" "0" "$(grep -cF 'security-reviewer keeps full scope' "$R")"
 eq "V10 incremental security-reviewer gets fix.diff + prior [SEC-N] by id" "1" "$(grep -cE 'security-reviewer gets the same fix\.diff path.*FIX_FILES.*prior `\[SEC-N\]` list from review-prev\.md.*re-report unfixed' "$RI")"
-eq "V11 parallel spawn scopes security-reviewer to fix.diff when incremental" "1" "$(grep -cF 'on `INCREMENTAL=true`: fix.diff + `$FIX_FILES`' "$R")"
+eq "V11 parallel spawn scopes security-reviewer to fix.diff when incremental" "1" "$(grep -cF 'on `INCREMENTAL=true`: fix.diff + `<printed FIX_FILES>`' "$R")"
 eq "V6 CYCLE guarded as numeric (both sites)" "2" "$(grep -cF '[[ $CYCLE =~ ^[0-9]+$ ]] || CYCLE=1' "$RL")"
 eq "V7 fix.md increments the counter before the developer dispatch (resume-safe)" "yes" "$(il=$(grep -n 'n1_increment_counter.*review_fix_cycle' skills/n1-start/steps/fix.md | head -1 | cut -d: -f1); sp=$(grep -n 'spawn developer' skills/n1-start/steps/fix.md | head -1 | cut -d: -f1); [ -n "$il" ] && [ "$il" -lt "$sp" ] && echo yes || echo no)"
 eq "V8 cycle emit MAX has a source" "1" "$(grep -c 'echo "MAX=\$REVIEW_FIX_MAX"' skills/n1-start/steps/fix.md)"
@@ -95,7 +95,7 @@ eq "V9 incremental code-reviewer gets prior findings" "1" "$(grep -cF 'review-pr
 
 # ---- wiring: PR body + telemetry ----
 eq "P1 tech-writer renders For Human Review" "1" "$(grep -cE 'review\.md has `## For Human Review`.*mandatory' agents/tech-writer.md)"
-eq "P2 pr.md emits review_unresolved_at_pr" "1" "$(grep -c '"review_unresolved_at_pr=' skills/n1-start/steps/pr.md)"
+eq "P2 pr step emits review_unresolved_at_pr" "1" "$(grep -c '"review_unresolved_at_pr=' lib/pr-step.sh)"
 
 eq "R5 fix.md consults the gate before the counter increment (reverting the gate call goes red)" "yes" "$(gl=$(grep -n 'n1_review_fix_gate' "$F" | head -1 | cut -d: -f1); il=$(grep -n 'n1_increment_counter.*review_fix_cycle' "$F" | head -1 | cut -d: -f1); [ -n "$gl" ] && [ -n "$il" ] && [ "$gl" -lt "$il" ] && echo yes || echo no)"
 
@@ -159,10 +159,11 @@ ovl 2 "$PIN a | r | codebase |"
 eq "W9 the option-2 ledger row fix.md prescribes satisfies the audit" "ok" "$(n1_review_fix_audit "$OV")"
 
 PRF=skills/n1-start/steps/pr.md
-PA_LN=$(awk '/^[[:space:]]*```/{b=!b; next} b && /n1_review_fix_audit/{print NR; exit}' "$PRF")
+PA_LN=$(awk '/^[[:space:]]*```/{b=!b; next} b && /n1_pr_entry/{print NR; exit}' "$PRF")
 PR_LN=$(grep -n 'n1:n1-pr`. Pass:' "$PRF" | head -1 | cut -d: -f1)
 eq "P3 pr.md audits the fix cap in a fence before n1-pr runs" "yes" "$([ -n "$PA_LN" ] && [ -n "$PR_LN" ] && [ "$PA_LN" -lt "$PR_LN" ] && echo yes || echo no)"
 eq "P4 pr.md breach surfaces [FIX-CAP] under For Human Review, never as an [auto] pass" "1" "$(grep -cE '^`FIX_AUDIT` other than `ok`, including empty.*\[FIX-CAP\].*## For Human Review.*never an `\[auto\]`' "$PRF")"
+eq "P3b lib/pr-step.sh entry runs the fix-cap audit" "1" "$(grep -c 'n1_review_fix_audit' lib/pr-step.sh)"
 
 # ---- recurrence (N1-345 D2/D16): eligible fingerprint in buckets N and N-1 ----
 FPJ="$T/fp.jsonl"; DIFF="$T/fix.diff"

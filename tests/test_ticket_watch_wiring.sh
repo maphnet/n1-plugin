@@ -11,7 +11,7 @@ check() { # <label> <extended-regex> <file>
 nocheck() { # <label> <extended-regex> <file>: the pattern must be absent
     if grep -qE "$2" "$3" 2>/dev/null; then echo "FAIL: $1"; FAIL=1; else echo "PASS: $1"; fi
 }
-check "SKILL.md check-point pointer" "procedures/ticket-watch\.md § Check\` before Step 10 \(PR creation\)" skills/n1-start/SKILL.md
+check "SKILL.md check-point pointer" "before Step 10 \(PR creation\) run .*n1_tw_check_http .*procedures/ticket-watch\.md § Check\`" skills/n1-start/SKILL.md
 nocheck "SKILL.md check-point drops 11b" "Check\` before.*11b" skills/n1-start/SKILL.md
 check "analysis seeds the watch" "procedures/ticket-watch\.md § Seed" skills/n1-start/steps/analysis.md
 check "procedure has Seed" "^## § Seed" "$P"

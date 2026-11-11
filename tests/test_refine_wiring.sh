@@ -36,9 +36,9 @@ line_has "handoff investigation form keys on resolved type" 'resolved type is `i
 line_has "fallback boundary stops at blank line or heading" 'contiguous `- ` line directly under' 'first blank line or heading' skills/n1-refine/steps/03-write.md
 has "input-parsing strips --type before detection" 'n1_parse_start_flags "<user-input>"' skills/n1-start/procedures/input-parsing.md
 before "type split precedes detection" 'n1_parse_start_flags' 'n1_detect_input_type' skills/n1-start/procedures/input-parsing.md
-has "ticket step reads saved override" 'TYPE_OVERRIDE="<TYPE_OVERRIDE from input parsing' skills/n1-start/steps/ticket.md
+has "ticket step passes the saved override" "n1_ticket_intake '<TYPE_OVERRIDE from input parsing" skills/n1-start/steps/ticket.md
 lacks "ticket step no longer parses USER_INPUT" 'n1_parse_type_arg' skills/n1-start/steps/ticket.md
-line_has "title hint skipped on explicit override" 'n1_title_hints_investigation' '[ -z "$TYPE_OVERRIDE" ]' skills/n1-start/steps/ticket.md
+line_has "title hint skipped on explicit override" 'n1_title_hints_investigation' '[ -z "$TYPE_OVERRIDE" ]' lib/ticket-step.sh
 has "stop list carve-out" 'A `[refined]` Decision (n1-refine block) never settles a stop-list prompt' skills/n1-start/procedures/autonomy-headless.md
 has "brainstormer points to stop list" 'autonomy-headless.md` § Stop list' agents/brainstormer.md
 has "n1-brainstorm points to stop list" 'autonomy-headless.md` § Stop list' skills/n1-brainstorm/SKILL.md
