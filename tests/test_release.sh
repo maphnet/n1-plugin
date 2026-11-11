@@ -139,5 +139,50 @@ condition: no test cases" "$(n1_release_signal verified 0 </dev/null)"
 eq "malformed warning count is a condition" "GO with conditions
 condition: 1 scope or publish warning(s)" "$(sig verified x 'Low\tauto\tPASS')"
 
+# --- n1_release_blockers (N1-539)
+blk() { local ids="$1"; shift; printf '%s\n' "$@" | n1_release_blockers "$ids"; }
+IN_OPS7='{"id":"1","type":"Blocks","inwardIssue":"OPS-7"}'
+OUT_VEL9='{"id":"2","type":"Blocks","outwardIssue":"VEL-9"}'
+# Bug: inwardIssue on a Blocks link is "is blocked by"; outwardIssue is the reverse and must not warn.
+eq "blockers: inwardIssue Blocks kept, outwardIssue ignored" $'OPS-7\tVEL-1' "$(blk VEL-1 "VEL-1"$'\t'"[$IN_OPS7,$OUT_VEL9]")"
+# Bug: non-blocking link types must not produce a warning.
+eq "blockers: non-Blocks link type ignored" "" "$(blk VEL-1 $'VEL-1\t[{"type":"Relates","inwardIssue":"OPS-8"}]')"
+# Bug: a blocker shipped in the same release is not an unreleased blocker.
+eq "blockers: blocker inside the release set dropped" "" "$(blk $'VEL-1\nVEL-2' $'VEL-1\t[{"type":"Blocks","inwardIssue":"VEL-2"}]')"
+# Bug: a key blocking several release tickets must be read once, with every ticket listed.
+eq "blockers: shared blocker grouped once, tickets sorted" $'OPS-7\tVEL-1,VEL-2' "$(blk $'VEL-1\nVEL-2' "VEL-2"$'\t'"[$IN_OPS7]" "VEL-1"$'\t'"[$IN_OPS7]")"
+eq "blockers: distinct blockers sorted by key" $'OPS-7\tVEL-1\nOPS-8\tVEL-1' "$(blk VEL-1 $'VEL-1\t[{"type":"Blocks","inwardIssue":"OPS-8"},{"type":"Blocks","inwardIssue":"OPS-7"}]')"
+# Bug (D7): tracker keys are untrusted; invalid keys, non-arrays and malformed JSON are dropped, never run, rc 0.
+eq "blockers: invalid keys, non-array and malformed JSON dropped, rc 0" "rc=0" "$(cd "$T" && blk VEL-1 \
+    $'vel-1\t[{"type":"Blocks","inwardIssue":"OPS-7"}]' \
+    $'VEL-1\t[{"type":"Blocks","inwardIssue":"OPS-7$(touch${IFS}PWNED)"}]' \
+    $'VEL-1\t{"type":"Blocks","inwardIssue":"OPS-9"}' \
+    $'VEL-1\tnot json'; echo "rc=$?")"
+eq "blockers: hostile blocker key never executed" "0" "$(find "$T" -name PWNED | wc -l | tr -d ' ')"
+eq "blockers: no input, no output" "" "$(n1_release_blockers VEL-1 </dev/null)"
+
+# --- n1_release_blocker_rows (N1-539)
+rows() { local d="$1" p="$2"; shift 2; printf '%s\n' "$@" | n1_release_blocker_rows "$d" "$p"; }
+# Bug (D4): done is a case-insensitive status-name match against tracker.statuses.done.
+eq "rows: status equal to done-status in any case is done" $'OPS-7\tdone\tOPS\tDONE\tVEL-1\tFix it' "$(rows Done VEL $'OPS-7\tDONE\tVEL-1\tFix it')"
+eq "rows: padded status still matches" $'OPS-7\tdone\tOPS\tDone\tVEL-1\tx' "$(rows Done VEL $'OPS-7\t Done \tVEL-1\tx')"
+eq "rows: other status is not done" $'OPS-7\tnot done\tOPS\tIn Progress\tVEL-1\tFix it' "$(rows Done VEL $'OPS-7\tIn Progress\tVEL-1\tFix it')"
+# Bug: an unset tracker.statuses.done must fail toward warning, never mark every blocker done.
+eq "rows: empty done-status is not done" $'OPS-7\tnot done\tOPS\tDone\tVEL-1\tx' "$(rows '' VEL $'OPS-7\tDone\tVEL-1\tx')"
+# Bug: a failed per-blocker read (empty status and title) must still warn.
+eq "rows: failed read is not done, owner from prefix" $'OPS-7\tnot done\tOPS\t\tVEL-1\t' "$(rows Done VEL $'OPS-7\t\tVEL-1\t')"
+# Bug (D1): the service tag in "<service> | <title>" names the owning service, ahead of the key prefix.
+eq "rows: owner from title service tag" $'VEL-9\tnot done\tbilling-api\tTo Do\tVEL-1\tbilling-api | Add refunds' "$(rows Done VEL $'VEL-9\tTo Do\tVEL-1\tbilling-api | Add refunds')"
+eq "rows: service tag beats foreign prefix, trailing spaces stripped" $'OPS-7\tnot done\tbilling-api\tTo Do\tVEL-1\tbilling-api  | x' "$(rows Done VEL $'OPS-7\tTo Do\tVEL-1\tbilling-api  | x')"
+eq "rows: empty tag falls back to foreign prefix" $'OPS-7\tnot done\tOPS\tTo Do\tVEL-1\t | x' "$(rows Done VEL $'OPS-7\tTo Do\tVEL-1\t | x')"
+# Bug (D1): a same-prefix key with no tag has no known owner; it must say unknown.
+eq "rows: same prefix and no tag is unknown" $'VEL-9\tnot done\tunknown\tTo Do\tVEL-1\tPlain title' "$(rows Done VEL $'VEL-9\tTo Do\tVEL-1\tPlain title')"
+# Bug: the prefix default must follow n1_release_ticket_ids (PREFIX env).
+eq "rows: prefix defaults to PREFIX env" $'VEL-9\tnot done\tunknown\tTo Do\tVEL-1\tx' "$(printf '%s\n' $'VEL-9\tTo Do\tVEL-1\tx' | PREFIX=VEL n1_release_blocker_rows Done)"
+# Bug: a tab inside a title would shift columns; extra fields are joined into the title.
+eq "rows: tab inside title collapsed" $'OPS-7\tnot done\tOPS\tTo Do\tVEL-1\tpart one part two' "$(rows Done VEL $'OPS-7\tTo Do\tVEL-1\tpart one\tpart two')"
+# Bug (D7): a row whose key fails the key pattern is dropped.
+eq "rows: invalid key rows dropped" "" "$(rows Done VEL $'ops-7\tTo Do\tVEL-1\tx' $'OPS-7;rm\tTo Do\tVEL-1\tx')"
+
 echo "passed=$PASS failed=$FAIL"
 [ "$FAIL" -eq 0 ]
