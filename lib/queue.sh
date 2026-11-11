@@ -498,7 +498,7 @@ n1_queue_desc_blockers() {
     # only when a dependency phrase (blocked by, depends on, after, requires) precedes it in the same clause: at most
     # 3 words between, and no . ; : ( ) between (so "..." and a parenthesized key break it). The keys listed right after
     # a match ("KEY, KEY", "KEY and KEY") count too: a key is itself a word, so the 3-word window spans the list.
-    # rc 1 on an invalid SELF_KEY (it becomes part of a regex). Uses `command grep` and `\b`, not `(^|[^`: N1-169.
+    # rc 1 on an invalid SELF_KEY (it becomes part of a regex). Uses `command grep` and `\b`, not an anchor-or-negated-class alternation: N1-169.
     # ponytail: 3-word window is a heuristic; the tracker-link check stays the primary blocker source.
     local self="${1^^}" prefix re
     [[ "$self" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] || return 1
