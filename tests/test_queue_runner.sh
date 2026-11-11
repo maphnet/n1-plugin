@@ -2696,6 +2696,9 @@ EOF
     # SEC-3: a child rewriting mode/integration cannot hide an integration queue; the sections and events still mark it.
     _mkq q2c done no-pr; _ids; _close
     assert_eq "close: no-pr row counts as settled" "0|no" "$rc|$(_qd)"
+    # N1-536: a row --run marked done-before-run (ticket done in the tracker) is settled.
+    _mkq q2d done done-before-run; _ids; _close
+    assert_eq "close: done-before-run row counts as settled" "0|no" "$rc|$(_qd)"
     _mkq q8 done failed; printf '\n## Final PRs\n| Repo | PR | Draft | Mergeable | Note |\n|---|---|---|---|---|\n' >> "$q"; _close
     assert_eq "close: Final PRs section with forged frontmatter refused" "1|yes|yes" "$rc|$(_has 'final PR: none recorded')|$(_qd)"
     _mkq q8b done failed; n1_queue_event "${q%/*}/events.jsonl" q8b R1 final_pr_opened pr=https://github.com/o/r/pull/3; _close
