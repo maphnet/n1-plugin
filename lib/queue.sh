@@ -327,11 +327,12 @@ n1_queue_finish_child() {
     line=$(_n1_queue_sanitize_cell "$4"); line=${line:0:80}
     ov="$N1_HOME/memory/$t/overview.md"
     if [ -f "$ov" ]; then
-        tmp=$(mktemp "$ov.XXXXXX") || return 1
-        awk '/^## /{s=/^## Finish\r?$/} !s' "$ov" > "$tmp" && mv "$tmp" "$ov"
+        tmp=$(mktemp "$ov.XXXXXX") || { echo "$t: memory:failed"; return 1; }
+        # A failed write returns before cleanup so the worktree and branch survive and a re-run redoes the upsert.
+        { awk '/^## /{s=/^## Finish\r?$/} !s' "$ov" > "$tmp" && mv "$tmp" "$ov"; } || { echo "$t: memory:failed"; rm -f "$tmp"; return 1; }
         printf '\n## Finish\n- **Merged:** via queue final PR %s\n- **Deploy:** not watched; delivery not run (queue final PR)\n- **Ticket:** %s\npr_url: %s\n' \
-            "$3" "$line" "$2" >> "$ov"
-        n1_pending_clear "$ov"; n1_write_frontmatter "$ov" step done
+            "$3" "$line" "$2" >> "$ov" || { echo "$t: memory:failed"; return 1; }
+        { n1_pending_clear "$ov" && n1_write_frontmatter "$ov" step done; } || { echo "$t: memory:failed"; return 1; }
         echo "$t: memory:done"
     else echo "$t: memory:none"; fi
     ( unset N1_QUEUE_DIR N1_QUEUE_RUN_ID N1_RUN_ID; n1_clean_ticket "$t" queue </dev/null 2>&1 )

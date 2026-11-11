@@ -96,6 +96,11 @@ eq "F2: still one Finish" 1 "$(grep -cx '## Finish' "$OV")"
 eq "F3: invalid id message" "../x: skipped (invalid ticket id)" "$(n1_queue_finish_child ../x "$U/1" "$U/9" x)"
 eq "F3: invalid id rc" 1 "$(n1_queue_finish_child ../x "$U/1" "$U/9" x >/dev/null; echo $?)"
 eq "F3: no memory" "T-9: memory:none" "$(n1_queue_finish_child T-9 "$U/1" "$U/9" x | head -n1)"
+# F3b: a failed state write stops before cleanup (no frontmatter makes the step write fail)
+mkdir -p "$N1_HOME/memory/T-8"; printf 'no frontmatter\n' > "$N1_HOME/memory/T-8/overview.md"; : > "$T/clean.log"
+eq "F3b: write failure message" "T-8: memory:failed" "$(n1_queue_finish_child T-8 "$U/1" "$U/9" x | head -n1)"
+eq "F3b: write failure rc" 1 "$(n1_queue_finish_child T-8 "$U/1" "$U/9" x >/dev/null; echo $?)"
+eq "F3b: no cleanup after failure" "" "$(cat "$T/clean.log")"
 
 # F4 (SEC-2): non-PR URLs are refused before anything is written; the Ticket line is one bounded line
 eq "F4: bad child url" "T-1: skipped (invalid PR url)" "$(n1_queue_finish_child T-1 "x
