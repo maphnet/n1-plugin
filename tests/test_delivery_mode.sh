@@ -67,6 +67,39 @@ test_action_no_jq() {
     rm -rf "$nopath"
 }
 
+# --- N1-531: delivery.skipPaths --------------------------------------------------
+skip() { echo "$1" > "$TEST_CONFIG"; printf '%s' "$2" | n1_delivery_skip; }
+
+test_skip() {
+    local c='{"delivery":{"mode":"ssh","command":"true","skipPaths":["docs/","*.md"]}}'
+    assert_eq "skip: every path matches -> skip" "skip" "$(skip "$c" $'docs/a.txt\nREADME.md\ndocs/sub/b.png')"
+    assert_eq "skip: one non-matching path -> deliver" "deliver" "$(skip "$c" $'docs/a.txt\nsrc/app.sh')"
+    assert_eq "skip: trailing / is a directory prefix only" "deliver" "$(skip "$c" 'docsx/a.txt')"
+    assert_eq "skip: * crosses / (bash case semantics)" "skip" "$(skip "$c" 'src/templates/x.md')"
+    assert_eq "skip: blank lines ignored" "skip" "$(skip "$c" $'\ndocs/a.txt\n\n')"
+    assert_eq "skip: empty stdin -> deliver" "deliver" "$(skip "$c" '')"
+    assert_eq "skip: no skipPaths key -> deliver" "deliver" "$(skip "$SSH_CFG" 'docs/a.txt')"
+    assert_eq "skip: empty list -> deliver" "deliver" \
+        "$(skip '{"delivery":{"mode":"ssh","skipPaths":[]}}' 'docs/a.txt')"
+    assert_eq "skip: list of empty strings -> deliver" "deliver" \
+        "$(skip '{"delivery":{"mode":"ssh","skipPaths":[""]}}' 'docs/a.txt')"
+    assert_eq "skip: not an array -> deliver" "deliver" \
+        "$(skip '{"delivery":{"mode":"ssh","skipPaths":"docs/"}}' 'docs/a.txt')"
+    assert_eq "skip: malformed config -> deliver" "deliver" "$(skip '{not json' 'docs/a.txt')"
+    assert_eq "skip: non-object delivery -> deliver" "deliver" "$(skip '{"delivery":"x"}' 'docs/a.txt')"
+    assert_eq "skip: leading ./ in a glob is stripped" "skip" \
+        "$(skip '{"delivery":{"mode":"ssh","skipPaths":["./docs/"]}}' 'docs/a.txt')"
+}
+
+test_skip_no_jq() {
+    local nopath b real
+    nopath=$(mktemp -d)
+    for b in bash cat; do real=$(command -v "$b"); ln -s "$real" "$nopath/$b"; done
+    echo '{"delivery":{"mode":"ssh","skipPaths":["docs/"]}}' > "$TEST_CONFIG"
+    assert_eq "skip: no jq -> deliver" "deliver" "$(printf 'docs/a.txt' | PATH="$nopath" n1_delivery_skip)"
+    rm -rf "$nopath"
+}
+
 # --- n1_delivery_runbook: writes, never executes ------------------------------
 test_runbook_never_executes() {
     export N1_HOME="$TMP/home"
@@ -281,6 +314,8 @@ test_wiring
 test_wiring_multi_step
 test_action
 test_action_no_jq
+test_skip
+test_skip_no_jq
 test_runbook_never_executes
 test_multi_step_helpers
 test_runbook_steps
