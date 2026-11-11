@@ -48,8 +48,7 @@ pointer skills/n1-refine/steps/03-write.md
 check "02-loop: other options carry a works-when note" '^2 — <option>: works when <condition>$' skills/n1-refine/steps/02-loop.md
 check "02-loop: Actions question marks Confirm all (Recommended) with evidence (N1-557)" '^1 — Confirm all \(Recommended\): .+ticket-scope\.md' skills/n1-refine/steps/02-loop.md
 check "02-loop: Actions question Drop carries a works-when note (N1-557)" '^3 — Drop items: .+; works when ' skills/n1-refine/steps/02-loop.md
-check "03-write: Cancel carries a works-when note" '^3 — Cancel: write nothing; works when ' skills/n1-refine/steps/03-write.md
-expect "03-write: still exactly one (Recommended)" 1 "$(grep -cF '(Recommended)' skills/n1-refine/steps/03-write.md)"
+expect "03-write: no (Recommended) after the preview removal (N1-557)" 0 "$(grep -cF '(Recommended)' skills/n1-refine/steps/03-write.md)"
 
 # --- n1-init
 for f in 01-prerequisites 03-tracker 08-local-testing 10-quality-config 11-rules; do

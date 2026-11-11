@@ -149,7 +149,6 @@ has "write re-fetches before writing" 'Re-fetch the ticket immediately before th
 has "write replaces in place" 'replace exactly the lines from it' "$W"
 has "single editTicket call" 'one `mcp__<TRACKER_MCP>__<EDIT_OP>` call' "$W"
 has "comment mode posts one comment" 'one `mcp__<TRACKER_MCP>__<COMMENT_OP>` call' "$W"
-has "write recommended" '1 — Write (Recommended)' "$W"
 has "handoff prints n1-start" '/n1:n1-start <ID>' "$W"
 has "architecture lists n1-refine" '| n1-refine |' references/architecture.md
 
@@ -177,14 +176,13 @@ before "N1-296: children lookup follows fetch" '## Step 3: Fetch' '## Step 3b: E
 # --- N1-296: write actions
 W=skills/n1-refine/steps/03-write.md
 n=$(grep -cF '(Recommended)' "$W")
-if [ "$n" -eq 1 ]; then echo "PASS: N1-296: write has exactly one Recommended"; else echo "FAIL: N1-296: write has exactly one Recommended ($n)"; FAIL=1; fi
-has "N1-296: preview offers Block only" '4 — Block only' "$W"
-has "N1-296: preview offers Remove" '5 — Remove' "$W"
+if [ "$n" -eq 0 ]; then echo "PASS: N1-557: write has no Recommended prompt"; else echo "FAIL: N1-557: write has no Recommended prompt ($n)"; FAIL=1; fi
+lacks "N1-557: no Block only option" '4 — Block only' "$W"
+lacks "N1-557: no Remove option" '5 — Remove' "$W"
 before "N1-296: block write precedes conversion" '## Step 3: Write' '## Step 3b: Conversion' "$W"
 before "N1-296: conversion precedes children" '## Step 3b: Conversion' '## Step 3c: Children' "$W"
 has "N1-296: failed block write runs no Actions" 'a failed block write runs no Actions' "$W"
-line_has "N1-296: conversion via jcm_convertIssueType for Task and Story" 'jcm_convertIssueType' '`issueTypeName: <CONVERT>` (`Task` or `Story`)' "$W"
-has "N1-296: failed Story conversion skips Sub-tasks" 'when `CONVERT=Story` skip Step 3c' "$W"
+line_has "N1-557: held Story conversion skips Step 3c" 'A held Jira `CONVERT=Story` also holds its Sub-tasks' 'skip Step 3c' "$W"
 has "N1-296: child type rule exists" '**Child type rule:**' "$W"
 line_has "N1-296: Story under Epic" '**Child type rule:**' 'Story under an Epic' "$W"
 line_has "N1-296: Sub-task under Story" '**Child type rule:**' 'Sub-task under a Story' "$W"
@@ -193,15 +191,15 @@ line_has "N1-296: YouTrack child links subtask of" '**Child type rule:**' '`subt
 line_has "N1-296: YouTrack children need a link op" '**Actions** come from' 'YouTrack children when `LINK_OP` is empty' "$W"
 has "N1-296: per-child duplicate check" 'duplicate-check.md` § Check with `CONTEXT=create`' "$W"
 has "N1-296: dup prompt has no recommendation" 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$W"
-line_has "N1-296: adopt passes child type and parentKey" 'issueKeys: [<HIT_ID>]' 'parentKey: <ID>' "$W"
+has "N1-557: duplicate hit listed as adopt candidate" 'adopt candidate <HIT_ID> for C<n>' "$W"
+lacks "N1-557: duplicate question has no Adopt option" '— Adopt' "$W"
 line_has "N1-296: create passes child type and parentKey" 'issueType: <child type>' 'parentKey: <ID>' "$W"
 has "N1-296: skip this child never ends the run" 'never ends the run' "$W"
-has "N1-296: removing the Story conversion drops its Sub-tasks" 'dropping `A1` when `CONVERT=Story` also drops every Sub-task' "$W"
-has "N1-296: handoff summarizes actions" 'Actions: converted' "$W"
-has "N1-382: 3c records created/adopted keys in CHILDREN" 'Add every key created or adopted here to `CHILDREN`' "$W"
+has "N1-296: handoff summarizes actions" 'Actions: created <keys>; skipped <n>; failed <keys>' "$W"
+has "N1-382: 3c records created keys in CHILDREN" 'Add every key created here to `CHILDREN`' "$W"
 has "N1-382: Sub-task offer exists" '**Sub-task offer:**' "$W"
 before "N1-382: offer follows the handoff" 'Or queue it:' '**Sub-task offer:**' "$W"
-line_has "N1-382: offer triggers on Story or converted Story only" '**Sub-task offer:**' '`ISSUE_TYPE` is `story`, or Step 3b converted the ticket to Story' "$W"
+line_has "N1-382: offer triggers on Story only" '**Sub-task offer:**' '`ISSUE_TYPE` is `story` and `CHILDREN` holds at least one key' "$W"
 if sed -n '/^\*\*Sub-task offer:\*\*/,$p' "$W" | grep -qi epic; then echo "FAIL: N1-382: offer text mentions epic"; FAIL=1; fi
 line_has "N1-382: no offer without known children" '**Sub-task offer:**' 'empty or `unknown`' "$W"
 has "N1-382: headless/queue env is read in a snippet" '[ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes' "$W"
@@ -344,29 +342,28 @@ line_has "N1-516: loop raises a conflict as a question" '`PRIOR`' 'never overrid
 line_has "N1-516: write appends to PRIOR only after success" 'append to `PRIOR`' 'A failed write appends nothing' "$W"
 line_has "N1-516: list handoff suppresses the Sub-task offer" 'List mode (`00-list.md`): print only' 'no Sub-task offer' "$W"
 
-# --- N1-523: draft persisted before the preview; Write builds from the files
-# Catches: a block or Actions written only to conversation text (lost on compaction); a redraft that keeps an
-# old block.md; a Remove that leaves the dropped child in actions.md; a pointer left after the preview resolves.
+# --- N1-557: no preview, no draft files; write right after the loop
+# Catches: a reintroduced approval prompt or draft file/pointer; an unbounded redraft on a changed description;
+# a write failure that asks instead of falling back to a comment; a conversion that runs instead of being listed.
 W=skills/n1-refine/steps/03-write.md
-has "N1-523: block saved to refine/block.md" '<DRAFT_DIR>/block.md' "$W"
-has "N1-523: actions saved to refine/actions.md" '<DRAFT_DIR>/actions.md' "$W"
-line_has "N1-523: draft saved with the file-write mechanism" 'Then, with the file-write mechanism' 'file-write-mechanism.md' "$W"
-before "N1-523: save precedes the preview" '**Save the draft**' 'Show the verdict line' "$W"
-line_has "N1-523: every return re-saves" '**Save the draft**' 'every return from Edit, Remove or Step 3' "$W"
-has "N1-523: draft dir is per session" '$N1_HOME/memory/<ID>/refine/<session id>/block.md' "$W"
-has "N1-523: pointer written by helper" 'n1_refine_draft_state write "<ID>"' "$W"
-has "N1-523: pointer cleared by helper" 'n1_refine_draft_state clear' "$W"
-line_has "N1-523: preview shows saved text" 'Show the verdict line' 'exactly as saved in `block.md`' "$W"
-line_has "N1-523: Edit re-saves" 'Edit: apply the change' 'save the draft again' "$W"
-line_has "N1-523: Remove rewrites actions.md" 'Remove: drop that action' 'so `actions.md` no longer lists it' "$W"
-has "N1-523: Cancel clears the pointer" 'Cancel: clear the draft pointer, say "Nothing written."' "$W"
-line_has "N1-523: Write reads block.md, never conversation text" 'never overwrite blindly' 'never from conversation text' "$W"
-line_has "N1-523: Write strips only the line prefix" 'never overwrite blindly' 'drop only the line-number prefix' "$W"
-line_has "N1-523: Comment posts block.md" '**Comment:**' '`block.md`' "$W"
-line_has "N1-523: Actions run from actions.md" '**Actions:**' '<DRAFT_DIR>/actions.md` (read as in Write)' "$W"
-line_has "N1-523: files kept after the write" 'Both files stay after the write' 'files are kept' "$W"
-has "N1-523: architecture documents the refine pointer" 'refine-draft.<sid>.json' references/architecture.md
-before "N1-523: handoff clears before printing" 'First clear the draft pointer' 'Refined <ID> (<description|comment>)' "$W"
+lacks "N1-557: no block.md draft" 'block.md' skills/n1-refine
+lacks "N1-557: no actions.md draft" 'actions.md' skills/n1-refine
+lacks "N1-557: no refine-draft pointer" 'refine-draft' skills/n1-refine
+lacks "N1-557: no draft helper call" 'n1_refine_draft_state' skills/n1-refine
+lacks "N1-557: no DRAFT_DIR" 'DRAFT_DIR' skills/n1-refine
+lacks "N1-557: write has no Preview" 'Preview' "$W"
+lacks "N1-557: write has no preview" 'preview' "$W"
+lacks "N1-557: write offers no Write option" '1 — Write' "$W"
+lacks "N1-557: write never converts" 'jcm_convertIssueType' "$W"
+line_has "N1-557: display goes straight to the write" 'Print the verdict line' 'go to Step 3 without asking' "$W"
+line_has "N1-557: write uses the Step 1 block" 'never overwrite blindly' 'Use the Step 1 block exactly' "$W"
+line_has "N1-557: second changed description aborts" 'never overwrite blindly' 'Description changed again; re-run /n1:n1-refine <ID>.' "$W"
+line_has "N1-557: diff is output, not a question" 'never overwrite blindly' 'this is output, not a question' "$W"
+line_has "N1-557: edit failure falls back to comment without asking" 'On failure: print the error' 'without asking' "$W"
+has "N1-557: no tracker write prints the block" 'No tracker write available; paste it yourself.' "$W"
+has "N1-557: conversion listed, not run" '## Step 3b: Conversion (listed, not run)' "$W"
+has "N1-557: handoff lists unrun items" 'Listed, not run:' "$W"
+has "N1-557: handoff offers a re-run" 'Re-run /n1:n1-refine <ID> to change the block.' "$W"
 
 # --- N1-557: Actions confirmation question in 02-loop Step 4 (D2)
 # Catches: PROPOSED/CONVERT written without the user confirming them; a confirmation asked when both are empty;
