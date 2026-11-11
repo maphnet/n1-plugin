@@ -76,6 +76,93 @@ n1_release_obs_providers() {
     return 0
 }
 
+# n1_release_obs_group <cutoff-iso>: groups untrusted dev observability rows for release-test Step 3b.
+# stdin: <first-ts>\t<last-ts>\t<count>\t<text>; timestamps ISO-8601 (Z, offset or none, optional fraction) or
+# epoch s/ms/us/ns. stdout, newest last-seen first, times in UTC:
+#   <signature>\t<count>\t<first>\t<last>\t<new since release|pre-existing>\t<sample>
+# Signature: lowercased, timestamps -> {ts}, UUIDs and hex runs of 8+ with a letter -> {id}, digits -> {n}, 120 chars.
+# Sample: first row's text, 160 chars. Both are redacted (Bearer tokens, key=value secrets, 32+ char token runs ->
+# {redacted}) and stripped of control characters and | ` $ < > \, so they are safe in a one-line table cell.
+# New since release: the group's earliest first-seen is at or after the cutoff. Merge: min first, max last, sum count.
+# Rows with a bad timestamp or count are dropped and counted on stderr ("dropped: N"). Bad cutoff: no output. rc 0.
+# ponytail: the label only sees the rows the provider returned (bounded, newest first); older lines crowded out by
+# the limit read as new since release, the safe direction (a condition, never NO-GO). Per-signature baseline
+# queries are the upgrade if the live false-positive rate is high.
+n1_release_obs_group() {
+    awk -F'\t' -v cutoff="${1:-}" '
+        function days(y, m, d,   era, yoe, doy) {
+            y -= (m <= 2); era = int(y / 400); yoe = y - era * 400
+            doy = int((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1
+            return era * 146097 + yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy - 719468
+        }
+        function epoch(x,   t, rest, off, n) {
+            n = length(x)
+            if (x ~ /^[0-9]+$/ && (n == 10 || n == 13 || n == 16 || n == 19)) return substr(x, 1, 10) + 0
+            if (x !~ /^[0-9][0-9][0-9][0-9]-[01][0-9]-[0-3][0-9][Tt ][0-2][0-9]:[0-5][0-9]:[0-6][0-9]/) return -1
+            t = days(substr(x, 1, 4) + 0, substr(x, 6, 2) + 0, substr(x, 9, 2) + 0) * 86400 \
+                + substr(x, 12, 2) * 3600 + substr(x, 15, 2) * 60 + substr(x, 18, 2)
+            rest = substr(x, 20); sub(/^\.[0-9]+/, "", rest)
+            if (rest == "" || rest == "Z" || rest == "z") return t
+            if (rest !~ /^[+-][0-2][0-9]:?[0-5][0-9]$/) return -1
+            off = substr(rest, 2, 2) * 3600 + substr(rest, length(rest) - 1, 2) * 60
+            return substr(rest, 1, 1) == "-" ? t + off : t - off
+        }
+        function iso(t,   s, z, era, doe, yoe, doy, mp, d, m) {
+            s = t % 86400; z = (t - s) / 86400 + 719468
+            era = int(z / 146097); doe = z - era * 146097
+            yoe = int((doe - int(doe / 1460) + int(doe / 36524) - int(doe / 146096)) / 365)
+            doy = doe - (365 * yoe + int(yoe / 4) - int(yoe / 100))
+            mp = int((5 * doy + 2) / 153); d = doy - int((153 * mp + 2) / 5) + 1
+            m = mp + (mp < 10 ? 3 : -9)
+            return sprintf("%04d-%02d-%02dT%02d:%02d:%02dZ", yoe + era * 400 + (m <= 2), m, d, int(s / 3600), int(s % 3600 / 60), s % 60)
+        }
+        function redact(s, re,   l, out) {
+            l = tolower(s); out = ""
+            while (match(l, re)) {
+                out = out substr(s, 1, RSTART - 1) "{redacted}"
+                s = substr(s, RSTART + RLENGTH); l = substr(l, RSTART + RLENGTH)
+            }
+            return out s
+        }
+        function squeeze(s) { gsub(/ +/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return s }
+        BEGIN {
+            c = "[A-Za-z0-9+=_]"; LONG = c; for (i = 1; i < 32; i++) LONG = LONG c; LONG = LONG "*"
+            h = "[0-9a-f]"; h4 = h h h h; HEX8 = h4 h4 h "*"
+            UUID = h4 h4 "-" h4 "-" h4 "-" h4 "-" h4 h4 h4
+            TS = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][t ][0-9][0-9]:[0-9][0-9]:[0-9][0-9](\\.[0-9]+)?(z|[+-][0-9][0-9]:?[0-9][0-9])?"
+            KEYS = "(token|secret|password|passwd|api[_-]?key|authorization)\"?[ ]*[=:][ ]*\"?[^ \",;&]+"
+            cut = epoch(cutoff)
+        }
+        cut < 0 { next }
+        {
+            first = epoch($1); last = epoch($2)
+            if (NF < 4 || first < 0 || last < 0 || $3 !~ /^[0-9]+$/) { dropped++; next }
+            if (last < first) { x = first; first = last; last = x }
+            text = $0; sub(/^[^\t]*\t[^\t]*\t[^\t]*\t/, "", text)
+            gsub(/[[:cntrl:]]/, " ", text)
+            text = redact(redact(redact(text, "bearer[ ]+[^ ]+"), KEYS), LONG)
+            gsub(/[|`$<>\\]/, " ", text); text = squeeze(text)
+            s = tolower(text); gsub(TS, "{ts}", s); gsub(UUID, "{id}", s)
+            out = ""
+            while (match(s, HEX8)) {
+                r = substr(s, RSTART, RLENGTH)
+                out = out substr(s, 1, RSTART - 1) (r ~ /[a-f]/ ? "{id}" : r)
+                s = substr(s, RSTART + RLENGTH)
+            }
+            s = out s; gsub(/[0-9]+/, "{n}", s); s = substr(squeeze(s), 1, 120)
+            if (!(s in cnt)) { lo[s] = first; hi[s] = last; sample[s] = substr(text, 1, 160) }
+            else { if (first < lo[s]) lo[s] = first; if (last > hi[s]) hi[s] = last }
+            cnt[s] += $3
+        }
+        END {
+            if (dropped) print "dropped: " dropped > "/dev/stderr"
+            for (s in cnt) printf "%.0f\t%s\t%.0f\t%s\t%s\t%s\t%s\n", hi[s], s, cnt[s], iso(lo[s]), iso(hi[s]), \
+                (lo[s] >= cut ? "new since release" : "pre-existing"), sample[s]
+        }
+    ' | sort -t $'\t' -k1,1nr -k2,2 | cut -f2-
+    return 0
+}
+
 # n1_release_ticket_ids <prev> <head-ref>: IDs from the leading [PREFIX-N] of each commit subject in prev..head
 # (all of head when prev is empty). IDs later in a subject and untagged subjects count for nothing.
 # --no-decorate: log.decorate would put "(tag: ..)" after the hash. PREFIX: env, else .tracker.prefix.

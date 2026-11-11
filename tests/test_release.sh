@@ -223,5 +223,35 @@ langfuse-dev	publius-dev-langfuse-mcp	langfuse	find_exceptions" "$(n1_release_ob
 echo '{"observability":{"default":"prod","providers":{}}}' > "$T/obs-none.json"
 # Bug (AC1): no dev provider must read as empty so Step 3b prints one skip line.
 eq "obs providers: none configured is empty" "" "$(n1_release_obs_providers "$T/obs-none.json")"
+# --- n1_release_obs_group (N1-179)
+CUT='2026-02-01T10:00:00+02:00'
+ROWS=$(printf '%s\t%s\t%s\t%s\n' \
+  2026-02-01T07:59:59Z 2026-02-01T07:59:59Z 1 'Timeout for order 123 at 2026-02-01T07:59:59Z' \
+  2026-02-03T00:00:00Z 2026-02-03T00:00:00Z 2 'Timeout for order 4567 at 2026-02-03T00:00:00Z' \
+  1770336000 1770336000 1 'DB error id 550e8400-e29b-41d4-a716-446655440000 hash deadbeef01' \
+  1770336000123 1770339600123 3 'DB error id 123e4567-e89b-12d3-a456-426614174000 hash cafebabe99' \
+  bad 2026-02-03T00:00:00Z 1 'dropped row' \
+  2026-02-03T00:00:00Z 2026-02-03T00:00:00Z x 'dropped row')
+# Bug: IDs, hashes, numbers and timestamps split one error into many groups; a group first seen before the tag
+# (cutoff 08:00Z) is labelled new; epoch ms is misread; groups are not newest-first.
+eq "obs group: signatures merge, newest first, labels by cutoff" "db error id {id} hash {id}	4	2026-02-06T00:00:00Z	2026-02-06T01:00:00Z	new since release	DB error id 550e8400-e29b-41d4-a716-446655440000 hash deadbeef01
+timeout for order {n} at {ts}	3	2026-02-01T07:59:59Z	2026-02-03T00:00:00Z	pre-existing	Timeout for order 123 at 2026-02-01T07:59:59Z" "$(n1_release_obs_group "$CUT" <<<"$ROWS" 2>/dev/null)"
+# Bug: rows with a bad timestamp or count vanish silently, so the report understates what was seen.
+eq "obs group: bad rows are counted on stderr" "dropped: 2" "$(n1_release_obs_group "$CUT" <<<"$ROWS" 2>&1 >/dev/null)"
+# Bug: an offset timestamp equal to the tag time must count as new (>= cutoff), in UTC.
+eq "obs group: offset normalized, cutoff inclusive" "boundary	1	2026-02-01T08:00:00Z	2026-02-01T08:00:00Z	new since release	boundary" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-01T10:00:00+02:00 2026-02-01T10:00:00+02:00 1 boundary | n1_release_obs_group "$CUT")"
+# Bug: secrets in log lines reach Confluence, or table/shell metacharacters break the one-line cell.
+eq "obs group: sample redacted and stripped" "Auth failed {redacted} {redacted} key {redacted} a b c d e f g" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 \
+     'Auth failed Authorization: Bearer abc.def password=hunter2 key AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA a|b`c$d<e>f\g' \
+     | n1_release_obs_group "$CUT" | cut -f6)"
+# Bug: a long log line bloats the Confluence page body without bound.
+eq "obs group: signature 120 and sample 160 chars max" "120 160" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 "$(printf 'word %.0s' {1..40})" \
+     | n1_release_obs_group "$CUT" | awk -F'\t' '{print length($1), length($6)}')"
+# Bug: an unparsable cutoff labels every group against epoch 0 or -1, so all of them read as new.
+eq "obs group: bad cutoff gives no output" "" "$(n1_release_obs_group 'not-a-date' <<<"$ROWS" 2>/dev/null)"
+
 echo "passed=$PASS failed=$FAIL"
 [ "$FAIL" -eq 0 ]
