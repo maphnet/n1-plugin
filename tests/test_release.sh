@@ -184,5 +184,25 @@ eq "rows: tab inside title collapsed" $'OPS-7\tnot done\tOPS\tTo Do\tVEL-1\tpart
 # Bug (D7): a row whose key fails the key pattern is dropped.
 eq "rows: invalid key rows dropped" "" "$(rows Done VEL $'ops-7\tTo Do\tVEL-1\tx' $'OPS-7;rm\tTo Do\tVEL-1\tx')"
 
+# --- n1_release_tag_date and n1_release_obs_window (N1-179)
+R2="$T/repo2"; git init -q "$R2"
+GIT_COMMITTER_DATE='2026-01-01T10:00:00+02:00' git -C "$R2" -c user.name=t -c user.email=t@t commit -q --allow-empty -m one
+GIT_COMMITTER_DATE='2026-02-01T10:00:00+02:00' git -C "$R2" -c user.name=t -c user.email=t@t tag -a v2.0.0 -m rel
+git -C "$R2" update-ref refs/tags/v2.0.1 HEAD
+in_r2() { (cd "$R2" && "$@"); }
+# Bug: the scan window must start when the release was tagged, not when its last commit was made.
+eq "tag date: annotated tag gives the tagger date" "2026-02-01T10:00:00+02:00" "$(in_r2 n1_release_tag_date v2.0.0)"
+eq "tag date: lightweight tag gives the commit date" "2026-01-01T10:00:00+02:00" "$(in_r2 n1_release_tag_date v2.0.1)"
+# Bug: an absent tag or a hostile name must give no date, so Step 3b skips instead of scanning from epoch 0 or running it.
+eq "tag date: absent tag is empty" "" "$(in_r2 n1_release_tag_date v9.9.9)"
+eq "tag date: non-semver name is empty" "" "$(in_r2 n1_release_tag_date 'v1$(id)')"
+NOW=$(date +%s)
+GIT_COMMITTER_DATE="$((NOW - 18600)) +0000" git -C "$R2" -c user.name=t -c user.email=t@t tag -a v3.0.0 -m rel
+GIT_COMMITTER_DATE="$((NOW - 40 * 86400)) +0000" git -C "$R2" -c user.name=t -c user.email=t@t tag -a v3.1.0 -m rel
+# Bug: a window rounded down misses the first hours after the tag; an uncapped window queries beyond Loki retention.
+eq "window: hours rounded up, baseline doubled" "6 full 12" "$(in_r2 n1_release_obs_window v3.0.0)"
+eq "window: capped at the default 720 h and flagged" "720 capped 720" "$(in_r2 n1_release_obs_window v3.1.0)"
+eq "window: baseline respects N1_OBS_MAX_HOURS" "6 full 10" "$(N1_OBS_MAX_HOURS=10 in_r2 n1_release_obs_window v3.0.0)"
+eq "window: absent tag is empty" "" "$(in_r2 n1_release_obs_window v9.9.9)"
 echo "passed=$PASS failed=$FAIL"
 [ "$FAIL" -eq 0 ]

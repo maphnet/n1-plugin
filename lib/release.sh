@@ -27,6 +27,34 @@ n1_release_prev_tag() {
     return 0
 }
 
+# n1_release_tag_date <tag>: ISO-8601 creation date of a local v* tag (tagger date of an annotated tag, commit
+# date of a lightweight one). Prints nothing for an absent or non-semver tag; rc 0. Release-test Step 3b window start.
+n1_release_tag_date() {
+    local tag="${1:-}"
+    [[ "$tag" =~ $_N1_RELEASE_TAG_RE ]] || return 0
+    git for-each-ref --format='%(creatordate:iso-strict)' "refs/tags/$tag" 2>/dev/null
+    return 0
+}
+
+# n1_release_obs_window <tag>: prints "<hours> <capped|full> <baseline-hours>" for the dev observability scan:
+# whole hours from the tag's creation to now (rounded up, at least 1), capped at N1_OBS_MAX_HOURS (default 720),
+# and the Loki/Langfuse baseline reach, twice the window under the same cap. Nothing for an absent tag; rc 0.
+# ponytail: the cap is a constant because provider retention is not discoverable; the report states when it applied.
+n1_release_obs_window() {
+    local tag="${1:-}" max="${N1_OBS_MAX_HOURS:-720}" from h b cap=full
+    [[ "$tag" =~ $_N1_RELEASE_TAG_RE ]] || return 0
+    [[ "$max" =~ ^[1-9][0-9]*$ ]] || max=720
+    from=$(git for-each-ref --format='%(creatordate:unix)' "refs/tags/$tag" 2>/dev/null)
+    [[ "$from" =~ ^[0-9]+$ ]] || return 0
+    h=$(( ($(date +%s) - from + 3599) / 3600 ))
+    [ "$h" -ge 1 ] || h=1
+    if [ "$h" -gt "$max" ]; then h=$max; cap=capped; fi
+    b=$((h * 2))
+    [ "$b" -gt "$max" ] && b=$max
+    printf '%s %s %s\n' "$h" "$cap" "$b"
+    return 0
+}
+
 # n1_release_ticket_ids <prev> <head-ref>: IDs from the leading [PREFIX-N] of each commit subject in prev..head
 # (all of head when prev is empty). IDs later in a subject and untagged subjects count for nothing.
 # --no-decorate: log.decorate would put "(tag: ..)" after the hash. PREFIX: env, else .tracker.prefix.
