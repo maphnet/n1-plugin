@@ -130,7 +130,7 @@ n1_release_obs_group() {
             h = "[0-9a-f]"; h4 = h h h h; HEX8 = h4 h4 h "*"
             UUID = h4 h4 "-" h4 "-" h4 "-" h4 "-" h4 h4 h4
             TS = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][t ][0-9][0-9]:[0-9][0-9]:[0-9][0-9](\\.[0-9]+)?(z|[+-][0-9][0-9]:?[0-9][0-9])?"
-            KEYS = "(token|secret|password|passwd|api[_-]?key|authorization)\"?[ ]*[=:][ ]*\"?[^ \",;&]+"
+            KEYS = "([a-z_-]*(token|secret|password|passwd|pwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|cookie|session[_-]?id)|sig(nature)?|authorization)\"?[ ]*[=:][ ]*\"?[^ \",;&]+"
             cut = epoch(cutoff)
         }
         cut < 0 { next }
@@ -140,7 +140,8 @@ n1_release_obs_group() {
             if (last < first) { x = first; first = last; last = x }
             text = $0; sub(/^[^\t]*\t[^\t]*\t[^\t]*\t/, "", text)
             gsub(/[[:cntrl:]]/, " ", text)
-            text = redact(redact(redact(text, "bearer[ ]+[^ ]+"), KEYS), LONG)
+            text = redact(text, "://[^/ @]*:[^/ @]*@")
+            text = redact(redact(redact(redact(redact(text, "bearer[ ]+[^ ]+"), "basic[ ]+[^ ]+"), "xox[abprs]-[^ ]+"), KEYS), LONG)
             gsub(/[|`$<>\\]/, " ", text); text = squeeze(text)
             s = tolower(text); gsub(TS, "{ts}", s); gsub(UUID, "{id}", s)
             out = ""

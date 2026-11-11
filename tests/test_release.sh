@@ -250,6 +250,22 @@ eq "obs group: sample redacted and stripped" "Auth failed {redacted} {redacted} 
 eq "obs group: signature 120 and sample 160 chars max" "120 160" \
   "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 "$(printf 'word %.0s' {1..40})" \
      | n1_release_obs_group "$CUT" | awk -F'\t' '{print length($1), length($6)}')"
+# Bug: secret shapes outside bearer/KEYS/long-run reach the published report (SEC-1).
+obs_leak() { # <label> <line> <secret>: neither the signature nor the sample may keep the secret
+  local out; out=$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 "$2" | n1_release_obs_group "$CUT")
+  case "$out" in *"$3"*) eq "obs group: redacts $1" "no leak" "leaked: $out" ;; *) eq "obs group: redacts $1" ok ok ;; esac
+}
+obs_leak "URL userinfo" 'could not connect to postgres://app:hunter2pw@db:5432/app' hunter2pw
+obs_leak "empty-user URL userinfo" 'redis://:hunter2pw@cache:6379 refused' hunter2pw
+obs_leak "Basic auth" 'Authorization: Basic dXNlcjpwYXNz sent' dXNlcjpwYXNz
+obs_leak "Slack token" 'slack failed xoxb-123-456-abcDEF here' abcDEF
+obs_leak "aws_secret_access_key" 'aws_secret_access_key=wJalr/K7MDENG/bPxRfi' 'K7MDENG'
+obs_leak "private_key" 'private_key: abc123XYZ end' abc123XYZ
+obs_leak "cookie" 'cookie: session=s3cr3tval; path=/' s3cr3tval
+obs_leak "session_id" 'session_id=s3cr3tval x' s3cr3tval
+obs_leak "SAS sig" 'GET /blob?sig=ab%2Fcd%2Bef&se=2026' 'ab%2Fcd'
+eq "obs group: ordinary text with sig-like words stays" "design review failed	1" \
+  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'design review failed' | n1_release_obs_group "$CUT" | cut -f1,2)"
 # Bug: an unparsable cutoff labels every group against epoch 0 or -1, so all of them read as new.
 eq "obs group: bad cutoff gives no output" "" "$(n1_release_obs_group 'not-a-date' <<<"$ROWS" 2>/dev/null)"
 
