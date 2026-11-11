@@ -14,7 +14,7 @@ if [ "$A" != none ]; then   # N1-531: repo-only check; every failure means deliv
   [ -z "$PR" ] && [ -n "$SHA" ] && PR=$(gh api "repos/{owner}/{repo}/commits/$SHA/pulls" --jq '[.[] | select(.merged_at)] | .[0].number' 2>/dev/null)
   case "$PR" in
     ''|*[!0-9]*) echo skip-paths:deliver ;;
-    *) FILES=$(gh api "repos/{owner}/{repo}/pulls/$PR/files" --paginate --jq '.[].filename' 2>/dev/null) || FILES=""
+    *) FILES=$(gh api "repos/{owner}/{repo}/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)' 2>/dev/null) || FILES=""
        echo "skip-paths:$(printf '%s\n' "$FILES" | n1_delivery_skip)" ;;
   esac
 fi
