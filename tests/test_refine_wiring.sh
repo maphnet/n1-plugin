@@ -368,4 +368,15 @@ line_has "N1-523: files kept after the write" 'Both files stay after the write' 
 has "N1-523: architecture documents the refine pointer" 'refine-draft.<sid>.json' references/architecture.md
 before "N1-523: handoff clears before printing" 'First clear the draft pointer' 'Refined <ID> (<description|comment>)' "$W"
 
+# --- N1-557: Actions confirmation question in 02-loop Step 4 (D2)
+# Catches: PROPOSED/CONVERT written without the user confirming them; a confirmation asked when both are empty;
+# the question presented as a write approval.
+L=skills/n1-refine/steps/02-loop.md
+has "N1-557: loop asks one Actions question" 'ask exactly one Actions question' "$L"
+has "N1-557: Actions question confirm option" '1 — Confirm all (Recommended):' "$L"
+has "N1-557: Actions question is not a write approval" 'This is a scope question, not a write approval' "$L"
+has "N1-557: no question when both are empty" 'Both empty: ask nothing.' "$L"
+has "N1-557: dropping A1 drops Sub-tasks" 'Dropping `A1` when `CONVERT=Story` also drops every Sub-task' "$L"
+lacks "N1-557: loop no longer carries draft lists" 'the draft lists' "$L"
+
 exit $FAIL
