@@ -71,6 +71,7 @@ n1_config_file() {
 n1_config_val() {
     local path="$1" file="${2:-$(n1_config_file)}"
     [ -f "$file" ] || return 0
+    case "$path" in [A-Za-z_]*) path=".$path";; esac  # dotless path is a jq function call, not a key (N1-567)
     if command -v jq >/dev/null 2>&1; then
         jq -r "if (${path}) == null then empty else (${path}) end" "$file" 2>/dev/null || true
         return

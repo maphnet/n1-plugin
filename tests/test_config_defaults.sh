@@ -144,5 +144,13 @@ echo '{"crossHostReview":{"autoTriage":false,"maxFixAttempts":2}}' > "$N1_HOME/c
 assert_eq "T54: autoTriage explicit false opts out" "false" "$(n1_cross_host_review_val autoTriage)"
 assert_eq "T55: maxFixAttempts override" "2" "$(n1_cross_host_review_val maxFixAttempts)"
 
+# N1-567: dotless path is normalized to a dotted key path.
+export N1_HOME="$TMPDIR_TEST/dotless"; mkdir -p "$N1_HOME"
+echo '{"git":{"prMode":"ready"},"_x":"u"}' > "$N1_HOME/config.json"
+assert_eq "T56: dotless nested key equals dotted" "$(n1_config_val '.git.prMode')" "$(n1_config_val 'git.prMode')"
+assert_eq "T57: dotless nested key value" "ready" "$(n1_config_val 'git.prMode')"
+assert_eq "T58: absent dotless key is empty" "" "$(n1_config_val 'git.nope')"
+assert_eq "T59: underscore-led key" "u" "$(n1_config_val '_x')"
+
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -6,10 +6,18 @@
 _n1_pr_step_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_n1_pr_step_dir/fingerprints.sh"
 
+n1_pr_mode() {
+    # Usage: n1_pr_mode — prints git.prMode if present (incl. skip); else ready when git.draftPR is false; else draft.
+    local P; P=$(n1_config_val '.git.prMode')
+    [ -n "$P" ] || { [ "$(n1_config_val '.git.draftPR')" = false ] && P=ready || P=draft; }
+    echo "$P"
+}
+
 n1_pr_gate() {
     # Usage: n1_pr_gate — pre-PR review gate (N1-439). Prints PRE_PR_GATE=<rc> <id> PRE_PR_REVIEW_CYCLE=<n>/3; on rc 1 or 3
     # bumps pre_pr_review_cycle and writes fix.diff/fix-changed-files from the last reviewed head (empty fix.diff when unknown).
     local MEM="$N1_HOME/memory/$ID" GATE_ID GATE_RC PRE_PR V REVIEWED
+    [ "$(n1_pr_mode)" = skip ] && { echo "PRE_PR_GATE=0"; return 0; }
     GATE_ID=$(n1_review_artifacts_ok "$N1_HOME" "$(git rev-parse HEAD)"); GATE_RC=$?
     PRE_PR=$(n1_read_frontmatter "$MEM/overview.md" "pre_pr_review_cycle"); [[ "$PRE_PR" =~ ^[0-9]+$ ]] || PRE_PR=0
     V=$(grep -m1 '^### Verdict:' "$MEM/review.md" 2>/dev/null); [ -n "$V" ] && [ "$V" != '### Verdict: PASS' ] && GATE_RC=2
@@ -22,10 +30,11 @@ n1_pr_gate() {
 }
 
 n1_pr_entry() {
-    # Usage: n1_pr_entry — prints FIX_AUDIT=, route:worker (clean tree) or route:inline, and the pr-worker model line;
+    # Usage: n1_pr_entry — prints FIX_AUDIT=, prMode=, route:worker (clean tree) or route:inline, and the pr-worker model line;
     # removes stale pr-result.md and pr-report.md.
     local FIX_AUDIT PM
     FIX_AUDIT=$(n1_review_fix_audit "$N1_HOME/memory/$ID/overview.md") || true; echo "FIX_AUDIT=$FIX_AUDIT"
+    echo "prMode=$(n1_pr_mode)"
     rm -f "$N1_HOME/memory/$ID/pr-result.md" "$N1_HOME/memory/$ID/pr-report.md"; [ -z "$(git status --porcelain)" ] && echo route:worker || echo route:inline
     IFS=$'\t' read -r PM _ < <(n1_resolve_agent pr-worker); echo "model:$PM memory:$N1_HOME/memory/$ID n1_root:$N1_ROOT worktree:$(git rev-parse --show-toplevel)"
 }
