@@ -2,6 +2,7 @@
 # N1 cross-pass finding fingerprint helpers.
 # Persistence format: JSONL in $N1_HOME/memory/<ID>/fingerprints.jsonl
 # Each line: {"fp":"<hex>","id":"<CR-1>","severity":"High","status":"active","cycle":1,"ts":"..."}
+# N1-569 state rows add "age" after "cycle"; status active|carried|new = open, resolved|withdrawn|downgraded|oos = closed.
 
 _n1_portable_hash() {
     # Portable MD5 hash: tries md5sum (Linux), md5 -r (macOS), sha256sum as last resort
@@ -29,13 +30,15 @@ n1_fingerprint_finding() {
 }
 
 n1_fingerprint_append() {
-    # Usage: n1_fingerprint_append <jsonl_file> <fingerprint> <finding_id> <severity> <status> [cycle]
-    local jsonl_file="$1" fp="$2" fid="$3" severity="$4" status="$5" cycle="${6:-1}"
+    # Usage: n1_fingerprint_append <jsonl_file> <fingerprint> <finding_id> <severity> <status> [cycle] [age]
+    # status: active (recorded review finding) or an N1-569 fix state; age (fix cycles survived) follows "cycle" when given.
+    local jsonl_file="$1" fp="$2" fid="$3" severity="$4" status="$5" cycle="${6:-1}" age="${7:-}"
     local ts
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     mkdir -p "$(dirname "$jsonl_file")"
-    printf '{"fp":"%s","id":"%s","severity":"%s","status":"%s","cycle":%s,"ts":"%s"}\n' \
-        "$fp" "$fid" "$severity" "$status" "$cycle" "$ts" >> "$jsonl_file"
+    [ -n "$age" ] && age=",\"age\":$age"
+    printf '{"fp":"%s","id":"%s","severity":"%s","status":"%s","cycle":%s%s,"ts":"%s"}\n' \
+        "$fp" "$fid" "$severity" "$status" "$cycle" "$age" "$ts" >> "$jsonl_file"
 }
 
 n1_fingerprint_record() {
@@ -72,20 +75,20 @@ n1_fingerprint_known() {
 
 n1_fingerprint_blocking_count() {
     # Usage: n1_fingerprint_blocking_count <jsonl_file>
-    # Prints count of distinct active Critical/High fingerprints
+    # Prints count of distinct open (active|carried|new) Critical/High fingerprints
     local jsonl_file="$1"
     [ -f "$jsonl_file" ] || { printf '0'; return; }
-    # Get the latest status for each fingerprint, count those that are active + Critical/High
+    # Get the latest status for each fingerprint, count those that are open (active|carried|new) + Critical/High
     if command -v jq >/dev/null 2>&1; then
-        # jq: group by fp, take last entry per fp, filter active + Critical/High
+        # jq: group by fp, take last entry per fp, filter open (active|carried|new) + Critical/High
         jq -s '
             group_by(.fp) | map(last) |
-            map(select(.status == "active" and (.severity == "Critical" or .severity == "High"))) |
+            map(select((.status | test("^(active|carried|new)$")) and (.severity == "Critical" or .severity == "High"))) |
             length
         ' "$jsonl_file" 2>/dev/null || printf '0'
     else
-        # Fallback: grep for active Critical/High, extract unique fps
-        grep '"status":"active"' "$jsonl_file" 2>/dev/null \
+        # Fallback: grep for open (active|carried|new) Critical/High, extract unique fps
+        grep -E '"status":"(active|carried|new)"' "$jsonl_file" 2>/dev/null \
             | grep -E '"severity":"(Critical|High)"' \
             | grep -o '"fp":"[^"]*"' | sort -u | wc -l | tr -d ' '
     fi
@@ -93,20 +96,20 @@ n1_fingerprint_blocking_count() {
 
 n1_fingerprint_blocking_count_for_cycle() {
     # Usage: n1_fingerprint_blocking_count_for_cycle <jsonl_file> <cycle>
-    # Prints count of distinct active Critical/High fingerprints for the given cycle number
+    # Prints count of distinct open (active|carried|new) Critical/High fingerprints for the given cycle number
     local jsonl_file="$1" cycle="$2"
     [ -f "$jsonl_file" ] || { printf '0'; return; }
     if command -v jq >/dev/null 2>&1; then
         jq -s --argjson c "$cycle" '
             map(select(.cycle == $c)) |
             group_by(.fp) | map(last) |
-            map(select(.status == "active" and (.severity == "Critical" or .severity == "High"))) |
+            map(select((.status | test("^(active|carried|new)$")) and (.severity == "Critical" or .severity == "High"))) |
             length
         ' "$jsonl_file" 2>/dev/null || printf '0'
     else
-        # Fallback: filter by cycle field, grep for active Critical/High, count unique fps
+        # Fallback: filter by cycle field, grep for open (active|carried|new) Critical/High, count unique fps
         grep "\"cycle\":${cycle}" "$jsonl_file" 2>/dev/null \
-            | grep '"status":"active"' \
+            | grep -E '"status":"(active|carried|new)"' \
             | grep -E '"severity":"(Critical|High)"' \
             | grep -o '"fp":"[^"]*"' | sort -u | wc -l | tr -d ' '
     fi
@@ -130,6 +133,28 @@ n1_review_blocking_index_count() {
         }
         END { printf "%d", n }
     ' "$1"
+}
+
+n1_review_blocking_ids() {
+    # Usage: n1_review_blocking_ids <review.md> (N1-569) -> one TSV row per blocking Index line `- [ID] <sev> <file>:<line> — <title>`,
+    # first occurrence of each ID: <id>\t<severity>\t<file>\t<title>. Blocking (D7, = the fix.md FAIL dispatch scope):
+    # Critical/High; any [RULE-N]; non-Low [SEC-N] (and [CX-N] titled " (security)"); non-TQ Medium. A " (pre-existing)"
+    # [SEC-N], security [CX-N] or Medium never counts. File = location before the last ':'. Returns 1 on an unreadable file.
+    [ -r "$1" ] || return 1
+    awk '
+        /^- \[[A-Z]+-[0-9]+\] / {
+            sub(/\r$/, "")
+            id = substr($2, 2, length($2) - 2); if (seen[id]++) next
+            sev = $3; ls = tolower(sev); pre = ($0 ~ / \(pre-existing\)[ \t]*$/)
+            if (id ~ /^SEC-/ || (id ~ /^CX-/ && $0 ~ / \(security\)[ \t]*$/)) { if (pre || ls == "low") next }
+            else if (!(id ~ /^RULE-/ || ls == "critical" || ls == "high" || (ls == "medium" && id !~ /^TQ-/ && !pre))) next
+            rest = $0; sub(/^- \[[A-Z]+-[0-9]+\] [^ ]+ /, "", rest)
+            i = index(rest, " — ")
+            if (i) { loc = substr(rest, 1, i - 1); title = substr(rest, i + length(" — ")) } else { loc = ""; title = rest }
+            file = loc; if (match(loc, /:[^:]*$/)) file = substr(loc, 1, RSTART - 1)
+            gsub(/\t/, " ", title)
+            printf "%s\t%s\t%s\t%s\n", id, sev, file, title
+        }' "$1"
 }
 
 n1_fingerprint_check_convergence() {
