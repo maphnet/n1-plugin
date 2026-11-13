@@ -126,7 +126,7 @@ Generate the PR title and body from implementation context.
 
 4b. **Read ticket.md** (if provided) for the original ticket description — extract a 1-2 sentence summary of the core ask or problem being solved. Skip this step if ticket.md was not provided.
 
-5. **Merge verification items.** If local-testing.md was provided, build the unified verification checklist:
+5. **Merge verification items.** If local-testing.md was provided and its first line starts with `Local testing: not run` (N1-559: no live verification configured), skip a–d and f: all QA items become plain unchecked checkboxes (apply e when it applies), and the summary line is that first line verbatim, e.g. `Local testing: not run — no live verification configured for this project`. Otherwise, if local-testing.md was provided, build the unified verification checklist:
 
    **a. Match items.** For each local testing scenario, find the QA verification step that describes the same behavior (e.g., QA "Create user via API returns 201" matches local "Create user — POST /api/users, expected 201"). When uncertain whether two items match, do NOT merge them — keeping a near-duplicate is better than incorrectly marking a QA item as verified by the wrong scenario.
 
