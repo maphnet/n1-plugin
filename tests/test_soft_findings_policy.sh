@@ -68,7 +68,7 @@ check "Exhausted gate: interactive in-diff non-Low SEC blocks auto-resolve" 'int
 check "security-reviewer marks pre-existing findings" '^- \*\*Pre-existing marker:\*\*.*` \(pre-existing\)`' "$SR"
 check "security-reviewer Index title carries the marker" 'when the Pre-existing marker constraint applies, end `<title>` with ` \(pre-existing\)`; never otherwise' "$SR"
 check "fix scope: pre-existing SEC filed by user excluded from Critical+High" 'Critical\+High \(except a ` \(pre-existing\)` `\[SEC-N\]` the user filed;' "$F"
-check "fingerprints: pre-existing SEC not treated as in-diff excluded" 'except a ` \(pre-existing\)` one not treated as in-diff' "$R"
+check "fingerprints: pre-existing SEC not treated as in-diff excluded" 'never a ` \(pre-existing\)` one not treated as in-diff' "$R"
 check "pre-existing marker downgraded when in a changed hunk" 'lies in a changed hunk or in a file the diff adds' "$RP"
 check "pre-existing gate skips titles already in Follow-ups" 'Skip a finding whose title is already in `## Follow-ups`' "$RP"
 check "pre-existing unknown severity escalates" 'any other or unparsed severity: § Autonomy Gate' "$RP"
