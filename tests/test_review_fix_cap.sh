@@ -97,6 +97,11 @@ eq "V6 CYCLE guarded as numeric (both sites)" "2" "$(grep -cF '[[ $CYCLE =~ ^[0-
 eq "V7 fix.md increments the counter before the developer dispatch (resume-safe)" "yes" "$(il=$(grep -n 'n1_increment_counter.*review_fix_cycle' skills/n1-start/steps/fix.md | head -1 | cut -d: -f1); sp=$(grep -n 'spawn developer' skills/n1-start/steps/fix.md | head -1 | cut -d: -f1); [ -n "$il" ] && [ "$il" -lt "$sp" ] && echo yes || echo no)"
 eq "V8 cycle emit MAX has a source" "1" "$(grep -c 'echo "MAX=\$REVIEW_FIX_MAX"' skills/n1-start/steps/fix.md)"
 eq "V9 incremental code-reviewer gets prior findings" "1" "$(grep -cF 'review-prev.md: re-report' "$RI")"
+eq "V12 incremental reviewers return status lines and rule on disputes" "1" "$(grep -cF 'procedures/review-fix-budget.md § Status lines' "$RI")"
+eq "V13 orchestrator writes review-status.md" "1" "$(grep -cF '$N1_HOME/memory/$ID/review-status.md' "$RI")"
+eq "V14 fp-new.tsv captures the full blocking set" "1" "$(grep -cF 'For each blocking finding (Critical/High, `[RULE-N]`, non-TQ Medium, in-diff non-Low `[SEC-N]`' "$R")"
+eq "V15 NON_CONVERGING routes to Step 8, not an escalation" "0" "$(grep -c 'NON_CONVERGING/FP_RECORD_FAILED→escalate' "$R")"
+eq "V16 review.md names FIX_STATES output" "1" "$(grep -c 'FIX_STATES:' "$R")"
 
 # ---- wiring: PR body + telemetry ----
 eq "P1 tech-writer renders For Human Review" "1" "$(grep -cE 'review\.md has `## For Human Review`.*mandatory' agents/tech-writer.md)"
@@ -267,13 +272,13 @@ eq "XW3 Exhausted no longer replaces For Human Review" "0" "$(grep -cE '^\*\*Exh
 FILT_LN=$(grep -n 'procedures/review-extra-round.md § Filter' "$R" | head -1 | cut -d: -f1)
 FPNEW_LN=$(grep -n 'fp-new.tsv` with the file-write mechanism' "$R" | head -1 | cut -d: -f1)
 eq "XW4 review.md reaches § Filter before writing fp-new.tsv" "yes" "$([ -n "$FILT_LN" ] && [ -n "$FPNEW_LN" ] && [ "$FILT_LN" -le "$FPNEW_LN" ] && echo yes || echo no)"
-eq "XW5 grant fence passes the three memory paths to the helper" "1" "$(grep -cF 'FIX_GRANT=$(n1_review_fix_grant "$MEM/overview.md" "$MEM/fingerprints.jsonl" "$MEM/fix.diff")' "$XP")"
-eq "XW6 both helper fences source fingerprints.sh" "2" "$(grep -cF 'source "$N1_ROOT/lib/fingerprints.sh"' "$XP")"
-eq "XW7 the model never writes the [granted] row" "1" "$(grep -cF 'never write it yourself' "$XP")"
+eq "XW5 the grant and extra-round helpers are gone from the procedure" "0" "$(grep -cE 'n1_review_fix_grant|n1_review_fix_extra_round' "$XP")"
+eq "XW6 the filter fence sources fingerprints.sh" "1" "$(grep -cF 'source "$N1_ROOT/lib/fingerprints.sh"' "$XP")"
+eq "XW7 no § Grant section remains" "0" "$(grep -c '^## Grant' "$XP")"
 eq "XW8 filter call over the orchestrator-written index file" "1" "$(grep -cF 'n1_fingerprint_filter_oos "$MEM/fingerprints.jsonl" "$CYCLE" "$MEM/fix-changed-files" "$MEM/review-prev.md" "$MEM/review-index.md" > "$MEM/review-oos.md"' "$XP")"
 eq "XW9 filter runs before fp-new.tsv, NON_CONVERGING and the verdict" "1" "$(grep -cF 'never enter `fp-new.tsv`, NON_CONVERGING or the verdict' "$XP")"
 eq "XW10 filtered lines are appended to For Human Review by a fixed command" "1" "$(grep -cF 'cat "$MEM/review-oos.md"; } >> "$MEM/review.md"' "$XP")"
-eq "XW11 Grant runs before the ask, headless and queue included" "1" "$(grep -cF 'before the ask, headless and queue included' "$XP")"
+eq "XW11 the filter runs on every incremental re-review" "1" "$(grep -cF 'Runs on every incremental re-review' "$XP")"
 
 # ---- docs (N1-345) ----
 ARCH=references/architecture.md
