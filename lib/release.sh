@@ -88,6 +88,8 @@ n1_release_obs_providers() {
 # or a whole key word sid jwt auth oauth proxyauth basicauth sig signature (optional _key/_code/_secret/_pass/_token suffix,
 # not preceded by a letter or @, so signal: and unauthorized: survive), and 32+ char token runs. Over-redacting is the safe direction. Both are also stripped of control characters and | ` $ < > \, so they are safe in a one-line table cell.
 # New since release: the group's earliest first-seen is at or after the cutoff. Merge: min first, max last, sum count.
+# Groups whose last-seen precedes the cutoff (baseline only, nothing since the tag) are omitted; counts of kept
+# pre-existing groups still include their baseline rows.
 # Rows with a bad timestamp or count are dropped and counted on stderr ("dropped: N"). Bad cutoff: no output. rc 0.
 # ponytail: the label only sees the rows the provider returned (bounded, newest first); older lines crowded out by
 # the limit read as new since release, the safe direction (a condition, never NO-GO). Per-signature baseline
@@ -169,8 +171,11 @@ n1_release_obs_group() {
         }
         END {
             if (dropped) print "dropped: " dropped > "/dev/stderr"
-            for (s in cnt) printf "%.0f\t%s\t%.0f\t%s\t%s\t%s\t%s\n", hi[s], s, cnt[s], iso(lo[s]), iso(hi[s]), \
+            for (s in cnt) {
+                if (hi[s] < cut) continue
+                printf "%.0f\t%s\t%.0f\t%s\t%s\t%s\t%s\n", hi[s], s, cnt[s], iso(lo[s]), iso(hi[s]), \
                 (lo[s] >= cut ? "new since release" : "pre-existing"), sample[s]
+            }
         }
     ' | sort -t $'\t' -k1,1nr -k2,2 | cut -f2-
     return 0
