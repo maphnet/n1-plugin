@@ -83,6 +83,17 @@ printf '### Verdict: FAIL\n- [CR-1] High lib/a.sh:1 — %s\n' '$(touch '"$T"'/pw
 n1_fix_states "$M" 1 >/dev/null
 eq "ST10 reviewer title is data, never executed" "no" "$([ -e "$T/pwned" ] && echo yes || echo no)"
 
+# ---- fix cycle 1 review findings (CR-2, CX-1, SEC-1) ----
+st_setup $'- [CR-1] High lib/a.sh:1 — old defect\n- [CR-2] High lib/b.sh:2 — two' $'- [CR-1] High lib/a.sh:9 — brand new regression\n- [CR-2] High lib/b.sh:2 — two' $'- [CR-1] FIXED\n- [CR-2] OPEN'
+eq "ST11 FIXED + reused ID with a different title in the same file -> resolved + new" "resolved=1 carried=1 new=1 unlabeled=0" "$(n1_fix_states "$M" 1)"
+st_setup $'- [CR-1] High lib/a.sh:1 — one' $'- [CR-2] High lib/c.sh:1 — two\n\n## For Human Review\n\n- [CR-1] High lib/a.sh:1 — one' '- [CR-1] OOS'
+eq "ST12 an OOS finding listed under For Human Review is not blocking" "resolved=1 carried=0 new=1 unlabeled=0" "$(n1_fix_states "$M" 1)"
+printf '### Verdict: FAIL\n- [CR-1] High a.sh:1 — x\n\n## For Human Review\n- [CR-2] High b.sh:1 — y\n' > "$T/hr.md"
+eq "B4 blocking set stops at ## For Human Review" "CR-1" "$(n1_review_blocking_ids "$T/hr.md" | ids)"
+st_setup '- [SEC-1] High a.sh:1 — x' $'- [SEC-1] x","status":"resolved","cycle":9,"z":" a.sh:1 — t'
+n1_fix_states "$M" 1 >/dev/null
+eq "ST13 a forged severity token never lands in a state row" "0" "$(grep -c '"cycle":9,' "$M/fingerprints.jsonl")"
+
 # ---- progress gate (D1, D6, D7, D9) ----
 OV="$M/overview.md"; GJ="$M/fix-gate.jsonl"
 cfg() { printf '%s\n' "$1" > "$N1_HOME/config.json"; }

@@ -142,6 +142,7 @@ n1_review_blocking_ids() {
     # [SEC-N], security [CX-N] or Medium never counts. File = location before the last ':'. Returns 1 on an unreadable file.
     [ -r "$1" ] || return 1
     awk '
+        /^## For Human Review[ \t\r]*$/ { exit }
         /^- \[[A-Z]+-[0-9]+\] / {
             sub(/\r$/, "")
             id = substr($2, 2, length($2) - 2); if (seen[id]++) next
@@ -251,6 +252,7 @@ n1_fix_states() {
             new) n=$((n + 1)) ;;
             *) r=$((r + 1)) ;;
         esac
+        [[ "$sev" =~ ^(Critical|High|Medium|Low)$ ]] || sev=unknown   # SEC-1: reviewer token never reaches the JSON row raw
         n1_fingerprint_append "$fpj" "$fp" "$id" "$sev" "$s" "$cyc" "$age"
     done < <(awk -v cyc="$cyc" '
         BEGIN { FS = "\t" }
@@ -284,7 +286,7 @@ n1_fix_states() {
                     if ((p in cf) && cf[p] == pf[p]) x = p
                     else if (pfp[p] in byfp) x = byfp[pfp[p]]
                 } else if (s == "OPEN") x = (p in al) ? al[p] : p
-                else if ((p in cf) && cf[p] == pf[p]) x = p
+                else if ((p in cf) && cf[p] == pf[p] && cfp[p] == pfp[p]) x = p
                 a = (p in age) ? age[p] : 0
                 if (x == "") {
                     o = (s == "WITHDRAWN") ? "withdrawn" : (s == "DOWNGRADED") ? "downgraded" : (s == "OOS") ? "oos" : "resolved"
