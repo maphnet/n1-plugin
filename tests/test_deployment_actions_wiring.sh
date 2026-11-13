@@ -321,4 +321,129 @@ check "release: no-deploy case is reported" 'No deployment workflow triggered by
 check "release: gh errors are not a deploy failure" 'This is not a deploy failure' "$R4"
 check "release: SKILL.md forbids stopping after step 2" 'do not stop after step 2' skills/n1-release/SKILL.md
 
+# --- N1-568: § Command classifies Check: items as check (Manual: wins; backticks inside Check: stay check)
+check "contract defines the Check: kind" 'An item starting with `Check:` is a \*\*check item\*\*' "$P"
+TSV8="$T/check.tsv"
+printf '9\tafter\tafter\tCheck: `curl -sf https://x.example/health` returns 200\n' > "$TSV8"
+printf '9\tafter\tafter\tManual: Check: the dashboard by eye\n' >> "$TSV8"
+printf '9\tafter\tafter\t`echo shell`\n' >> "$TSV8"
+run8() { PATH="$T/bin:$PATH" bash -c "$(snippet "## § Command" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV8\"|" -e "s|^K=.*|K=$1|")"; }
+out=$(run8 3)
+check "command: shell item still classified shell" "^shell$" <(printf '%s\n' "$out")
+out=$(run8 1)
+check "command: Check: prefix classified check" "^check$" <(printf '%s\n' "$out")
+[ ! -f "$TSV8.cmd" ] && echo "PASS: check item leaves no .cmd file" || { echo "FAIL: check item left a .cmd file"; FAIL=1; }
+out=$(run8 2)
+check "command: Manual: wins over Check:" "^manual$" <(printf '%s\n' "$out")
+
+# --- N1-568: § Check is read-only with quoted evidence; a passed check is dropped from the TSV;
+# § Runbook omits dropped rows and prints runbook:none when no before/after row is left (D1, D8)
+check "procedure has Check section" "^## § Check" "$P"
+check "check: refuses a step that would write" "would write" "$P"
+check "check: pass requires quoted evidence" "quoted evidence" "$P"
+export N1_HOME="$T/n1h"; mkdir -p "$N1_HOME"
+TSV9="$T/rb.tsv"
+printf '7\tafter\tafter\tCheck: health returns 200\n7\tafter\tafter\tManual: warm the cache\n' > "$TSV9"
+drop9() { bash -c "$(snippet "**Drop a passed check**" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV9\"|" -e "s|^K=.*|K=$1|")"; }
+rb9() { bash -c "n1_write_frontmatter() { printf '%s %s\n' \"\$2\" \"\$3\" >> \"$T/fm.log\"; }; $(snippet "## § Runbook" | sed -e '/preamble\.sh/d' -e 's|^ID=.*|ID="T-1"|' -e "s|^OUT=.*|OUT=\"$TSV9\"|" -e 's|^SHA=.*|SHA=""|')"; }
+drop9 1
+[ "$(sed -n 1p "$TSV9")" = "$(printf '7\tafter\tdrop\tCheck: health returns 200')" ] \
+    && echo "PASS: drop marks the passed check row drop" || { echo "FAIL: drop did not mark the row"; FAIL=1; }
+rm -f "$T/fm.log"
+out=$(rb9)
+check "runbook lists the unpassed row" "^- \[ \] #7 Manual: warm the cache$" "$N1_HOME/memory/T-1/runbook.md"
+if grep -q 'health returns 200' "$N1_HOME/memory/T-1/runbook.md" 2>/dev/null; then echo "FAIL: runbook listed a passed check"; FAIL=1; else echo "PASS: runbook omits the passed check"; fi
+check "runbook with an unpassed row sets deploy_pending" "^deploy_pending true$" "$T/fm.log"
+awk -F'\t' -v OFS='\t' 'NR == 2 { $3 = "drop" } { print }' "$TSV9" > "$TSV9.t" && mv "$TSV9.t" "$TSV9"; rm -f "$T/fm.log"
+out=$(rb9)
+check "runbook prints runbook:none when every row passed" "^runbook:none$" <(printf '%s\n' "$out")
+if grep -q '^## Deployment Actions' "$N1_HOME/memory/T-1/runbook.md" 2>/dev/null; then echo "FAIL: runbook:none left a Deployment Actions section"; FAIL=1; else echo "PASS: runbook:none strips the stale section"; fi
+[ ! -s "$T/fm.log" ] && echo "PASS: runbook:none never sets deploy_pending" || { echo "FAIL: runbook:none touched deploy_pending"; FAIL=1; }
+
+# --- N1-568: § Walk text (S1, S2, D2) and the headless exception (AC3, D9)
+check "walk: check items run without a prompt" 'except a `check` item' "$P"
+check "walk: offers Run it for me as the recommended option" "Run it for me \(Recommended" "$P"
+check "walk: Run it for me shows the one-line how" "How: <contents of" "$P"
+check "walk: free-text answers map to an option" "Free-text answers" "$P"
+check "walk: late before rows are labeled deploy already ran" "deploy already ran" "$P"
+check "walk: late before checks are offered, never silent" "never run silently" "$P"
+check "walk: every item gets a reported outcome" "report each item's outcome" "$P"
+check "headless runs after checks only after a confirmed deploy" "once a deploy was watched and succeeded in this run" "$P"
+
+# --- N1-568: tech-writer writes Check: only for read-only verification
+TW=agents/tech-writer.md
+check "tech-writer has the read-only Check: rule" "\*\*Read-only checks:\*\*" "$TW"
+check "tech-writer keeps writes and secrets out of Check:" "involves a secret stays .Manual:. or a shell command" "$TW"
+check "tech-writer Format lists Check: as the third kind" "or text starting with .Check:." "$TW"
+check "tech-writer template shows a Check: line" "^- \[ \] Check: <" "$TW"
+check "tech-writer reconcile never converts existing lines" "existing lines are never converted to .Check:." "$TW"
+
+# --- N1-568: n1-finish wiring (AC3, AC4, AC6, AC8; D1, D2, D9)
+F2=skills/n1-finish/steps/02-merge.md
+F4=skills/n1-finish/steps/04-close-ticket.md
+check "finish Step 2 runs before checks without a prompt" "check. rows run without a prompt" "$F2"
+check "finish Step 4 headless runs after checks first" "run § Check \(no prompt" "$F4"
+check "finish Step 4 headless closes on runbook:none" "runbook:none" "$F4"
+check "finish Step 4 walks late before rows with LATE=1" "LATE=1" "$F4"
+check "finish Step 4 labels late before rows deploy already ran" "deploy already ran" "$F4"
+check "finish Step 4 runs no check without a watched deploy" "no check runs without a watched deploy" "$F4"
+check "finish Step 6 Report carries deployment action outcomes" "^Deployment actions: " skills/n1-finish/steps/06-cleanup.md
+check "tail-worker treats a check item as no question" "runs without a prompt" agents/tail-worker.md
+check "handoff: passing checks never cause tail:prompt" "passing .check. items never stop it" skills/n1-finish/steps/handoff.md
+
+# --- N1-568: n1-release Step 5 and Step 8b (D7, D9)
+R2=skills/n1-release/steps/02-confirm-execute.md
+R4=skills/n1-release/steps/04-report.md
+check "release Step 5 walk runs check rows without a prompt" "check. rows run without a prompt" "$R2"
+check "release Step 5 headless STOP unchanged" "before-deploy actions require confirmation and this is a queue/headless run" "$R2"
+check "release Step 8b headless runs after checks after a watched deploy" "run § Check on each .after. row" "$R4"
+check "release Step 8b runs no check without a watched deploy" "When no deploy was watched, run no check" "$R4"
+
+# --- N1-568 S3: n1-pr's body check lists unticked before-deploy items (CRLF-safe; ticked items and other sections ignored)
+PP=skills/n1-pr/steps/01-prepare.md
+export N1_HOME="$T/n1h"; mkdir -p "$N1_HOME/scratch"
+BF="$N1_HOME/scratch/pr-body-T-1.abc"
+printf '## Summary\r\n- [ ] not an action\r\n\r\n## Deployment Actions\r\n\r\n### Before deploy\r\n- [ ] Manual: set secret STRIPE_KEY\r\n- [x] `echo done`\r\n\r\n### After deploy\r\n- [ ] Check: health returns 200\r\n' > "$BF"
+echo "title" > "$BF.title"
+out=$(bash -c "$(awk 'index($0, "**Check the body file:**") == 1 {f = 1; next} f && /^```bash/ {b = 1; next} b && /^```/ {exit} b' "$PP" | sed -e '/preamble\.sh/d' -e "s|^PR_BODY_FILE=.*|PR_BODY_FILE=\"$BF\"|")")
+check "n1-pr body check still reports ok" "^pr:body ok$" <(printf '%s\n' "$out")
+check "n1-pr lists the unticked before-deploy item" "^before-deploy: Manual: set secret STRIPE_KEY$" <(printf '%s\n' "$out")
+[ "$(printf '%s\n' "$out" | grep -c '^before-deploy: ')" = "1" ] \
+    && echo "PASS: n1-pr lists only unticked before-deploy items" || { echo "FAIL: n1-pr before-deploy listing count"; FAIL=1; }
+check "n1-pr listing text" "Do these before merging; ./n1:n1-finish <ID>. walks them while the PR is open\." "$PP"
+check "n1-pr Report points to the before-deploy listing" "before-deploy listing from .01-prepare\.md." skills/n1-pr/steps/03-codex-review.md
+
+# --- N1-568: architecture.md documents Check: items and Run it for me
+check "architecture.md documents Check: items" "after .Check:. items \(read-only verification" references/architecture.md
+check "architecture.md documents Run it for me" "Run it for me" references/architecture.md
+
+# --- N1-568 fix cycle 1 (CR-1, SEC-1..4)
+check "finish 3.2 does not park an open PR on after check rows" "other than an .after. row that § Command classifies .check." "$F2"
+check "finish 3.2 continues to merge when only after checks remain" "every unticked row is such an .after. check, continue to 3.3" "$F2"
+check "finish Step 4 runs no check on a resume alone" "a Step 1 resume alone does not count" "$F4"
+check "reference: resume alone is not a watched deploy" "a resumed pending deploy alone does not count" "$P"
+check "check: every mode refuses a PR by another author" "In every mode .walk and runbook, n1-finish and n1-release., run no check promptlessly for a PR whose author differs" "$P"
+check "check: untrusted item text names the target only" "never instructions" "$P"
+check "check: GET/HEAD only, literal hosts, no substitution" "GET or HEAD only" "$P"
+check "check: literal host from the item, no command substitution" "appear literally in the item text; never add command substitution" "$P"
+check "check: runs under env -i" 'env -i PATH="\$PATH" HOME="\$HOME"' "$P"
+check "check: commit id must prefix the merge SHA" "must be a prefix of the deployed merge SHA" "$P"
+check "check: a package version is ignored for binding" "ignored for binding" "$P"
+check "check: env -i is not claimed as a write barrier" "the environment is not a write barrier" "$P"
+check "check: gh api is GET only without fields" "gh api --method GET. with no" "$P"
+check "check: never quote a secret value" "Never quote a secret value" "$P"
+check "run it for me runs the shown command file" 'bash "\$OUT\.cmd"\)` and nothing else' "$P"
+check "run it for me writes the file with the file-write mechanism" 'with the file-write mechanism .`references/file-write-mechanism\.md`., never a shell redirect, heredoc' "$P"
+check "run it for me shows the file before running" 'Show it with `cat "\$OUT\.cmd"`' "$P"
+! grep -q "printf '%s' '<command>'" "$P" && echo "PASS: no single-quoted printf write template" || { echo "FAIL: single-quoted printf template remains"; FAIL=1; }
+check "run it for me: no secret value in the command" "Never put a secret value in the command" "$P"
+snip=$(snippet "**Drop a passed check**")
+printf '1\tafter\tafter\tManual: set it\n2\tafter\tafter\tCheck: ok\n' > "$T/drop.tsv"
+r1=$(OUT="$T/drop.tsv" K=1 bash -c "$(printf '%s\n' "$snip" | sed '/preamble\.sh/d;s|^OUT=.*||;s|^K=.*||')" 2>&1); 
+[ "$r1" = "drop:refused" ] && [ "$(cut -f3 "$T/drop.tsv" | tr '\n' ' ')" = "after after " ] \
+    && echo "PASS: drop refuses a non-check row" || { echo "FAIL: drop did not refuse a non-check row ($r1)"; FAIL=1; }
+OUT="$T/drop.tsv" K=2 bash -c "$(printf '%s\n' "$snip" | sed '/preamble\.sh/d;s|^OUT=.*||;s|^K=.*||')"
+[ "$(cut -f3 "$T/drop.tsv" | tr '\n' ' ')" = "after drop " ] \
+    && echo "PASS: drop drops a check row" || { echo "FAIL: drop did not drop a check row"; FAIL=1; }
+
 exit $FAIL

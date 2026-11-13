@@ -97,3 +97,4 @@ CHECKPOINT: Ready for Tech Lead review.
 ```
 
 Ready mode: same with `PR created:` (not bolded).
+Then add the before-deploy listing from `01-prepare.md` **Check the body file** (none: no listing).

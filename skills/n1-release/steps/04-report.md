@@ -80,7 +80,7 @@ Record the outcome as `DEPLOY` for the Step 9 `Deployment:` line.
 
 Runs only when `$N1_HOME/scratch/release-actions.tsv` has `after` rows, after a successful release, and when Step 8 did not skip it (a deploy failure, timeout or unverified watch skips this step).
 
-- `mode:runbook` (§ Parse output; queue or headless run) → report the unticked `after` rows and leave them unticked; never walk.
+- `mode:runbook` (§ Parse output; queue or headless run) → never walk. When Step 8 reported "Deployment succeeded.", run § Check on each `after` row that § Command classifies `check` (no prompt; a passing row is ticked). When no deploy was watched, run no check. Then report the unticked `after` rows (failed or inconclusive checks and every non-check row) and leave them unticked.
 - Step 8 reported "Deployment succeeded." → follow `<N1_ROOT>/references/deployment-actions.md` § Walk with `PHASE=after` and `OUT=$N1_HOME/scratch/release-actions.tsv`.
 - No deploy was watched (`release.deploymentCheck` is `false`, no workflow triggered, no Release published, or Categories 1–4) → § Unwatched Deploy.
 

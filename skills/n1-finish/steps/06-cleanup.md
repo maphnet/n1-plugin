@@ -70,6 +70,7 @@ Deploy: <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <
 Verification: <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
 Verification details: <this invocation's validated per-criterion table when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`; otherwise omitted>
 Deferred to release (n1-release walks these before the tag push): <items> (PR #<n>)   ← only when Step 4 § Parse printed `deferred:<M>` with M > 0
+Deployment actions: <ticked <item> (evidence: "<quoted line>"); skipped <item>; failed <item> (<why>); left in runbook <item>>   ← only when Step 4 ran § Walk or § Check; non-empty parts only
 Delivery: <pending — runbook: memory/<ID>/runbook.md, resume with /n1:n1-finish <ID> | succeeded (<verified | not verified>) | succeeded (covered by <owner ID> at <sha>) | not needed (repo-only paths) | n/a (delivery.mode is not ssh)>
 Covered: <closed <IDs>; excluded (unticked actions) <IDs>; left pending (<declined | record failed>) <IDs> | none>   ← only when Step 4 read covered-close.md; non-empty parts only
 Cleanup: <the status tokens, e.g. worktree:removed, branch:deleted | worktree:kept (dirty), branch:kept (checked out in <path>) | worktree:none, branch:none>
