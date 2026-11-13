@@ -299,6 +299,8 @@ When `localTesting.enabled` is true, n1-start runs a local verification phase (S
 - **`"test"`** (default when no startCommand): Runs existing test suites only with no infrastructure startup. The planner suppresses Runtime First and produces test-suite-only plans.
 - **`"smoke"`** (cloud-native services): Skips the local-testing step entirely with `smoke_deferred` telemetry. An absent `finishWork.postDeployVerification.enabled` falls back to this explicit mode; an explicit `false` disables post-deploy verification.
 
+Auto-skip: the step is skipped (`skip_reason: auto_skip`) only when `n1_classify_local_test_skip` finds a docs-only diff; any YAML or env file counts as runtime, and a failed or empty diff never skips.
+
 Bounded fix loop (live/test modes): `localTesting.maxFixAttempts` (default 3). On by default; configured by `n1-init`.
 
 `localTesting.autoLive` (bool, default `false`) — opt-in: when `true` and `mode` is unset, a root `compose.yaml`/`compose.yml`/`docker-compose.yaml`/`docker-compose.yml` resolves mode to `"live"`. An explicit `mode` always wins. Not a `pipeline.json` gate (it changes mode resolution, it does not skip a step). `n1-init` asks about it only when a compose file is detected.

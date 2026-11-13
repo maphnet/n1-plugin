@@ -40,6 +40,14 @@ assert_contains "local-testing: developer env step 0" \
 assert_contains "local-testing: QA dedup gate requires test mode" \
     "skills/n1-start/steps/local-testing.md" \
     'if [ -z "$NON_PYTEST" ] && [ "$LOCAL_TESTING_MODE" = "test" ]; then'
+assert_contains "local-testing: auto-skip uses classifier" \
+    "skills/n1-start/steps/local-testing.md" \
+    'n1_classify_local_test_skip "$CHANGED_FILES"'
+if grep -qE 'no runtime-affecting code|`\.yml`/`\.yaml` config' "$REPO_ROOT/skills/n1-start/steps/local-testing.md"; then
+    echo "FAIL: local-testing: model-judged or YAML-config auto-skip still present"; FAIL=$((FAIL+1))
+else
+    echo "PASS: local-testing: no model-judged or YAML-config auto-skip"; PASS=$((PASS+1))
+fi
 assert_contains "qa: no inline test runs" \
     "skills/n1-start/steps/qa.md" \
     "ORCHESTRATOR GUARDRAIL (qa): do not run tests, coverage, or lint in this step"

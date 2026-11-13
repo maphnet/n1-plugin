@@ -97,7 +97,7 @@ Count runs by `action_type` value:
 | test_only | N | X% |
 | skipped | N | X% |
 
-`skipped` runs carry `{"skip_reason":"qa_dedup"}` in metadata (pre-v2.97.0 skip path) or `{"action_type":"skipped"}` (v2.97.0+). Count both forms as `skipped`. Include auto-skip runs (documentation-only changes, no testable scenarios) in the `skipped` bucket as well.
+`skipped` runs carry `{"skip_reason":"qa_dedup"}` in metadata (pre-v2.97.0 skip path) or `{"action_type":"skipped"}` (v2.97.0+). Count both forms as `skipped`. Include auto-skip runs (docs-only diffs per `n1_classify_local_test_skip`) in the `skipped` bucket as well.
 
 ### Infrastructure Start Rate
 

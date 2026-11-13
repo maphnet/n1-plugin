@@ -82,7 +82,7 @@ n1_classify_path() {
         *.mk) echo build; return ;;
         *.dockerfile) echo build; return ;;
         *.cmake) echo build; return ;;
-        docker-compose*.yml|docker-compose*.yaml) echo build; return ;;
+        docker-compose*.yml|docker-compose*.yaml|compose.yml|compose.yaml) echo build; return ;;
     esac
     case "$p" in
         scripts/build*|scripts/deploy*|scripts/release*|scripts/package*) echo build; return ;;
@@ -216,6 +216,28 @@ n1_classify_all_low_risk() {
             deps|style|test|ci) ;;
             *) echo false; return ;;
         esac
+    done <<< "$paths"
+    [ "$found" = true ] && echo true || echo false
+}
+
+# n1_classify_local_test_skip <newline-separated-paths> -> stdout: true|false
+# true iff every path is non-runtime: category docs, or .gitignore. Any YAML or env file is
+# runtime, even under docs/; so is any file whose basename alone is not docs (docs/conf.py). Version manifests are skipped as in n1_classify_all_low_risk;
+# a manifests-only list stays false. Empty input -> false (safe default).
+n1_classify_local_test_skip() {
+    local paths="$1"
+    [ -z "$paths" ] && { echo false; return; }
+    local f b found=false
+    while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        case "$f" in .claude-plugin/plugin.json|.claude-plugin/marketplace.json) continue ;; esac
+        found=true
+        b="${f##*/}"
+        case "$b" in
+            *.yml|*.yaml|*.env|.env|.env.*) echo false; return ;;
+            .gitignore) continue ;;
+        esac
+        [ "$(n1_classify_path "$f")" = docs ] && [ "$(n1_classify_path "$b")" = docs ] || { echo false; return; }
     done <<< "$paths"
     [ "$found" = true ] && echo true || echo false
 }
