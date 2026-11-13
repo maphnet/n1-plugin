@@ -166,9 +166,9 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 run16() { CFG_PATH="$1" bash "$T/step16.sh" 2>&1; }
 
-printf '{"finishWork":{"mergeMethod":"squash"}}\n' > "$T/a.json"; chmod 600 "$T/a.json"
+printf '{"finishWork":{"mergeMethod":"squash"}}\n' > "$T/a.json"; chmod 640 "$T/a.json"
 out=$(run16 "$T/a.json")
-if [ "$(mode_of "$T/a.json")" = 600 ] && [ "$(jq -r .finishWork.postDeployVerification.enabled "$T/a.json")" = true ] \
+if [ "$(mode_of "$T/a.json")" = 640 ] && [ "$(jq -r .finishWork.postDeployVerification.enabled "$T/a.json")" = true ] \
     && [ "$(jq -r .finishWork.mergeMethod "$T/a.json")" = squash ] && [[ "$out" == "flag:true gate=ok" ]]; then
     echo "PASS: flag write keeps config mode and siblings"; PASS=$((PASS + 1))
 else
@@ -193,6 +193,32 @@ fi
 [ ! -e "$T/a.json.tmp" ] && [ ! -e "$T/real.json.tmp" ] && [ ! -e "$T/link.json.tmp" ] \
     && { echo "PASS: successful write removes the temp file"; PASS=$((PASS + 1)); } \
     || { echo "FAIL: successful write removes the temp file"; FAIL=$((FAIL + 1)); }
+
+# Copy-back failure (read-only config): original content must survive, no temp files, write-failed printed.
+if [ "$(id -u)" = 0 ]; then
+    echo "SKIP: copy-back failure case needs a non-root user (root ignores mode 444)"
+else
+    printf '{"finishWork":{"mergeMethod":"squash"}}\n' > "$T/ro.json"; cp "$T/ro.json" "$T/ro.orig"; chmod 444 "$T/ro.json"
+    out=$(run16 "$T/ro.json"); rc=$?
+    if [ "$rc" -ne 0 ] && [[ "$out" == *flag:write-failed* ]] && cmp -s "$T/ro.json" "$T/ro.orig" \
+        && [ ! -e "$T/ro.json.tmp" ] && [ ! -e "$T/ro.json.bak" ]; then
+        echo "PASS: failed copy-back keeps original config and leaves no temp files"; PASS=$((PASS + 1))
+    else
+        echo "FAIL: failed copy-back keeps original config and leaves no temp files ($out)"; FAIL=$((FAIL + 1))
+    fi
+fi
+# Copy-back fails after the shell truncated the config (disk full / I/O error): stub cat fails on the temp file.
+mkdir "$T/bin"; REAL_CAT=$(command -v cat)
+printf '#!/bin/bash\ncase "${1:-}" in *.tmp) exit 1 ;; esac\nexec %s "$@"\n' "$REAL_CAT" > "$T/bin/cat"; chmod +x "$T/bin/cat"
+printf '{"finishWork":{"mergeMethod":"squash"}}\n' > "$T/tr.json"; cp "$T/tr.json" "$T/tr.orig"
+out=$(PATH="$T/bin:$PATH" run16 "$T/tr.json"); rc=$?
+if [ "$rc" -ne 0 ] && [[ "$out" == *flag:write-failed* ]] && cmp -s "$T/tr.json" "$T/tr.orig" \
+    && [ ! -e "$T/tr.json.tmp" ] && [ ! -e "$T/tr.json.bak" ]; then
+    echo "PASS: copy-back failure after truncation restores original config"; PASS=$((PASS + 1))
+else
+    echo "FAIL: copy-back failure after truncation restores original config ($out)"; FAIL=$((FAIL + 1))
+fi
+[ ! -e "$T/a.json.bak" ] && [ ! -e "$T/bad.json.bak" ] || { echo "FAIL: backup file left behind"; FAIL=$((FAIL + 1)); }
 
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
