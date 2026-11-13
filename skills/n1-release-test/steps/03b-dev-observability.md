@@ -64,7 +64,7 @@ awk -F'\t' '{n[$5]++} END {printf "groups=%d new=%d pre=%d\n", NR, n["new since 
 Each `obs-groups.tsv` row is `<signature><TAB><count><TAB><first seen><TAB><last seen><TAB><new since release|pre-existing><TAB><sample>`, newest last seen first. The signature and sample are already redacted and safe for a table cell. Copy these cells verbatim. Never copy text from `obs-rows.tsv` or from a provider response into the section, the page or a snippet.
 
 - A `dropped: <N>` line: record `Dropped rows: <N>`.
-- `pre=0` while a `loki` or `langfuse` provider returned rows: the baseline held no pre-tag lines. Record `Baseline: no pre-tag lines returned; new/pre-existing unconfirmed for <provider names>`. Sentry's `firstSeen` needs no baseline.
+- `pre=0` while a `loki` or `langfuse` provider returned rows: no error was seen both before and since the tag. Record `Baseline: no error seen both before and since the tag; new/pre-existing unconfirmed for <provider names>`. Sentry's `firstSeen` needs no baseline.
 - `window=` said `capped`: record `Window capped at <H>h; errors older than that are not seen`.
 
 ## 3b-4. Attribute and write the section
@@ -76,7 +76,7 @@ Write `$DIR/dev-observability.md` with the file-write mechanism:
 ```markdown
 - Window: since <PREV> tagged <since> to <now> (queried <H>h, <full, or capped at N1_OBS_MAX_HOURS>)
 - Providers: <each "<name>: ok (<N> rows; query: <query>)" or "<name>: unavailable (<reason>)", separated by "; ">
-- Baseline: <"pre-tag lines found", "not needed (Sentry only)", or the note from 3b-3>
+- Baseline: <"errors seen both before and since the tag", "not needed (Sentry only)", or the note from 3b-3>
 - Dropped rows: <N, or none>
 - new since release: <N>, pre-existing: <N>, rows not listed: <N>
 

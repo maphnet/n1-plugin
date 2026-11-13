@@ -114,6 +114,9 @@ assert_contains "n1-start: ticket-watch Check fast path inline (N1-476)" \
 assert_contains "n1-start: stray notice rule in the dispatch requirement (N1-476)" \
     "skills/n1-start/SKILL.md" \
     "resume the subagent you dispatched by its id via the host message mechanism"
+assert_contains "n1-start: no re-read of a step file on return (N1-553)" \
+    "skills/n1-start/SKILL.md" \
+    "do not read it again"
 assert_contains "review: wait points at the dispatch requirement (N1-476)" \
     "skills/n1-start/steps/review.md" \
     "Wait contract applies** (BLOCKING DISPATCH REQUIREMENT"

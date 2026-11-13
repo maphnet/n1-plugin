@@ -17,7 +17,7 @@ _n1_ticket_parse() {
     TITLE=$(jq -r '.title // empty' <<<"$INTAKE_RESULT" 2>/dev/null)
     CLOUD_ID=$(jq -r '.cloudId // empty' <<<"$INTAKE_RESULT" 2>/dev/null)
     LINKED_ERROR_URL=$(jq -r '.linked_error.issueUrl // empty' <<<"$INTAKE_RESULT" 2>/dev/null)
-    TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"' | tr -d ' ')
+    TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags" *: *\[//;s/\].*//' | tr -d '"' | tr -d ' ')
     TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*[,{] *"type": *"\([^"]*\)".*/\1/')
     [ -n "$LINKED_ERROR_URL" ] && TYPE_FIELD=bug
     n1_resolve_type "$TITLE" "$TAGS_CSV" "$TYPE_FIELD" "$TYPE_OVERRIDE" > "$rt" 2>/dev/null || true

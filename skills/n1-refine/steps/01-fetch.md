@@ -40,7 +40,7 @@ source ~/.n1/preamble.sh
 n1_verify_dependencies "$N1_HOME/memory/<ID>/refine" ticket.md || exit 1
 INTAKE_RESULT=$(echo "$AGENT_OUTPUT" | grep -m1 '^intake-result: ' | sed 's/^intake-result: //')
 TITLE=$(echo "$AGENT_OUTPUT" | grep -m1 '^title: ' | sed 's/^title: //')
-TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"' | tr -d ' ')
+TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags" *: *\[//;s/\].*//' | tr -d '"' | tr -d ' ')
 TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*[,{] *"type": *"\([^"]*\)".*/\1/')
 n1_resolve_type "$TITLE" "$TAGS_CSV" "$TYPE_FIELD" "" 2>/dev/null
 ISSUE_TYPE=$(echo "$INTAKE_RESULT" | sed -n 's/.*"issue_type": *"\([^"]*\)".*/\1/p' | tr '[:upper:]' '[:lower:]')

@@ -42,6 +42,12 @@ ret '{"title":"Crash","tags":[],"type":"task","linked_error":{"provider":"sentry
 OUT=$(n1_ticket_intake '' 2>&1)
 has "intake: linked error url" "$OUT" "LINKED_ERROR_URL=https://s.example/issues/1"
 has "intake: linked error forces bug" "$OUT" "RESOLVED_TYPE=bug"
+for TAGS in '"tags":["chore"]' '"tags": ["chore"]' '"tags": [ "x" , "chore" ]' '"tags" : ["chore"]'; do
+    ret '{"title":"T",'"$TAGS"',"type":"task","issue_type":"Task","subtask_count":0,"original_status":""}'
+    OUT=$(n1_ticket_intake '' 2>&1)
+    has "intake: tags $TAGS resolves" "$OUT" "RESOLVED_TYPE=chore"
+    has "intake: tags $TAGS matched by tags" "$OUT" "TYPE_MATCHED_BY=tags"
+done
 rm -f "$MEM/ticket-return.md"
 has "intake: no return file -> default task" "$(n1_ticket_intake '' 2>&1)" "RESOLVED_TYPE=task"
 

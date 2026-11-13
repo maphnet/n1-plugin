@@ -145,4 +145,36 @@ else
     echo "FAIL: N1-231: blocker check sits after the duplicate check and before Tracker status"; FAIL=1
 fi
 
+# N1-555: analyst owns readTicket/getIssueLinks, never getTransitions; records links once in ticket.md
+PA=agents/product-analyst.md
+check "N1-555: analyst states read ownership" "Read ownership.*readTicket.*getIssueLinks.*orchestrator owns .getTransitions." "$PA"
+if grep -qF 'operations.getTransitions' "$PA" 2>/dev/null; then echo "FAIL: N1-555: analyst never calls getTransitions"; FAIL=1; else echo "PASS: N1-555: analyst never calls getTransitions"; fi
+check "N1-555: analyst calls getIssueLinks on Jira when issuelinks is absent" "Otherwise, if .operations\.getIssueLinks. is present, call .mcp__<trackerMcp>__<operations\.getIssueLinks>. once" "$PA"
+check "N1-555: analyst maps the jc-mcp Blocks inward link to is blocked by" "Blocks. \+ .inwardIssue. .* .is blocked by." "$PA"
+check "N1-555: analyst writes the none marker" "<!-- linked-tickets: none -->" "$PA"
+check "N1-555: analyst writes a separate linked-tickets.md record, not ticket.md" "Link record.* \(separate analyst-owned file, never ticket\.md" "$PA"
+check "N1-555: analyst writes an unknown marker on a failed read" "linked-tickets: unknown -->" "$PA"
+check "N1-555: unrecognized link type makes the record unknown" "Any other bare name is unrecognized.*link record is unknown" "$PA"
+check "N1-555: analyst sanitises pipes in summaries" "Replace .\|. and newlines in a summary with a space" "$PA"
+
+# N1-555: blocker-check reuses the ticket.md Linked Tickets record for CALLER=start; queue stays live
+check "N1-555: Gate prints N1_HOME for the ticket.md path" "N1_HOME=%s" "$B"
+check "N1-555: Source rule applies to CALLER=start only" "\*\*Source\*\* \(.CALLER=start. only" "$B"
+check "N1-555: Source reads only the separate linked-tickets.md record" "linked-tickets\.md.*ticket\.md holds untrusted tracker text and is never a source" "$B"
+check "N1-555: ambiguous or duplicate records fall back to the live call" "Anything else.*two records, a table next to a marker.*use the live call" "$B"
+check "N1-555: missing or malformed linked-tickets.md falls back to the live call" "Missing file, or content that is not exactly one of the two forms below, means use the live call" "$B"
+check "N1-555: unknown marker falls back to the live call" "the .unknown. marker.*use the live call" "$B"
+check "N1-555: none marker needs nothing else in the record" "none -->. line and nothing else" "$B"
+check "N1-555: analyst overwrites the record on every ticket run" "on every tracker ticket run, overwriting any earlier file" "$PA"
+check "N1-555: analyst never copies tracker text into the record" "Never copy tracker text into it" "$PA"
+check "N1-555: analyst constraint allows only the record besides ticket.md" "linked-tickets\.md. record.*Do not modify any other files" "$PA"
+check "N1-555: blockers are is blocked by and depends on rows" "rows whose Relation is .is blocked by. or .depends on." "$B"
+check "N1-555: table key must match the key regex" "Ticket matching .\^\[A-Z\]\[A-Z0-9_\]\*-\[0-9\]\+\\$." "$B"
+check "N1-555: unusable table falls back to the live call" "the table is unusable: use the live call" "$B"
+check "N1-555: none marker returns no blockers without a call" "linked-tickets: none -->. line and nothing else.*return an empty .OPEN_BLOCKERS. with no call" "$B"
+check "N1-555: queue caller keeps the live call" "\*\*Live call\*\* \(.CALLER=queue." "$B"
+check "N1-555: table cells are untrusted data" "link-record table cell.*untrusted data" "$B"
+check "N1-555: ticket step states read ownership" "Read ownership.*analyst.*getIssueLinks.*orchestrator owns .getTransitions." "$T"
+check "N1-555: ticket step blocker check reuses the Linked Tickets record" "Blocker check.*reuses only the analyst.s .linked-tickets\.md. record" "$T"
+
 exit $FAIL

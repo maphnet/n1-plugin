@@ -2,6 +2,8 @@
 
 **Spawn product-analyst.** Detect mode and params. Ticket: `mode=ticket ticketId trackerMcp operations trackerType ticketMdPath`; add error fields if `ET_CONFIGURED`. File: `mode=file filePath ticketMdPath`. Brain dump: `mode=text content ticketMdPath`. Error tracker: `mode=error-tracker issueId issueUrl`+error fields; provisional `<ID>=sentry-<issueId>`. Always: `enrichmentEnabled` (`ticketEnrichment.enabled != false`), `cloudId` (Jira only).
 
+**Read ownership:** the analyst reads `readTicket` and `getIssueLinks` and records the links in ticket.md and in its own `linked-tickets.md` record (the only blocker-check source); the orchestrator owns `getTransitions` (Tracker status) and does not repeat the analyst's link read.
+
 Write the product-analyst's full returned text to `$N1_HOME/memory/$ID/ticket-return.md` with the file-write mechanism (never paste it into a shell command or string), then:
 
 ```bash
@@ -32,7 +34,7 @@ Output: `TIER=` (`tier:` from the return, default `standard`), `SESSION_NAME=`, 
 
 **Duplicate check:** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=start`, `TEXT` = title + description from ticket.md, `SELF_ID=<ID>`, `OVERVIEW=$N1_HOME/memory/<ID>/overview.md` (cached; skipped on resume and in queue children — resolved at plan time). **Stop** → end as above (`duplicate`), then end the run as the procedure says.
 
-**Blocker check** (mode=ticket only, an existing tracker ticket; after the duplicate check, before **Tracker status**): skip in a queue child. Read both with `printf 'QUEUE_RUN_ID=%s\nHEADLESS=%s\n' "${N1_QUEUE_RUN_ID:-}" "${N1_HEADLESS:-}"` after `source ~/.n1/preamble.sh`; the skip needs `N1_QUEUE_RUN_ID` set AND `N1_HEADLESS=1`, both (SEC-L2). Else follow `<N1_ROOT>/references/blocker-check.md` § Check with `ID=<ID>`, `CALLER=start`, then its § Report. **Stop** → end as above (`blocked`), then end the run; status untouched.
+**Blocker check** (mode=ticket only, an existing tracker ticket; after the duplicate check, before **Tracker status**): skip in a queue child. Read both with `printf 'QUEUE_RUN_ID=%s\nHEADLESS=%s\n' "${N1_QUEUE_RUN_ID:-}" "${N1_HEADLESS:-}"` after `source ~/.n1/preamble.sh`; the skip needs `N1_QUEUE_RUN_ID` set AND `N1_HEADLESS=1`, both (SEC-L2). Else follow `<N1_ROOT>/references/blocker-check.md` § Check with `ID=<ID>`, `CALLER=start` (its § 2 reuses only the analyst's `linked-tickets.md` record and calls `getIssueLinks` only without a valid one), then its § Report. **Stop** → end as above (`blocked`), then end the run; status untouched.
 
 **Tracker status** (mandatory, before any analysis dispatch; interactive runs and queue children alike): `moveStatus` → In Progress (skip if absent; warn and continue).
 

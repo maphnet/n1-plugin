@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$(dirname "${BASH_SOURCE[0]}")/frontmatter.sh"
 # n1_append_key_decision <overview_path> <decision_text>
 # Appends a bullet entry to the ## Key Decisions section of an overview file.
 #
@@ -15,6 +16,7 @@ n1_append_key_decision() {
 
     [ -f "$file" ] || return 1
     [ -n "$text" ] || return 1
+    n1_has_nul "$file" && { echo "ERROR: NUL bytes in $file" >&2; return 1; }
 
     local tmp; tmp=$(mktemp "${file}.XXXXXX")
     N1_KD_ENTRY="- ${text}" awk '
@@ -113,6 +115,7 @@ n1_append_escalation() {
 
     [ -f "$file" ] || return 1
     [ -n "$line" ] || return 1
+    n1_has_nul "$file" && { echo "ERROR: NUL bytes in $file" >&2; return 1; }
 
     local tmp; tmp=$(mktemp "${file}.XXXXXX")
     N1_ESC_ENTRY="$line" awk '
