@@ -26,6 +26,8 @@ At any point where a step would ask the user or otherwise **wait for the user**,
 
 **Stop list:** the categories in `n1_escalation_val 'alwaysAskOn'` (default: `security`, `architecture`, `public-api`) plus the release confirmation gate (always unconditional). A `[refined]` Decision (n1-refine block) never settles a stop-list prompt: classify the prompt as usual and escalate unless the plan-time pre-decision below applies.
 
+**Review fix budget exhausted (N1-569):** not a Headless Guard prompt. `steps/fix.md` **Exhausted** takes the For Human Review exit in headless runs, open `[SEC-N]` included: no pause, the PR opens, and a FAIL verdict is never merged. A developer `needs-decision` on a stop-list category still comes here (`procedures/review-fix-budget.md § Needs decision`).
+
 **Plan-time pre-decision (queue children).** If the prompt is in a stop-list category (never the release gate) and the run was launched by n1-queue, read `procedures/autonomy-headless-predecision.md` and follow it: it either logs a `[plan]` row and continues, or falls through to the escalation below.
 
 **If the prompt is NOT on the stop list AND the step has a recommended option** (the option marked "(Recommended)" or listed first as default): take the recommended option silently. Log it:

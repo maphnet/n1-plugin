@@ -37,7 +37,7 @@ IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolv
 
 **Pre-existing**: read `procedures/review-preexisting.md` and follow it only after the reviewers return and the **Tree freeze** below passes, before writing review-hdr.md and before routing (PASS or FAIL).
 
-`INCREMENTAL=true`: `procedures/review-extra-round.md § Filter` first. For each Critical/High (also each `[SEC-N]`, except a ` (pre-existing)` one not treated as in-diff: **Pre-existing** above): write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (id bare, e.g. `CR-1`; never put a title or path in a shell command, variable or double-quoted string); the block below records it.
+`INCREMENTAL=true`: `procedures/review-extra-round.md § Filter` first. For each blocking finding (Critical/High, `[RULE-N]`, non-TQ Medium, in-diff non-Low `[SEC-N]`; never a ` (pre-existing)` one not treated as in-diff: **Pre-existing** above): write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (id bare, e.g. `CR-1`; never put a title or path in a shell command, variable or double-quoted string); the block below records it.
 
 After ALL: **Tree freeze** `n1_tree_verify "<printed TREE_BEFORE>"`. Fail→discard reviewer files+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Write `$N1_HOME/memory/$ID/review-hdr.md` with the file-write mechanism: `### Verdict: <PASS|FAIL>`, summed counts, review-core.md notes, all Index lines (cycle 0: plus the `n1_review_codex_index` lines, `procedures/review-codex.md § Index`); the block below cats it and the reviewer files (never Read them). **FAIL** if Critical/High/`[RULE-N]` (except a ` (pre-existing)` `[SEC-N]`: **Pre-existing** above); also any in-diff non-Low `[SEC-N]`, never a `[SEC-N]` Low or ` (pre-existing)` (**PASS** below). Partial (incl. missing/empty reviewer file): retry once.
 
@@ -47,8 +47,8 @@ source "$N1_ROOT/lib/review-step.sh"
 n1_review_collect <true if security-reviewer was spawned, else false> || exit 1
 n1_step_end "review" 9 "success" "{\"head\":\"$(git rev-parse HEAD)\"}"
 ```
-Output: `PARTIAL: <file> missing/empty` (non-zero exit: Partial, retry once as above), `FP_RECORD_FAILED`, `NON_CONVERGING: cycle N` when they apply; always `TQ_MAX=N`.
-NON_CONVERGING/FP_RECORD_FAILED→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+Output: `PARTIAL: <file> missing/empty` (non-zero exit: Partial, retry once as above), `FP_RECORD_FAILED`, `FIX_STATES: ...`, `NON_CONVERGING: cycle N` when they apply; always `TQ_MAX=N`.
+FP_RECORD_FAILED→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`. `NON_CONVERGING` (nothing resolved, something carried): FAIL → Step 8, whose gate stops the loop.
 
 ### 7b. TQ FIX LOOP
 

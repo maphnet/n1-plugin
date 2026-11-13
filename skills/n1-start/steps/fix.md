@@ -12,11 +12,11 @@ IFS=$'\t' read -r DEVELOPER_MODEL DEVELOPER_EFFORT < <(n1_resolve_agent develope
 echo "REVIEW_FIX_CYCLE=$REVIEW_FIX_CYCLE FIX_GATE=$FIX_GATE FIX_AUDIT=$FIX_AUDIT"
 ```
 
-**Rule (N1-260):** `n1_review_fix_gate` (fence above) runs before every FAIL developer dispatch. The orchestrator never fixes findings inline and never dispatches a developer outside this step. Only an Exhausted option-2 answer (`[asked]`, or `[plan]` from queue plan time) or one `[granted]` row raises `review_fix_cycle` past the cap; an `[auto]` row never replaces that ask.
+**Rule (N1-260):** `n1_review_fix_gate` (fence above) runs before every FAIL developer dispatch. The orchestrator never fixes findings inline and never dispatches a developer outside this step. Only an Exhausted option-2 answer (`[asked]`, or `[plan]` from queue plan time) raises `review_fix_cycle` after a gate deny; an `[auto]` row never replaces that ask.
 
-**Cap gate** (`review.maxFixAttempts`, default 1, counts FAIL cycles): `FIX_GATE` other than `allow` → no developer in this step. SOFT-ONLY with `FIX_GATE` not `allow` or `REVIEW_FIX_CYCLE>=1` (a FAIL fix is unreviewed code; a soft pass would be a second unreviewed change): add its `(correctness)` Mediums to `## Deferred Soft Findings` in review.md (file-write mechanism), go to **PASS verdict**. FAIL: **Exhausted** below.
+**Cap gate** (`review.maxFixAttempts`, default 3, counts FAIL cycles; cycles 2+ need progress: `procedures/review-fix-budget.md § Gate`): `FIX_GATE` other than `allow` → no developer in this step. SOFT-ONLY with `FIX_GATE` not `allow` or `REVIEW_FIX_CYCLE>=1` (a FAIL fix is unreviewed code; a soft pass would be a second unreviewed change): add its `(correctness)` Mediums to `## Deferred Soft Findings` in review.md (file-write mechanism), go to **PASS verdict**. FAIL: **Exhausted** below.
 
-**Exhausted** (FAIL): `procedures/review-extra-round.md § Grant` first; `granted` skips the rest. No open in-diff non-Low `[SEC-N]` or security-class finding (review-core.md): write `## For Human Review` to review.md (file-write; merge if present), one `- [ID] severity file:line — title` per open Medium-or-higher or `[RULE-N]` finding; add an `[auto]` ledger row `review fix cap reached`; write `## Review` `FAIL (unresolved, human review)` to overview; run **Full-suite regression check** and the last block (no `clean_passes`); next step. Otherwise (an open in-diff non-Low `[SEC-N]`/security-class finding always needs this ask; never an `[auto]` row) ask the user: summary, then 1. List them under For Human Review and proceed 2. One more FAIL fix cycle (append a `| fix | quality | A | [asked] | review fix cap reached | One more FAIL fix cycle |` ledger row, then run the increment and FAIL dispatch). Name open `[SEC-N]` IDs with severities in the question. Always mark (Recommended) on 1 (configured cap reached); 2 works when the open findings look fixable in one more cycle (format: <N1_ROOT>/references/question-format.md). **Headless:** `procedures/autonomy-headless.md § Headless Guard` (security is on the stop list: pause or escalate, never auto-extend). `FIX_AUDIT` other than `ok` (including empty): afterwards add `- [FIX-CAP] High — review_fix_cycle past the cap without an [asked] ledger row` under `## For Human Review`.
+**Exhausted** (FAIL; `procedures/review-fix-budget.md § Exit`): headless (`N1_HEADLESS=1`, queue included), or interactive with no open in-diff non-Low `[SEC-N]` or security-class finding (review-core.md): write `## For Human Review` to review.md (file-write; merge if present), one `- [ID] severity file:line — title` per open Medium-or-higher or `[RULE-N]` finding, open `[SEC-N]` first; add an `[auto]` ledger row `review fix cap reached`; write `## Review` `FAIL (unresolved, human review)` to overview; run **Full-suite regression check** and the last block (no `clean_passes`); next step (the PR opens; a FAIL verdict is never merged). Otherwise (interactive with an open in-diff non-Low `[SEC-N]`/security-class finding always needs this ask; never an `[auto]` row) ask the user: summary, then 1. List them under For Human Review and proceed 2. One more FAIL fix cycle (append a `| fix | quality | A | [asked] | review fix cap reached | One more FAIL fix cycle |` ledger row, then run the increment and FAIL dispatch). Name open `[SEC-N]` IDs with severities in the question. Always mark (Recommended) on 1 (budget spent or no progress recorded by the gate); 2 works when the open findings look fixable in one more cycle (format: <N1_ROOT>/references/question-format.md). `FIX_AUDIT` other than `ok` (including empty): afterwards add `- [FIX-CAP] High — review_fix_cycle past the cap without an [asked] ledger row` under `## For Human Review`.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -31,7 +31,7 @@ FAIL-only, before dispatch:
 n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
 ```
 
-**FAIL**: spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass the `$N1_HOME/memory/$ID/review.md` path and this scope: Critical+High (except a ` (pre-existing)` `[SEC-N]` the user filed; also every in-diff non-Low `[SEC-N]` and every non-TQ Medium except ` (pre-existing)`, fixed in this same pass) plus every `[RULE-N]` finding (any severity), "Record under `## Fix Cycle <N>` in implementation.md (idempotent), N = REVIEW_FIX_CYCLE+1. Return: commit SHAs, `Findings fixed: N/M`."
+**FAIL**: spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass the `$N1_HOME/memory/$ID/review.md` path and this scope: Critical+High (except a ` (pre-existing)` `[SEC-N]` the user filed; also every in-diff non-Low `[SEC-N]` and every non-TQ Medium except ` (pre-existing)`, fixed in this same pass) plus every `[RULE-N]` finding (any severity), "Record under `## Fix Cycle <N>` in implementation.md (idempotent), N = REVIEW_FIX_CYCLE+1, with one line per in-scope ID: `- [ID] fixed|disputed|needs-decision: <what changed, why it is wrong, or the question>`; never defer one. Return: commit SHAs, `Findings fixed: N/M`."
 
 **SOFT-ONLY** (review PASS routed here; hands-off soft policy, N1-116): spawn developer the same way, passing the `review.md` path and scope: non-TQ Medium titled `(correctness)` only (rest stay deferred), "Record under `## Fix Cycle <N> (soft)` in implementation.md (idempotent), N = REVIEW_FIX_CYCLE+1. Return: commit SHAs, `Findings fixed: N/M`, `Findings deferred`." After it returns: no `review_fix_cycle` increment, no re-review, no Return to Step 7; apply the `Findings deferred` Append line below and add each Medium it left unfixed (not `[SEC-N]`) to `## Deferred Soft Findings` in review.md (file-write mechanism), then run the block below and go to **PASS verdict** (`**Full-suite:**` line under the `(soft)` heading). A failed or partial soft pass never blocks.
 
@@ -46,11 +46,18 @@ n1_head_record "$(cat "$N1_HOME/memory/$ID/pre-fix-sha")"
 
 **Security findings** (`[SEC-N]`/CVE): append "Fix the entire CLASS — search all variants."
 
+FAIL, after the developer returns: contract check (`procedures/review-fix-budget.md § Contract`; `needs-decision` lines: § Needs decision):
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/fingerprints.sh"
+FIX_CONTRACT=$(n1_fix_verify_result "$N1_HOME/memory/$ID" "$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" review_fix_cycle)" ${FIX_FINAL:-}) || true; echo "FIX_CONTRACT=$FIX_CONTRACT"
+```
+
 After developer returns (FAIL or SOFT-ONLY): append the developer's `Findings deferred` per `<N1_ROOT>/references/followup-filing.md` § Append (source `review`).
 
 FAIL-only (the next two blocks; SOFT-ONLY skips them):
 ```bash
-REVIEW_FIX_MAX=$(n1_config_val '.review.maxFixAttempts'); [[ $REVIEW_FIX_MAX =~ ^[0-9]+$ ]] || REVIEW_FIX_MAX=1; echo "MAX=$REVIEW_FIX_MAX"
+REVIEW_FIX_MAX=$(n1_config_val '.review.maxFixAttempts'); [[ $REVIEW_FIX_MAX =~ ^[0-9]+$ ]] || REVIEW_FIX_MAX=3; echo "MAX=$REVIEW_FIX_MAX"
 ```
 
 FAIL-only:
@@ -85,5 +92,5 @@ Append to `## Fix Cycle <N>`: `**Full-suite:** exit <FULL_SUITE_EXIT> — PASS|F
 
 ```bash
 source ~/.n1/preamble.sh
-n1_step_end "fix" 10 "success"
+n1_step_end "fix" 10 "success" "$(n1_review_fix_outcome "$N1_HOME/memory/$ID")"
 ```

@@ -44,6 +44,20 @@ has "entry: prints FIX_FILES" "$OUT" "FIX_FILES=a.sh b.sh"
 eq "entry: keeps previous review" "### Verdict: FAIL" "$(cat "$MEM/review-prev.md")"
 printf -- '---\nreview_fix_cycle: x\n---\n' > "$MEM/overview.md"
 has "entry: non-numeric cycle becomes 1" "$(n1_review_entry "$REPO" 2>&1)" "CYCLE=1"
+printf 'x\n' > "$MEM/review-status.md"; n1_review_entry "$REPO" >/dev/null 2>&1
+if [ -e "$MEM/review-status.md" ]; then no "entry: removes stale review-status.md"; else ok "entry: removes stale review-status.md"; fi
+
+# CR-1/CX-2: a dispute-only cycle (empty fix.diff, `## Fix Cycle <N>` section) is still re-reviewed incrementally
+printf -- '---\nreview_fix_cycle: 1\n---\n' > "$MEM/overview.md"; : > "$MEM/fix.diff"; rm -f "$MEM/review-prev.md"
+printf '### Verdict: FAIL\n- [CR-1] High a.sh:1 — one\n' > "$MEM/review.md"
+has "entry: empty fix.diff without a Fix Cycle section stays full scope" "$(n1_review_entry "$REPO" 2>&1)" "CYCLE=1 INCREMENTAL=false"
+printf '# Impl\n## Fix Cycle 1\n- [CR-1] disputed: false positive\n' > "$MEM/implementation.md"
+has "entry: dispute-only cycle is incremental" "$(n1_review_entry "$REPO" 2>&1)" "CYCLE=1 INCREMENTAL=true"
+eq "entry: dispute-only cycle keeps the previous review" "1" "$(grep -c 'CR-1' "$MEM/review-prev.md" 2>/dev/null)"
+printf '### Verdict: PASS\n' > "$MEM/review-hdr.md"; printf '## CR\n' > "$MEM/review-cr.md"
+printf -- '- [CR-1] WITHDRAWN\n' > "$MEM/review-status.md"; rm -f "$MEM/fp-new.tsv" "$MEM/fingerprints.jsonl"
+has "collect: dispute-only cycle derives the withdrawn state" "$(n1_review_collect false 2>&1)" "FIX_STATES: resolved=1 carried=0 new=0"
+printf '# Impl\n' > "$MEM/implementation.md"; rm -f "$MEM/overview.md" "$MEM/review.md" "$MEM/review-prev.md" "$MEM/review-status.md" "$MEM/fix.diff" "$MEM/fingerprints.jsonl"
 
 # --- n1_review_collect ---
 rm -f "$MEM/review.md" "$MEM/overview.md" "$MEM/fp-new.tsv"
@@ -66,7 +80,19 @@ n1_review_collect false >/dev/null 2>&1
 eq "collect: records cycle-0 fingerprints" "2" "$(n1_fingerprint_blocking_count_for_cycle "$MEM/fingerprints.jsonl" 0)"
 printf -- '---\nreview_fix_cycle: 1\n---\n' > "$MEM/overview.md"
 printf 'CR-3\tHigh\tc.sh\tthree\nCR-4\tHigh\td.sh\tfour\n' > "$MEM/fp-new.tsv"
-has "collect: equal blockers at cycle 1 are NON_CONVERGING" "$(n1_review_collect false 2>&1)" "NON_CONVERGING: cycle 1"
+rm -f "$MEM/review-prev.md"
+has "collect: without review-prev.md, equal blockers at cycle 1 are NON_CONVERGING (count fallback)" "$(n1_review_collect false 2>&1)" "NON_CONVERGING: cycle 1"
+# N1-569: per-finding states replace the count when review-prev.md exists
+printf '### Verdict: FAIL\n- [CR-1] High a.sh:1 — one\n- [CR-2] High b.sh:2 — two\n' > "$MEM/review-prev.md"
+printf '### Verdict: FAIL\n- [CR-1] High a.sh:1 — one\n- [CR-3] High c.sh:3 — three\n' > "$MEM/review-hdr.md"
+printf -- '- [CR-1] OPEN\n- [CR-2] FIXED\n' > "$MEM/review-status.md"; printf '+fix\n' > "$MEM/fix.diff"
+OUT=$(n1_review_collect false 2>&1)
+has "collect: prints per-finding states" "$OUT" "FIX_STATES: resolved=1 carried=1 new=1 unlabeled=0"
+lacks "collect: 2 High -> 2 High with one resolved and one new is not NON_CONVERGING" "$OUT" "NON_CONVERGING"
+printf '### Verdict: FAIL\n- [CR-1] High a.sh:1 — one\n- [CR-2] High b.sh:2 — two\n' > "$MEM/review-hdr.md"
+printf -- '- [CR-1] OPEN\n- [CR-2] OPEN\n' > "$MEM/review-status.md"
+has "collect: nothing resolved and something carried is NON_CONVERGING" "$(n1_review_collect false 2>&1)" "NON_CONVERGING: cycle 1"
+: > "$MEM/fix.diff"; lacks "collect: empty fix.diff skips the states (stale review-prev.md)" "$(n1_review_collect false 2>&1)" "FIX_STATES:"
 
 # --- step wiring: execute the step's own fences so the call text itself is tested ---
 STEP="$REPO_ROOT/skills/n1-start/steps/review.md"

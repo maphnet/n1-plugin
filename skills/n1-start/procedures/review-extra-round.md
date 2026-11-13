@@ -1,33 +1,10 @@
-# Review: one automatic extra fix round at the cap (N1-345)
+# Review: out-of-scope filter on incremental re-reviews (N1-345, N1-569)
 
-Read from `steps/fix.md` (**Exhausted**: § Grant) and `steps/review.md` (`INCREMENTAL=true`: § Filter). Policy, reach and the `[granted]` row: `references/architecture.md § Review Fix Cap`.
-
-## Grant
-
-First thing in **Exhausted**, before the auto-accept branch and before the ask, headless and queue included. This check never asks.
-
-```bash
-source ~/.n1/preamble.sh
-source "$N1_ROOT/lib/fingerprints.sh"
-MEM="$N1_HOME/memory/$ID"
-FIX_GRANT=$(n1_review_fix_grant "$MEM/overview.md" "$MEM/fingerprints.jsonl" "$MEM/fix.diff") || true
-echo "FIX_GRANT=$FIX_GRANT"
-```
-
-`FIX_GRANT=granted`: the helper wrote the one `[granted]` ledger row; never write it yourself. Skip the rest of **Exhausted**: no ask, no `[auto]` row, no For Human Review write, no Headless Guard. The **Cap gate**'s no-developer rule does not apply to this one cycle: continue `steps/fix.md` at its first block after **Exhausted** (the `pre-fix-sha` block, so `fix.diff` and `fix-changed-files` cover only this cycle) exactly as for an allowed FAIL cycle: Ensure Dependencies, rules injection, the FAIL-only `n1_increment_counter` block, the **FAIL** dispatch, the fix-changed-files/fix.diff block, return to Step 7.
-
-Any other value (`deny:<reason>` or empty): continue **Exhausted** unchanged. The grant holds at most once per run, so a later cap-reached state always denies and reaches the ask (or the Headless Guard).
+Read from `steps/review.md` (`INCREMENTAL=true`: § Filter). Policy: `references/architecture.md § Review Fix Cap`. The N1-345 one-time extra round and its ledger row are retired; `procedures/review-fix-budget.md` gates every FAIL cycle.
 
 ## Filter
 
-After the reviewers return and the **Tree freeze** passes, before `fp-new.tsv`, the verdict and review-hdr.md:
-
-```bash
-source ~/.n1/preamble.sh
-XR=$(n1_review_fix_extra_round "$N1_HOME/memory/$ID/overview.md"); echo "XR=$XR"
-```
-
-`XR` other than `true`: stop here; `steps/review.md` runs unchanged. `XR=true` (the one granted round): first `rm -f "$N1_HOME/memory/$ID/review-index.md" "$N1_HOME/memory/$ID/review-oos.md"` so no stale file stands in. Then write every Index line from all reviewer returns (every severity and prefix, `[RULE-N]` included), verbatim, one per line, to `$N1_HOME/memory/$ID/review-index.md` with the file-write mechanism (no Index lines: write an empty file); never put a title or path in a shell command. Then:
+Runs on every incremental re-review, after the reviewers return and the **Tree freeze** passes, before `fp-new.tsv`, the verdict and review-hdr.md. First `rm -f "$N1_HOME/memory/$ID/review-index.md" "$N1_HOME/memory/$ID/review-oos.md"` so no stale file stands in. Then write every Index line from all reviewer returns (every severity and prefix, `[RULE-N]` included), verbatim, one per line, to `$N1_HOME/memory/$ID/review-index.md` with the file-write mechanism (no Index lines: write an empty file); never put a title or path in a shell command. Then:
 
 ```bash
 source ~/.n1/preamble.sh
