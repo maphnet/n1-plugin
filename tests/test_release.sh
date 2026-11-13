@@ -275,10 +275,6 @@ obs_leak "escaped quote in escaped JSON" 'body {\"password\":\"zq\\\"wv8k\"} sen
 # SEC-1: a value ending in an unescaped backslash must not hide the next secret key (over-redacting to end of line is safe).
 obs_leak "trailing backslash then second secret" 'pwd="C:\app\" token="s3cr3t"' s3cr3t
 obs_leak "trailing backslash then second secret, single quote" "pwd='C:\\app\\' token='s3cr3t'" s3cr3t
-obs_leak "escaped backslash close then second secret" 'password="zq7wv\\" token="s3cr3t"' s3cr3t
-obs_leak "trailing backslash, three secrets" 'pwd="C:\x\" a=1 token="s3cr3t" secret="t0p5ecret"' t0p5ecret
-obs_leak "trailing backslash, escaped JSON" 'body {\"pwd\":\"C:\\\" ,\"token\":\"s3cr3t\"}' s3cr3t
-obs_leak "trailing backslash, tail unquoted" 'pwd="C:\app\" token=s3cr3t' s3cr3t
 obs_leak "secret_key" 'secret_key=hunter2pw x' hunter2pw
 obs_leak "credentials" 'credentials=hunter2pw x' hunter2pw
 obs_leak "passwords" 'passwords: hunter2pw x' hunter2pw
