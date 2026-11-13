@@ -222,7 +222,7 @@ n1_classify_all_low_risk() {
 
 # n1_classify_local_test_skip <newline-separated-paths> -> stdout: true|false
 # true iff every path is non-runtime: category docs, or .gitignore. Any YAML or env file is
-# runtime, even under docs/. Version manifests are skipped as in n1_classify_all_low_risk;
+# runtime, even under docs/; so is any file whose basename alone is not docs (docs/conf.py). Version manifests are skipped as in n1_classify_all_low_risk;
 # a manifests-only list stays false. Empty input -> false (safe default).
 n1_classify_local_test_skip() {
     local paths="$1"
@@ -237,7 +237,7 @@ n1_classify_local_test_skip() {
             *.yml|*.yaml|*.env|.env|.env.*) echo false; return ;;
             .gitignore) continue ;;
         esac
-        [ "$(n1_classify_path "$f")" = docs ] || { echo false; return; }
+        [ "$(n1_classify_path "$f")" = docs ] && [ "$(n1_classify_path "$b")" = docs ] || { echo false; return; }
     done <<< "$paths"
     [ "$found" = true ] && echo true || echo false
 }

@@ -257,7 +257,7 @@ assert_eq "compose.yml -> build" "build" "$(n1_classify_path compose.yml)"
 for f in helm/values.yaml k8s/deploy.yaml config/app.yaml .env.example; do
   assert_eq "config stays config: $f" "config" "$(n1_classify_path "$f")"
 done
-for f in compose.yaml compose.yml docker-compose.yml helm/values.yaml k8s/deploy.yaml config/app.yaml .env.example docs/schema.yaml; do
+for f in compose.yaml compose.yml docker-compose.yml helm/values.yaml k8s/deploy.yaml config/app.yaml .env.example docs/schema.yaml docs/conf.py app/docs/views.py docs/openapi.json; do
   assert_eq "lts: runtime $f" "false" "$(n1_classify_local_test_skip "$f")"
 done
 for f in notes.md a.txt LICENSE CHANGELOG .gitignore; do
