@@ -297,3 +297,27 @@ n1_fix_states() {
         }' "$st" "$ages" <(_n1_blocking_tsv "$mem/review-prev.md") <(_n1_blocking_tsv "$mem/review.md"))
     printf 'resolved=%s carried=%s new=%s unlabeled=%s\n' "$r" "$c" "$n" "$u"
 }
+
+n1_fix_verify_result() {
+    # Usage: n1_fix_verify_result <memory dir> <cycle> [final] (N1-569, D5) -> prints ok | "missing: <ID>...";
+    # returns 1 on a miss. Every blocking ID of review.md (n1_review_blocking_ids) needs one line
+    # `- [ID] fixed|disputed|needs-decision: <text>` in the `## Fix Cycle <cycle>` section of implementation.md
+    # (the section ends at the next `## Fix Cycle ` or `# ` heading; a `(soft)` heading never matches).
+    # An unreadable review.md fails closed (`missing: review.md`).
+    # With `final`, a miss also appends {"cycle":<cycle>,"contract":"missing"} to fix-gate.jsonl (gate reason contract).
+    local mem="$1" cyc="$2" sec id miss=""
+    [[ "$cyc" =~ ^[0-9]{1,9}$ ]] || { echo "missing: bad cycle"; return 1; }
+    cyc=$((10#$cyc))
+    sec=$(awk -v h="## Fix Cycle $cyc" '
+        { l = $0; sub(/[ \t\r]+$/, "", l) }
+        l ~ /^## Fix Cycle / || l ~ /^# / { on = (l == h); next }
+        on' "$mem/implementation.md" 2>/dev/null)
+    [ -r "$mem/review.md" ] || miss=" review.md"
+    while IFS=$'\t' read -r id _; do
+        grep -qE "^- \[$id\] (fixed|disputed|needs-decision): [^[:space:]]" <<< "$sec" || miss+=" $id"
+    done < <(n1_review_blocking_ids "$mem/review.md")
+    [ -z "$miss" ] && { echo ok; return 0; }
+    echo "missing:$miss"
+    [ "${3:-}" = final ] && printf '{"cycle":%s,"contract":"missing"}\n' "$cyc" >> "$mem/fix-gate.jsonl"
+    return 1
+}

@@ -174,6 +174,41 @@ eq "O1 outcome carries gate decisions, deny reason and per-round finding states"
 printf 'garbage\n' >> "$GJ"; eq "O2 a garbled log line is skipped" "2" "$(n1_review_fix_outcome "$M" | jq '.gate | length')"
 eq "O3 missing files -> empty lists" '{"gate":[],"states":[]}' "$(n1_review_fix_outcome "$T/none")"
 
+# ---- developer contract (D5, AC5) ----
+rm -f "$GJ"
+printf '### Verdict: FAIL\n- [CR-1] High lib/a.sh:1 — a\n- [SEC-1] Medium lib/b.sh:2 — b\n- [CR-2] Low lib/c.sh:1 — c\n' > "$M/review.md"
+cat > "$M/implementation.md" <<'EOF'
+## Fix Cycle 1
+## Fixes Applied
+- [CR-1] fixed: guarded the null path
+- [SEC-1] disputed: the value is a public key id, not a secret
+## Fix Cycle 2
+- [CR-1] fixed: x
+## Fix Cycle 3
+- [CR-1] deferred: out of scope
+- [SEC-1] needs-decision: rotate the key now?
+## Fix Cycle 4
+- [CR-1] fixed:
+- [SEC-1] fixed: y
+## Fix Cycle 5 (soft)
+- [CR-1] fixed: s
+- [SEC-1] fixed: s
+EOF
+eq "C1 every blocking ID has a contract line (sub-headings inside the section are fine)" "ok" "$(n1_fix_verify_result "$M" 1)"
+eq "C2 the section is per cycle: cycle 2 misses SEC-1" "missing: SEC-1" "$(n1_fix_verify_result "$M" 2)"
+n1_fix_verify_result "$M" 2 >/dev/null; eq "C2b rejection returns 1" "1" "$?"
+eq "C2c a non-final rejection writes nothing" "no" "$([ -e "$GJ" ] && echo yes || echo no)"
+eq "C3 a deferred line is not a contract word" "missing: CR-1" "$(n1_fix_verify_result "$M" 3)"
+eq "C4 an empty reason counts as missing" "missing: CR-1" "$(n1_fix_verify_result "$M" 4)"
+eq "C5 a (soft) section never satisfies a FAIL cycle" "missing: CR-1 SEC-1" "$(n1_fix_verify_result "$M" 5)"
+n1_fix_verify_result "$M" 2 final >/dev/null
+eq "C6 final rejection records the contract miss for the gate" '{"cycle":2,"contract":"missing"}' "$(cat "$GJ")"
+ov 2; : > "$M/fingerprints.jsonl"; row CR-2 resolved 2
+eq "C7 the next gate denies contract" "exhausted|contract" "$(gate)|$(reason)"
+ov 1; : > "$M/fingerprints.jsonl"; row CR-2 resolved 1
+eq "C8 a contract miss of another cycle does not deny this gate" "allow" "$(gate)"
+eq "C9 an unreadable review.md fails closed" "missing: review.md" "$(n1_fix_verify_result "$T/none" 1)"
+
 # ---- summary ----
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
