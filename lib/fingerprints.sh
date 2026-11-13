@@ -174,32 +174,9 @@ n1_fingerprint_check_convergence() {
     return 1
 }
 
-_n1_fp_eligible_rows() {
-    # Usage: _n1_fp_eligible_rows <jsonl_file> <cycle>
-    # Prints active rows of bucket <cycle> that can earn the one extra review round (N1-345 D17):
-    # Critical/High, or Medium [SEC-N]. Recorded Low never qualifies. "cycle":N, is anchored (ts follows).
-    [ -r "$1" ] && [[ "$2" =~ ^[0-9]+$ ]] || return 0
-    grep "\"cycle\":$2," "$1" 2>/dev/null | grep '"status":"active"' \
-        | grep -E '"id":"[A-Z]+-[0-9]+","severity":"(Critical|High)"|"id":"SEC-[0-9]+","severity":"Medium"'
-    return 0
-}
-
-n1_fingerprint_recurred() {
-    # Usage: n1_fingerprint_recurred <jsonl_file> <cycle>
-    # Exit 0 when an eligible fingerprint of bucket <cycle> is also in bucket <cycle>-1 (N1-345 D2/D16:
-    # the finding oscillates, so no extra round). Exit 1 otherwise, including bad input.
-    local jsonl_file="$1" cycle="$2" prev fp
-    [[ "$cycle" =~ ^[0-9]+$ ]] && [ "$cycle" -ge 1 ] && [ -r "$jsonl_file" ] || return 1
-    prev=$(grep "\"cycle\":$((cycle - 1))," "$jsonl_file" 2>/dev/null)
-    while IFS= read -r fp; do
-        [ -n "$fp" ] && [[ "$prev" == *"$fp"* ]] && return 0
-    done < <(_n1_fp_eligible_rows "$jsonl_file" "$cycle" | grep -o '"fp":"[^"]*"')
-    return 1
-}
-
 n1_fingerprint_filter_oos() {
     # Usage: n1_fingerprint_filter_oos <jsonl> <cycle> <fix-changed-files> <review-prev.md> <index-file>
-    # Extra review round only (N1-345 D20). Removes from <index-file> each Index line
+    # Every incremental re-review (N1-345 D20, N1-569). Removes from <index-file> each Index line
     # `- [ID] <severity> <file>:<line> — <title>` (any severity/prefix) that is new and out of the fix's reach:
     # no <review-prev.md> Index line with the same ID and file, fingerprint (file before the last ':', title) absent from bucket <cycle>-1,
     # and file (./ stripped, case-insensitive) absent from <fix-changed-files>. Prints the removed lines verbatim.

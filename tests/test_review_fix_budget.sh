@@ -83,6 +83,97 @@ printf '### Verdict: FAIL\n- [CR-1] High lib/a.sh:1 — %s\n' '$(touch '"$T"'/pw
 n1_fix_states "$M" 1 >/dev/null
 eq "ST10 reviewer title is data, never executed" "no" "$([ -e "$T/pwned" ] && echo yes || echo no)"
 
+# ---- progress gate (D1, D6, D7, D9) ----
+OV="$M/overview.md"; GJ="$M/fix-gate.jsonl"
+cfg() { printf '%s\n' "$1" > "$N1_HOME/config.json"; }
+ov() { printf -- '---\nstep: fix\nreview_fix_cycle: %s\n---\n' "$1" > "$OV"; }
+gate() { n1_review_fix_gate "$OV"; }
+last() { tail -n 1 "$GJ"; }
+reason() { last | sed 's/.*"reason":"\([a-z-]*\)".*/\1/'; }
+row() { n1_fingerprint_append "$M/fingerprints.jsonl" "f$1$3" "$1" High "$2" "$3" "${4:-0}"; }
+cfg '{}'; rm -f "$M/review.md" "$M/review-prev.md" "$M/review-status.md" "$GJ"; : > "$M/fingerprints.jsonl"
+ov 0; eq "G1 cycle 1 always allowed" "allow" "$(gate)"
+eq "G1b decision logged" '{"cycle":1,"decision":"allow","reason":"first"}' "$(last)"
+ov 1; eq "G2 no state rows for bucket 1 -> exhausted" "exhausted" "$(gate)"
+eq "G2b deny reason no-data" '{"cycle":2,"decision":"deny","reason":"no-data"}' "$(last)"
+gate >/dev/null; eq "G2c exhausted returns 1" "1" "$?"
+row CR-1 resolved 1; row CR-3 new 1
+eq "G3 bucket 1 resolved one -> cycle 2 allowed" "allow" "$(gate)"
+eq "G3b reason progress" '{"cycle":2,"decision":"allow","reason":"progress"}' "$(last)"
+ov 2; row CR-3 carried 2 1; row CR-5 resolved 2
+eq "G4 bucket 2 resolved one, carried age 1 -> cycle 3 allowed" "allow" "$(gate)"
+ov 3; eq "G5 default budget 3 spent -> cap" "exhausted|cap" "$(gate)|$(reason)"
+: > "$M/fingerprints.jsonl"; ov 1; row CR-1 carried 1 1; row CR-2 new 1
+eq "G6 a cycle that resolved nothing -> no-progress" "exhausted|no-progress" "$(gate)|$(reason)"
+: > "$M/fingerprints.jsonl"; ov 2; row CR-1 carried 2 2; row CR-2 resolved 2
+eq "G7 a finding open after two cycles stops the loop despite progress" "exhausted|carried" "$(gate)|$(reason)"
+: > "$M/fingerprints.jsonl"; ov 1; row CR-1 resolved 1; printf '{"cycle":1,"contract":"missing"}\n' >> "$GJ"
+eq "G8 developer contract missed twice in cycle 1 -> contract" "exhausted|contract" "$(gate)|$(reason)"
+rm -f "$GJ"; : > "$M/fingerprints.jsonl"; row CR-1 resolved 1
+cfg '{"review":{"maxFixAttempts":20}}'; ov 12
+eq "G9 bucket match is anchored (bucket 1 is not bucket 12)" "exhausted|no-data" "$(gate)|$(reason)"
+cfg '{"review":{"maxFixAttempts":1}}'; ov 1
+eq "G10 configured value stays the upper bound" "exhausted|cap" "$(gate)|$(reason)"
+cfg '{}'; ov abc; eq "G11 garbage counter fails closed" "exhausted|counter" "$(gate)|$(reason)"
+printf 'not json\n' > "$M/fingerprints.jsonl"; ov 1
+eq "G12 garbled fingerprints.jsonl -> no-data" "exhausted|no-data" "$(gate)|$(reason)"
+rm -f "$GJ"; printf '### Verdict: PASS\n' > "$M/review.md"; ov 0; gate >/dev/null
+eq "G13 PASS-routed (SOFT-ONLY) gate call logs nothing" "no" "$([ -e "$GJ" ] && echo yes || echo no)"
+rm -f "$M/review.md"
+eq "G14 grant helpers are gone from lib" "0" "$(cat lib/config.sh lib/fingerprints.sh | grep -cE '^(n1_review_fix_grant|n1_review_fix_extra_round|n1_fingerprint_recurred|_n1_fp_eligible_rows)\(\)')"
+
+# ---- end to end: progress run gets cycles 2 and 3 with no ask; carried / no-progress runs stop (AC1, AC2) ----
+step() { # <prev Index> <new Index> <status lines>: one gated FAIL cycle, then the re-review states
+    gate >/dev/null || { echo stop; return; }
+    n1_increment_counter "$OV" review_fix_cycle >/dev/null
+    printf '### Verdict: FAIL\n%s\n' "$1" > "$M/review-prev.md"; printf '### Verdict: FAIL\n%s\n' "$2" > "$M/review.md"
+    printf '%s\n' "$3" > "$M/review-status.md"
+    n1_fix_states "$M" "$(n1_read_frontmatter "$OV" review_fix_cycle)" >/dev/null; echo ok
+}
+P1=$'- [CR-1] High lib/a.sh:1 — a\n- [SEC-1] Medium lib/b.sh:2 — token logged'
+R1=$'- [SEC-1] Medium lib/b.sh:2 — token logged\n- [CR-2] High lib/c.sh:3 — c'
+R2='- [CR-2] High lib/c.sh:3 — c'
+cfg '{}'; rm -f "$GJ" "$M/review.md"; : > "$M/fingerprints.jsonl"; ov 0
+OUT="$(step "$P1" "$R1" $'- [CR-1] FIXED\n- [SEC-1] OPEN') $(step "$R1" "$R2" $'- [SEC-1] FIXED\n- [CR-2] OPEN') $(step "$R2" "" '- [CR-2] FIXED') $(step "" "" "")"
+eq "E1 progress run: cycles 1-3 run with no ask, then the budget stops it" "ok ok ok stop" "$OUT"
+eq "E1b gate log reasons" "first progress progress cap" "$(sed 's/.*"reason":"\([a-z-]*\)".*/\1/' "$GJ" | tr '\n' ' ' | sed 's/ $//')"
+A=$'- [CR-1] High lib/a.sh:1 — a\n- [CR-2] High lib/b.sh:1 — b'
+B=$'- [CR-1] High lib/a.sh:1 — a\n- [CR-3] High lib/c.sh:1 — c'
+C='- [CR-1] High lib/a.sh:1 — a'
+rm -f "$GJ" "$M/review.md"; : > "$M/fingerprints.jsonl"; ov 0
+OUT="$(step "$A" "$B" $'- [CR-1] OPEN\n- [CR-2] FIXED') $(step "$B" "$C" $'- [CR-1] OPEN\n- [CR-3] FIXED') $(step "" "" "")"
+eq "E2 CR-1 open after two cycles stops before cycle 3 although CR-3 was resolved" "ok ok stop|carried" "$OUT|$(reason)"
+rm -f "$GJ" "$M/review.md"; : > "$M/fingerprints.jsonl"; ov 0
+OUT="$(step "$A" "$A" $'- [CR-1] OPEN\n- [CR-2] OPEN') $(step "" "" "")"
+eq "E3 a cycle that resolved nothing stops the loop" "ok stop|no-progress" "$OUT|$(reason)"
+
+# ---- audit (N1-260 semantics, default budget 3) ----
+ASKED='| fix | quality | A | [asked] | review fix cap reached | One more FAIL fix cycle | List under For Human Review | user chose 2 | codebase |'
+AUTO='| fix | quality | A | [auto] | review fix cap reached | List under For Human Review | Prompt user | auto-accept | --- |'
+AUTOD='| fix | quality | A | [auto-decided] | review-fix-cap-extra | One more FAIL fix cycle | For Human Review | SEC-5 Medium open | --- |'
+GRANTED='| fix | quality | A | [granted] | review fix cap reached | auto extra round | ask the user | x | --- |'
+ovl() { ov "$1"; shift
+    printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$OV"
+    [ $# -eq 0 ] || printf '%s\n' "$@" >> "$OV"; }
+cfg '{}'
+ovl 3; eq "AU1 3-cycle progress-gated run -> ok" "ok" "$(n1_review_fix_audit "$OV")"
+ovl 4; eq "AU2 a cycle past the budget without [asked] -> breach" "breach" "$(n1_review_fix_audit "$OV")"
+ovl 4 "$ASKED"; eq "AU3 one [asked] option-2 row covers one extra cycle" "ok" "$(n1_review_fix_audit "$OV")"
+ovl 4 "$AUTO" "$AUTOD"; eq "AU4 [auto]/[auto-decided] rows never authorize a cycle" "breach" "$(n1_review_fix_audit "$OV")"
+ovl 4 "$GRANTED"; eq "AU5 the retired [granted] row no longer counts" "breach" "$(n1_review_fix_audit "$OV")"
+
+# ---- fix step outcome telemetry (D9, AC12) ----
+printf '{"cycle":1,"decision":"allow","reason":"first"}\n{"cycle":2,"decision":"deny","reason":"no-progress"}\n' > "$GJ"
+: > "$M/fingerprints.jsonl"
+n1_fingerprint_append "$M/fingerprints.jsonl" fa CR-1 High active 0
+n1_fingerprint_append "$M/fingerprints.jsonl" fa CR-1 High carried 1 1
+n1_fingerprint_append "$M/fingerprints.jsonl" fb CR-2 High resolved 1 0
+eq "O1 outcome carries gate decisions, deny reason and per-round finding states" \
+   '{"gate":[{"cycle":1,"decision":"allow","reason":"first"},{"cycle":2,"decision":"deny","reason":"no-progress"}],"states":[{"cycle":1,"carried":["CR-1"],"resolved":["CR-2"]}]}' \
+   "$(n1_review_fix_outcome "$M")"
+printf 'garbage\n' >> "$GJ"; eq "O2 a garbled log line is skipped" "2" "$(n1_review_fix_outcome "$M" | jq '.gate | length')"
+eq "O3 missing files -> empty lists" '{"gate":[],"states":[]}' "$(n1_review_fix_outcome "$T/none")"
+
 # ---- summary ----
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

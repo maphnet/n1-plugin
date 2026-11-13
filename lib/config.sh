@@ -841,33 +841,56 @@ n1_cross_host_review_val() {
 }
 
 n1_review_fix_gate() {
-    # Usage: n1_review_fix_gate <overview.md> -> prints allow|exhausted; returns 1 when exhausted (N1-211).
-    # Cap: review.maxFixAttempts (default 1 = pipeline.json review_fix max_default); counts FAIL fix cycles.
-    # Needs n1_read_frontmatter (lib/frontmatter.sh; loaded by the preamble via step.sh).
-    local max cur
-    max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]+$ ]] || max=1
+    # Usage: n1_review_fix_gate <overview.md> -> prints allow|exhausted; returns 1 when exhausted (N1-211, N1-569).
+    # Budget: review.maxFixAttempts (default 3 = pipeline.json review_fix max_default) FAIL fix cycles. Cycle 1 always
+    # runs; a later cycle only on progress (_n1_fix_progress over the files beside overview.md). Appends
+    # {"cycle":<cur+1>,"decision":"allow|deny","reason":"<r>"} to fix-gate.jsonl beside overview.md unless review.md
+    # there opens `### Verdict: PASS` (SOFT-ONLY entry). Reasons: first, progress | cap, counter, no-data, no-progress,
+    # carried, contract. Needs n1_read_frontmatter (lib/frontmatter.sh; loaded by the preamble via step.sh).
+    local dir max cur reason d
+    dir=$(dirname "$1")
+    max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]{1,9}$ ]] || max=3
     cur=$(n1_read_frontmatter "$1" review_fix_cycle); cur=${cur:-0}
-    [[ "$cur" =~ ^[0-9]+$ ]] || { echo exhausted; return 1; }  # garbage counter fails closed
-    if [ "$cur" -lt "$max" ]; then echo allow; else echo exhausted; return 1; fi
+    if ! [[ "$cur" =~ ^[0-9]{1,9}$ ]]; then reason=counter; cur=0   # garbage counter fails closed
+    else
+        cur=$((10#$cur)); max=$((10#$max))
+        if [ "$cur" -ge "$max" ]; then reason=cap
+        elif [ "$cur" -eq 0 ]; then reason=first
+        else reason=$(_n1_fix_progress "$dir" "$cur"); fi
+    fi
+    case "$reason" in first|progress) d=allow ;; *) d=deny ;; esac
+    head -n 1 "$dir/review.md" 2>/dev/null | grep -q '^### Verdict: PASS' \
+        || printf '{"cycle":%s,"decision":"%s","reason":"%s"}\n' "$((cur + 1))" "$d" "$reason" >> "$dir/fix-gate.jsonl" 2>/dev/null || true
+    if [ "$d" = allow ]; then echo allow; else echo exhausted; return 1; fi
+}
+
+_n1_fix_progress() {
+    # Usage: _n1_fix_progress <memory dir> <cycle> -> prints progress|no-progress|carried|no-data|contract (N1-569).
+    # Reads the n1_fix_states rows of bucket <cycle> in fingerprints.jsonl and the contract-miss line in fix-gate.jsonl.
+    # carried wins over progress: a blocking finding open after two fix cycles (age >= 2) stops the loop.
+    local rows
+    grep -qxF "{\"cycle\":$2,\"contract\":\"missing\"}" "$1/fix-gate.jsonl" 2>/dev/null && { echo contract; return; }
+    rows=$(grep -E "\"status\":\"(resolved|withdrawn|downgraded|oos|carried|new)\",\"cycle\":$2," "$1/fingerprints.jsonl" 2>/dev/null)
+    [ -n "$rows" ] || { echo no-data; return; }
+    if grep -qE '"status":"carried","cycle":[0-9]+,"age":([2-9]|[1-9][0-9]+),' <<< "$rows"; then echo carried
+    elif grep -qE '"status":"(resolved|withdrawn|downgraded|oos)"' <<< "$rows"; then echo progress
+    else echo no-progress; fi
 }
 
 n1_review_fix_audit() {
-    # Usage: n1_review_fix_audit <overview.md> -> prints ok|breach; returns 1 on breach (N1-260).
-    # Breach: review_fix_cycle above review.maxFixAttempts with fewer extension rows than cycles over the cap.
+    # Usage: n1_review_fix_audit <overview.md> -> prints ok|breach; returns 1 on breach (N1-260, N1-569).
+    # Breach: review_fix_cycle above review.maxFixAttempts (default 3) with fewer extension rows than cycles over it.
     # An extension row sits in `## Decision Ledger`: step fix, tag [asked] ([plan] = queue plan time), Question
-    # `review fix cap reached`, Chosen option 2 (`2` or `One more FAIL fix cycle`); or the [granted] row that
-    # n1_review_fix_grant writes (Chosen `auto extra round`), counted at most once per run (N1-345). Nothing else counts.
-    local max cur n g re='^[|] fix [|] [^|]* [|] [^|]* [|] \[(asked|plan)\] [|] review fix cap reached [|] (2|One more FAIL fix cycle) [|]'
-    max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]{1,9}$ ]] || max=1
+    # `review fix cap reached`, Chosen option 2 (`2` or `One more FAIL fix cycle`). Nothing else counts.
+    local max cur n re='^[|] fix [|] [^|]* [|] [^|]* [|] \[(asked|plan)\] [|] review fix cap reached [|] (2|One more FAIL fix cycle) [|]'
+    max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]{1,9}$ ]] || max=3
     cur=$(n1_read_frontmatter "$1" review_fix_cycle); cur=${cur:-0}
     [[ "$cur" =~ ^[0-9]{1,9}$ ]] || { echo breach; return 1; }  # garbage or >9-digit counter (64-bit wrap) fails closed
     cur=$((10#$cur)); max=$((10#$max))  # decimal: 08/09 are not octal
     if [ "$cur" -le "$max" ]; then echo ok; return 0; fi
-    n=$(_n1_ledger_count "$1" "$re"); g=$(_n1_ledger_count "$1" "$_N1_FIX_GRANTED_RE"); [ "$g" -le 1 ] || g=1
-    if [ $((n + g)) -ge $((cur - max)) ]; then echo ok; else echo breach; return 1; fi
+    n=$(_n1_ledger_count "$1" "$re")
+    if [ "$n" -ge $((cur - max)) ]; then echo ok; else echo breach; return 1; fi
 }
-
-_N1_FIX_GRANTED_RE='^[|] fix [|] [^|]* [|] [^|]* [|] \[granted\] [|] review fix cap reached [|] auto extra round [|]'
 
 _n1_ledger_count() {
     # Usage: _n1_ledger_count <overview.md> <ERE> -> count of `## Decision Ledger` lines matching <ERE>.
@@ -880,57 +903,17 @@ _n1_ledger_count() {
     echo "$n"
 }
 
-n1_review_fix_grant() {
-    # Usage: n1_review_fix_grant <overview.md> <fingerprints.jsonl> <fix.diff> -> prints granted|deny:<reason>;
-    # returns 1 on deny (N1-345). Grants one automatic extra FAIL fix cycle at the cap, at most once per run:
-    # cur == max (D19), no cap extension row yet (D5), non-empty fix.diff, an eligible recorded finding in bucket cur
-    # (D17), no eligible fingerprint recurring from bucket cur-1 (D2), convergence holds (D4/D13; tie denies).
-    # On grant appends the fixed [granted] row to `## Decision Ledger` (no reviewer text). Any bad input denies.
-    # Needs lib/fingerprints.sh and n1_read_frontmatter.
-    local ov="$1" fpj="$2" diff="$3" max cur tmp
-    local ext='^[|] fix [|] [^|]* [|] [^|]* [|] \[(asked|plan|granted)\] [|] review fix cap reached [|]'
-    local row='| fix | quality | A | [granted] | review fix cap reached | auto extra round | ask the user | new High/SEC finding, blocking count dropped, fix changed code | --- |'
-    max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]{1,9}$ ]] || max=1
-    cur=$(n1_read_frontmatter "$ov" review_fix_cycle); cur=${cur:-0}
-    [[ "$cur" =~ ^[0-9]{1,9}$ ]] || { echo deny:counter; return 1; }
-    cur=$((10#$cur)); max=$((10#$max))
-    { [ "$cur" -ge 1 ] && [ "$cur" -eq "$max" ]; } || { echo deny:not-at-cap; return 1; }
-    [ "$(_n1_ledger_count "$ov" "$ext")" -eq 0 ] || { echo deny:extended; return 1; }
-    [ -s "$diff" ] || { echo deny:empty-diff; return 1; }
-    if [ -s "$fpj" ] && command -v jq >/dev/null 2>&1; then jq -e . "$fpj" >/dev/null 2>&1 || { echo deny:fingerprints; return 1; }; fi
-    [ -n "$(_n1_fp_eligible_rows "$fpj" "$cur")" ] || { echo deny:no-eligible; return 1; }
-    if n1_fingerprint_recurred "$fpj" "$cur"; then echo deny:recurred; return 1; fi
-    n1_fingerprint_check_convergence "$fpj" "$cur" || { echo deny:non-converging; return 1; }
-    tmp=$(mktemp "${ov}.XXXXXX") || { echo deny:write; return 1; }
-    if awk -v row="$row" '
-        function emit() { if (!done) { print row; done = 1 } }
-        /^## / { if (inl && seen) emit(); inl = ($0 ~ /^## Decision Ledger/); seen = 0; print; next }
-        inl && /^\|/ { seen = 1; print; next }
-        inl && seen { emit(); inl = 0 }
-        { print }
-        END {
-            if (inl && seen) emit()
-            if (!done) {
-                print ""; print "## Decision Ledger"; print ""
-                print "| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |"
-                print "|------|----------|------|-----|----------|--------|--------------|--------|-------------|"
-                print row
-            }
-        }' "$ov" > "$tmp" && mv -f "$tmp" "$ov"; then
-        echo granted
-    else
-        rm -f "$tmp"; echo deny:write; return 1
-    fi
-}
-
-n1_review_fix_extra_round() {
-    # Usage: n1_review_fix_extra_round <overview.md> -> prints true|false (N1-345).
-    # true only in the one granted extra round: review_fix_cycle == maxFixAttempts+1 and exactly one [granted] row.
-    local max cur
-    max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]{1,9}$ ]] || max=1
-    cur=$(n1_read_frontmatter "$1" review_fix_cycle)
-    if [[ "$cur" =~ ^[0-9]{1,9}$ ]] && [ $((10#$cur)) -eq $((10#$max + 1)) ] \
-        && [ "$(_n1_ledger_count "$1" "$_N1_FIX_GRANTED_RE")" -eq 1 ]; then echo true; else echo false; fi
+n1_review_fix_outcome() {
+    # Usage: n1_review_fix_outcome <memory dir> -> one-line JSON for n1_step_end "fix" (N1-569, D9):
+    # {"gate":[fix-gate.jsonl lines],"states":[{"cycle":N,"<state>":["ID",...]},...]} from fingerprints.jsonl state rows.
+    # Built by jq from files only; unparsable lines are skipped; prints {} when jq is missing.
+    local m="$1" g f
+    command -v jq >/dev/null 2>&1 || { printf '{}'; return 0; }
+    g=$(cat "$m/fix-gate.jsonl" 2>/dev/null | jq -scR '[splits("\n") | select(length > 0) | fromjson? | select(type == "object")]') || g='[]'
+    f=$(cat "$m/fingerprints.jsonl" 2>/dev/null | jq -scR '[splits("\n") | select(length > 0) | fromjson? | select(type == "object")
+        | select((.status // "") | test("^(resolved|withdrawn|downgraded|oos|carried|new)$"))]
+        | group_by(.cycle) | map({cycle: .[0].cycle} + (group_by(.status) | map({(.[0].status): map(.id)}) | add))') || f='[]'
+    jq -cn --argjson g "${g:-[]}" --argjson f "${f:-[]}" '{gate: $g, states: $f}' 2>/dev/null || printf '{}'
 }
 
 n1_escalation_val() {
