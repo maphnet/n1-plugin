@@ -31,7 +31,7 @@ n1_review_entry() {
     local BASE_BRANCH MEM TREE_BEFORE RELATED_ENABLED CYCLE INCREMENTAL FIX_FILES=""
     n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md || { echo "ERROR: implementation.md missing — aborting review step" >&2; return 1; }
     BASE_BRANCH=$(n1_review_base) || { echo "ERROR: invalid story base" >&2; return 1; }
-    MEM="$N1_HOME/memory/$ID"; rm -f "$MEM/review-hdr.md" "$MEM/review-cr.md" "$MEM/review-sec.md"
+    MEM="$N1_HOME/memory/$ID"; rm -f "$MEM/review-hdr.md" "$MEM/review-cr.md" "$MEM/review-sec.md" "$MEM/review-status.md"
     { echo "# Review Spec (generated)"; n1_extract_sections "$MEM/brainstorm.md" "acceptance criteria" "chosen approach|selected approach|decision"; [ -s "$MEM/brainstorm.md" ] || n1_extract_sections "$MEM/ticket.md" "acceptance criteria" "requirements"; } > "$MEM/review-spec.md"
     { echo "# QA Facts (generated)"; n1_extract_sections "$MEM/qa.md" "evidence" "break-check" "tests run"; [ -n "${BREAK_CHECK_TQ:-}" ] && { echo "## Hollow tests (break-check never-red)"; echo "$BREAK_CHECK_TQ" | sed 's/^/- /'; }; } > "$MEM/qa-facts.md"
     TREE_BEFORE=$(n1_tree_snapshot "$1")
@@ -47,8 +47,8 @@ n1_review_entry() {
 n1_review_collect() {
     # Usage: n1_review_collect <true|false: security-reviewer spawned> — concatenates review-hdr/cr[/sec] into review.md,
     # plus the sanitized review-codex.md at cycle 0 when present (N1-517, SEC-3, optional); records fp-new.tsv fingerprints, persists cycle-0
-    # review_c0_blocking (N1-483), checks convergence, prints TQ_MAX=; returns 1 (PARTIAL on stderr) on a missing file.
-    local MEM SEC="$1" f FP_FILE CYCLE TQ_MAX C0
+    # review_c0_blocking (N1-483), derives per-finding states (N1-569; count check without review-prev.md), prints TQ_MAX=; returns 1 (PARTIAL on stderr) on a missing file.
+    local MEM SEC="$1" f FP_FILE CYCLE TQ_MAX C0 ST
     local -a FILES
     MEM="$N1_HOME/memory/$ID"
     CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}; [[ $CYCLE =~ ^[0-9]+$ ]] || CYCLE=1
@@ -59,7 +59,14 @@ n1_review_collect() {
     FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
     if [ -r "$MEM/fp-new.tsv" ]; then n1_fingerprint_record "$FP_FILE" "$MEM/fp-new.tsv" "$CYCLE" \
         || echo "FP_RECORD_FAILED: see fp-new.tsv.rejected" >&2; fi
-    [ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || echo "NON_CONVERGING: cycle $CYCLE"; }
+    if [ "$CYCLE" -gt 0 ]; then
+        if [ -s "$MEM/fix.diff" ] && ST=$(n1_fix_states "$MEM" "$CYCLE"); then
+            echo "FIX_STATES: $ST"
+            [[ "$ST" == "resolved=0 carried="[1-9]* ]] && echo "NON_CONVERGING: cycle $CYCLE"
+        else
+            n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || echo "NON_CONVERGING: cycle $CYCLE"
+        fi
+    fi
     [ "$CYCLE" -eq 0 ] && C0=$(n1_review_blocking_index_count "$MEM/review-hdr.md") \
         && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" review_c0_blocking "$C0"
     TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=$TQ_MAX"
