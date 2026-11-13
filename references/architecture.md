@@ -518,6 +518,24 @@ Claude Code is the only host. Skill text still uses host-neutral verbs ("dispatc
 
 `hooks/pre-compact.sh` is a synchronous PreCompact hook (matcher `manual|auto`, N1-404). In an N1-configured project it prints three instruction lines that tell the compaction summary to keep, verbatim, the ticket ID, branch, worktree path, current N1 step, artifact paths under `$N1_HOME/memory/<ID>/`, and the Docker containers and background processes the run started. When this session has a keyed n1-start active-run pointer it adds one line with the concrete values (`Active N1 run: ticket=... branch=... worktree=... step=... memory=...`). Startup deletes `queue-plan.<sid>.json` pointers older than 2 days (N1-440). It covers sessions without a pointer (n1-run, n1-queue parent, standalone n1-pr/n1-ci/n1-review) with the generic lines only. It never probes Docker; the live container list is reported after compaction by ORCHESTRATOR STATE. Channel status: Claude Code 2.1.309 appends exit-0 PreCompact stdout to the compaction prompt as custom instructions and shows it to the user on manual `/compact`. This was verified by reading the 2.1.309 binary and is not documented at https://code.claude.com/docs/en/hooks, which documents PreCompact only as a blocker (exit 2). A later Claude Code version may drop it; then n1-start keeps ORCHESTRATOR STATE as its second channel. Subagent compaction: Claude Code 2.1.309 discards PreCompact output for subagents (binary reading, not live-verified). The hook also exits silently when the payload carries `agent_id`. It is fail-open: no N1 config, invalid JSON, a subagent payload, an unkeyed or `n1-finish` pointer, or an unsafe ticket id never produce concrete values, and every path exits 0 (never 2). Without jq it prints nothing at all, not even the generic lines.
 
+## Host Auto-Compact Window
+
+N1 does not set the Claude Code auto-compact window; it is host configuration (`autoCompactWindow` in `~/.claude/settings.json`). On 2026-11-11 the maintainer machine moved from `autoCompactWindow: 300000` with `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75` to `autoCompactWindow: 300000` with no percentage override. In Claude Code 2.1.309 the threshold is `min(floor(window * PCT/100), window - 13000)`. That was 225K before the change and is 287K now. Observed auto compactions fire about 15K below the threshold (median `preTokens` 210K before the change).
+
+Reason: fewer compactions, so less compaction latency (median 53 s each). It also matches the most common community value, which is a 300K window without a percentage override. No published long-context benchmark exists for Opus 5.5 or Sonnet 5.5. Community thresholds from 140K to 500K are opinion, not measurement. Claude Code's default on native 1M models is about 967K.
+
+Expected effect, from a 14-day replay of 820 main-thread transcripts at Opus 5.5 prices (cache read 0.05x input, 1h cache write 2x, output 5x). The replay assumes a 66K post-compaction context and a 2.9K-token summary. The table shows estimated cost and compaction wait for each trigger point:
+
+| Trigger | Compactions | Est. cost | Compaction wait |
+|---|---|---|---|
+| 175K | 476 | -5% | 420 min |
+| 210K (before) | 299 | baseline | 264 min |
+| ~290K (now) | 90 | +11% | 80 min |
+
+Open question: quality at 290K versus 210K was not measured. Scripts: `$N1_HOME/scratch/autocompact-1111/` (`sweep.py`, `cost.py`, `scan.py`).
+
+Re-evaluation: after about 25 runs on the new setting, re-run `/n1:n1-benchmark` and `sweep.py`. Compare compactions per run, interventions, corrections, fix cycles, review first-pass rate and orchestrator tokens against snapshot `20261111T142635Z`. If interventions or corrections rise, return to a lower trigger.
+
 ## Question Notifier Hook
 
 `hooks/notify-question.sh` is a PreToolUse hook on `AskUserQuestion`. When an interactive run blocks on a question it sets the unread mark on the run's Orca workspace card (`n1_orca_sync ... --unread`, backgrounded so the question is never delayed); it sends no desktop notification. It stays silent for headless or queue children (`N1_HEADLESS=1`, `N1_QUEUE_RUN_ID`) and when this session has no keyed active-run pointer (questions outside an N1 run). It is advisory and fail-open: every path exits 0 with no output.
