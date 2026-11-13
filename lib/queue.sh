@@ -1661,7 +1661,7 @@ n1_queue_rerun_release() {
     # its first failing predecessor may be re-skipped by n1_queue_eligible_rows on a second one (Orca only).
     # Never rewrites ## Schedule (plan-time edges stay), never changes step or run_id.
     # Prints one TAB line per change: done <#> <KEY> <old-status> | live <#> <KEY> | released <#> <KEY>.
-    # rc 1 (stderr): no queue file or a live runner (nothing changed); a failed row write (lines so far printed; re-run is idempotent).
+    # rc 1 (stderr): no queue file, a live runner, or a step other than done/halted/interrupted (nothing changed); a failed row write (lines so far printed; re-run is idempotent).
     local q="$1" k num t n1h st rows r p pst orun changed
     local kre='^[A-Za-z][A-Za-z0-9_]*-[0-9]+$'
     local pre='^predecessor ([A-Za-z][A-Za-z0-9_]*-[0-9]+)( |$)' bre='^blocked by ([A-Za-z][A-Za-z0-9_]*-[0-9]+) \('
@@ -1670,8 +1670,11 @@ n1_queue_rerun_release() {
     if n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then
         echo "n1-queue: queue $(n1_read_frontmatter "$q" queue_id) is running; nothing changed" >&2; return 1
     fi
+    # N1-546: same routing as run.md § Re-read: step done or halted, or a step-run queue whose runner is gone.
+    st=$(n1_read_frontmatter "$q" step)
+    case "$st" in done|halted) ;; *) n1_queue_interrupted "$q" || { echo "n1-queue: queue $(n1_read_frontmatter "$q" queue_id) is at step ${st:-none}, not done, halted or interrupted; nothing changed" >&2; return 1; } ;; esac
     while IFS= read -r k; do
-        k=${k//[[:space:]]/}
+        k=${k#"${k%%[![:space:]]*}"}; k=${k%"${k##*[![:space:]]}"}
         [[ "$k" =~ $kre ]] && isdone[$k]=1
     done
     if [ "${#isdone[@]}" -gt 0 ]; then

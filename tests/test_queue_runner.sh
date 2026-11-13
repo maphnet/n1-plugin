@@ -453,12 +453,32 @@ EOF
     cp "$q2" "$tmp/orig.md"
     rc=0; out=$(printf 'U-1;rm\n' | n1_queue_rerun_release "$q2") || rc=$?
     assert_eq "rerun: invalid key ignored" "0||same" "$rc|$out|$(_same)"
+    rc=0; out=$(printf 'U - 1\nU -1\nU- 1\n \t \n' | n1_queue_rerun_release "$q2") || rc=$?
+    assert_eq "rerun: inner-whitespace and blank keys ignored, not rewritten" "0||same" "$rc|$out|$(_same)"
+    q2p="$tmp/queue/q2/padded.md"; cp "$q2" "$q2p"
+    rc=0; out=$(printf '  U-1\t \r\n' | n1_queue_rerun_release "$q2p") || rc=$?
+    assert_eq "rerun: edge-padded key still accepted" "0|$(printf 'done\t1\tU-1\tpending')" "$rc|$out"
     start_fake_runner "$REPO_ROOT" "$q2"; n1_write_frontmatter "$q2" pid "$FAKE_RUNNER_PID"; cp "$q2" "$tmp/orig.md"
     rc=0; out=$(printf 'U-1\n' | n1_queue_rerun_release "$q2" 2>&1) || rc=$?
     assert_eq "rerun: live runner refused, nothing changed" "1|yes|same" "$rc|$(grep -qF 'is running' <<< "$out" && echo yes || echo no)|$(_same)"
     stop_fake_runner
     rc=0; out=$(printf 'U-1\n' | n1_queue_rerun_release "$tmp/none.md" 2>&1) || rc=$?
     assert_eq "rerun: missing queue file" "1|No queue runs found." "$rc|$out"
+    # N1-546: step guard. planned, no step, and step run with a dead runner pid: only the last is accepted.
+    local q4="$tmp/queue/q4/queue.md" st4 dpid; mkdir -p "${q4%/*}"
+    sleep 0 & dpid=$!; wait "$dpid" 2>/dev/null || true
+    for st4 in planned none run; do
+        { printf -- '---\nqueue_id: q4\nrun_id: R4\n'; [ "$st4" = none ] || printf 'step: %s\n' "$st4"; [ "$st4" != run ] || printf 'pid: %s\n' "$dpid"
+          printf -- '---\n## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|--------|-------|------|---------|-------|--------|--------|\n'
+          printf '| 1 | V-1 | A | /r | %s | sonnet | pending | |\n| 2 | V-2 | B | /r | %s | sonnet | failed | x |\n| 3 | V-3 | C | /r | %s | sonnet | skip | y |\n' "$h" "$h" "$h"; } > "$q4"
+        cp "$q4" "$tmp/orig4.md"
+        rc=0; out=$(printf 'V-1\nV-2\nV-3\n' | n1_queue_rerun_release "$q4" 2>&1) || rc=$?
+        if [ "$st4" = run ]; then
+            assert_eq "rerun: step run with dead runner accepted" "0|done-before-run" "$rc|$(plan_cell "$q4" 1 8)"
+        else
+            assert_eq "rerun: step $st4 refused, nothing changed" "1|yes|same" "$rc|$(grep -qF 'nothing changed' <<< "$out" && echo yes || echo no)|$(cmp -s "$q4" "$tmp/orig4.md" && echo same || echo changed)"
+        fi
+    done
     printf 'N1_ORCA_TASK=task-u3\nN1_ORCA_RUN=run-1\n' > "$h/queue/sentinels/U-3.env"
     n1_orca_liveness() { printf 'd-3\ttask-u3\tlive\t\n'; }
     out=$(printf 'U-1\nU-2\nU-3\n' | n1_queue_rerun_release "$q2") || true

@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # N1 YAML frontmatter helpers for memory files (overview.md, etc.)
 
+# N1-549: true (0) when the file contains a NUL byte. count NULs in one read (a second read could straddle a concurrent rename); grep/ugrep treat NULs inconsistently.
+n1_has_nul() {
+    [ -f "$1" ] && [ "$(tr -cd '\0' < "$1" | wc -c)" -gt 0 ]
+}
+
 n1_read_frontmatter() {
-    local file="$1" key="$2"
+    local file="$1" key="$2" out
     [ -f "$file" ] || return 0
-    awk -v key="$key" '
+    out=$(awk -v key="$key" '
         NR==1 && /^---\r?$/ { in_fm=1; next }
         in_fm && /^---\r?$/ { exit }
         in_fm && $0 ~ "^" key ":" {
@@ -13,12 +18,16 @@ n1_read_frontmatter() {
             printf "%s", $0
             exit
         }
-    ' "$file"
+    ' "$file")
+    # Loud but rc 0: ~15 callers read via $(...) and must not abort.
+    if [ -z "$out" ] && n1_has_nul "$file"; then echo "ERROR: NUL bytes in $file" >&2; fi
+    printf '%s' "$out"
 }
 
 n1_write_frontmatter() {
     local file="$1" key="$2" value="$3"
     [ -f "$file" ] || return 1
+    n1_has_nul "$file" && { echo "ERROR: NUL bytes in $file" >&2; return 1; }
     head -1 "$file" | awk '/^---\r?$/ { found=1 } END { exit !found }' || return 1
     # Unique temp per call (NP-206): concurrent writers never share a temp inode.
     local tmp; tmp=$(mktemp "${file}.XXXXXX")
@@ -40,7 +49,7 @@ n1_increment_counter() {
     current=${current:-0}
     [[ "$current" =~ ^[0-9]+$ ]] || { echo "ERROR: non-numeric $key in $file" >&2; return 1; }
     local new_val=$((current + 1))
-    n1_write_frontmatter "$file" "$key" "$new_val"
+    n1_write_frontmatter "$file" "$key" "$new_val" || return 1
     printf '%s' "$new_val"
 }
 

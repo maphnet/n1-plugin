@@ -312,17 +312,38 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
             compactions.append({"timestamp": ts, "trigger": meta.get("trigger") or "unknown",
                                 "pre_tokens": meta.get("preTokens"), "post_tokens": meta.get("postTokens")})
 
-        def _find_step(ts: str) -> str:
+        def _find_step(ts: str, extend: bool = True, trailing: bool = True) -> str:
             for step in steps:
                 s_start = step.get("started_at")
                 s_end = step.get("completed_at")
                 if s_start and s_start <= ts and (s_end is None or s_end >= ts):
                     return step.get("step", "__unattributed__")
+            if not extend:
+                return "__unattributed__"
+            # N1-556: the n1_step_begin call is stamped before the shell emits started_at, so
+            # gap calls go to the step that begins next (lead-in), and calls after the last
+            # step ends go to that step (trailing). Calls before any step ended or run_start
+            # stay unattributed (startup). Step records keep their real bounds.
+            # ponytail: every gap call is charged to the next step and trailing is unbounded
+            # to the transcript end (as the finish extension). Add a content match on the
+            # n1_step_begin command if per-step figures need to be exact.
+            bounded = (any(s.get("completed_at") and s["completed_at"][:19] <= ts[:19] for s in steps)
+                       or bool(run_start and ts[:19] >= run_start[:19]))
+            if bounded:
+                nxt = [s for s in steps if s.get("started_at") and s["started_at"] > ts]
+                if nxt:
+                    return min(nxt, key=lambda s: s["started_at"]).get("step", "__unattributed__")
+                ended = [s for s in steps if s.get("completed_at")]
+                if trailing and ended and (not run_end or ts[:19] <= run_end[:19]):
+                    return max(ended, key=lambda s: s["completed_at"]).get("step", "__unattributed__")
             return "__unattributed__"
 
         grouped: dict[str, list] = {}
+        extended_steps = set()
         for m in messages:
             step_name = _find_step(m["ts"])
+            if step_name != _find_step(m["ts"], False):
+                extended_steps.add(step_name)
             grouped.setdefault(step_name, []).append(m)
 
         step_entries = []
@@ -338,11 +359,14 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
                     "context_start_tokens": ctx[0]["prev_context"] if ctx else None,
                     "context_end_tokens": ctx[-1]["context"] if ctx else None,
                     "context_peak_tokens": max((m["context"] for m in ctx), default=None),
-                    # Boundary timestamps carry milliseconds ("...:00.123Z") while step bounds are
+                    # Lead-in attribution as for messages, so a gap compaction agrees with the context
+                    # drop of the step it leads into; no trailing (no later call shows a drop). Boundary timestamps carry milliseconds ("...:00.123Z") while step bounds are
                     # whole seconds, and "Z" sorts after ".", so truncate to seconds before matching.
                     "compactions": sum(1 for c in compactions
-                                       if _find_step(c["timestamp"][:19] + "Z") == step_name),
+                                       if _find_step(c["timestamp"][:19] + "Z", True, False) == step_name),
                 })
+                if step_name in extended_steps:
+                    entry["attribution_extended"] = True
                 step_entries.append(entry)
 
         if not messages:

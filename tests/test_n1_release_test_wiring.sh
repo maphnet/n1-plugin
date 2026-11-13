@@ -131,8 +131,8 @@ cfg '{"observability":{"default":"prod","providers":{}}}'
 # Bug (AC1): no dev provider must be exactly one skip line, nothing else.
 expect "3b: no dev provider is one skip line" "obs:skip dev observability not configured" "$(obs_gate v1.0.0)"
 OBSGROUP=$(snip "## 3b-3." "$S3B"); OBSGROUP=${OBSGROUP//<LABEL>/1.1.0}; OBSGROUP=${OBSGROUP//<PREV>/v1.0.0}
-printf '%s\t%s\t%s\t%s\n' 2000-01-01T00:00:00Z 2000-01-01T00:00:00Z 1 'old error 1' 2999-01-01T00:00:00Z 2999-01-01T00:00:00Z 2 'new error 7' > "$D/obs-rows.tsv"
-# Bug: the group snippet compares against the wrong cutoff, so the new/pre-existing split is wrong.
+printf '%s\t%s\t%s\t%s\n' 2000-01-01T00:00:00Z 2999-01-01T00:00:00Z 1 'old error 1' 2999-01-01T00:00:00Z 2999-01-01T00:00:00Z 2 'new error 7' > "$D/obs-rows.tsv"
+# Bug: the group snippet compares against the wrong cutoff, so the new/pre-existing split is wrong (pre-existing = seen before and since the tag; baseline-only groups are omitted, N1-551).
 expect "3b: groups split at the previous tag date" "groups=2 new=1 pre=1" "$(cd "$G" && sandbox "$OBSGROUP")"
 rm -f "$D/obs-rows.tsv" "$D/obs-groups.tsv"
 check "SKILL.md lists step 3b" '03b-dev-observability\.md' "$S/SKILL.md"
@@ -194,5 +194,7 @@ run4d() { printf '| ID | Result | Tested at |\n|---|---|---|\n| RT-01 | PASS | %
   sandbox "cd '$T/repo' && $MERGE" | grep -E '^RT-01' | cut -f4; }
 expect "matching stamp carries the PASS" "PASS" "$(run4d "$STAMP")"
 expect "other commit or case drops the PASS" "MANUAL" "$(run4d "000000000000-1")"
+
+check "3b pre=0 means no error seen both before and since the tag" 'Baseline: no error seen both before and since the tag' "$S/steps/03b-dev-observability.md"
 
 exit $FAIL
