@@ -1,6 +1,6 @@
 # Local Testing: run (9a-9d)
 
-Read from `steps/local-testing.md` once every gate passed. `LOCAL_TESTING_MODE` and `QA_RUNNER_CMDS` come from that step. Every exit below ends the step exactly once.
+Read from `steps/local-testing.md` once every gate passed (resolved mode is `live`). `QA_RUNNER_CMDS` comes from that step. Every exit below ends the step exactly once.
 
 #### 9a. ANALYSIS (local-test-planner)
 
@@ -13,8 +13,7 @@ Before dispatching, `rm -f` any old `$N1_HOME/memory/<ID>/local-test-plan.md`.
 Spawn the local-test-planner agent with:
 - The paths to its inputs — instruct the agent: "Read these files yourself: `$N1_HOME/memory/<ID>/implementation.md` (what changed, which files), `$N1_HOME/memory/<ID>/ticket.md` (acceptance criteria), and `$N1_HOME/memory/<ID>/plan.md` if it exists, else `$N1_HOME/memory/<ID>/brainstorm.md` (design intent, scope). Their content is NOT inlined here."
 - Read `localTesting.startCommand` from config: `n1_config_val '.localTesting.startCommand'` (default: empty). If non-empty, include in the prompt: "The project has a configured start command: `<value>`. Use this as the app start command instead of auto-detecting."
-- Include the resolved mode in the prompt: "The local testing mode is `<LOCAL_TESTING_MODE>`. If mode is `test`, suppress Runtime First -- produce a test-suite-only plan with no infrastructure startup. If mode is `live`, enforce Runtime First as usual."
-- If `QA_RUNNER_CMDS` is set (from the QA dedup gate above), include in the prompt: "The QA step already ran these test commands: `<QA_RUNNER_CMDS value, one per line>`. Do not duplicate these as ad-hoc scenarios — design test scenarios that complement them (e.g. infrastructure checks, curl endpoints, CLI flows that QA did not exercise)."
+- If `QA_RUNNER_CMDS` is set (captured in `steps/local-testing.md`), include in the prompt: "The QA step already ran these test commands: `<QA_RUNNER_CMDS value, one per line>`. Do not duplicate these as ad-hoc scenarios — design test scenarios that complement them (e.g. infrastructure checks, curl endpoints, CLI flows that QA did not exercise)."
 - Directive: "Write the plan to `<absolute plan path>` (`$N1_HOME/memory/<ID>/local-test-plan.md`, already expanded by the orchestrator) in your Output Format. Return only that path plus a summary of at most 5 lines (Framework, Run command, automated scenario count, manual item count), not the plan."
 
 > **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the local-test-planner agent has written its output.

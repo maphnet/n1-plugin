@@ -141,4 +141,20 @@ assert_eq "C9: copied files invisible to git (never committed)" "?? .gitignore" 
 cfg '{}'
 assert_eq "C10: no copyFiles key -> 0" "0" "$(n1_copy_worktree_files "$SRC" "$WT")"
 
+# ---- Wiring (N1-559) ----
+R="$SCRIPT_DIR/.."
+LT="$R/skills/n1-start/steps/local-testing.md"
+SENT='Local testing: not run — no live verification configured for this project'
+ln_of() { grep -nF -- "$2" "$1" | head -1 | cut -d: -f1 || true; }  # || true: no match must not abort under set -e/pipefail
+NLV=$(ln_of "$LT" '"skip_reason":"no_live_verification"')
+RUN=$(ln_of "$LT" 'read `procedures/local-testing-run.md`')
+assert_eq "W1 (AC5): no_live_verification skip precedes the planner/developer procedure" "yes" \
+  "$([ -n "$NLV" ] && [ -n "$RUN" ] && [ "$NLV" -lt "$RUN" ] && echo yes || echo no)"
+assert_eq "W2 (AC4): offer never asks when headless" "1" "$(grep -cF 'Headless (`N1_HEADLESS=1`): do not ask' "$LT")"
+assert_eq "W3 (AC1): step calls the offer helper" "1" "$(grep -cF 'n1_local_testing_offer "$LT_ROOT"' "$LT")"
+assert_eq "W4 (AC7): QA dedup gate removed from the step" "0" "$(grep -cE 'qa_dedup|QA_DEDUP_SKIP' "$LT")"
+assert_eq "W5 (AC6): stub sentence written by the step" "1" "$(grep -cF "$SENT" "$LT")"
+assert_eq "W6 (AC7): planner has no test-mode branch" "0" "$(grep -cF '"test"' "$R/agents/local-test-planner.md")"
+assert_eq "W7 (AC7): run procedure has no test-mode branch" "0" "$(grep -cF 'If mode is `test`' "$R/skills/n1-start/procedures/local-testing-run.md")"
+
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
