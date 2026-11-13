@@ -272,8 +272,13 @@ obs_leak "escaped quote in JSON value" '{"password": "zq\"wv8k"} x' wv8k
 obs_leak "escaped quote in single-quoted value" "login failed password='zq\\'wv8k' retry" wv8k
 obs_leak "escaped quote then spaces" 'password="zq\"wv8k mx4j gh" tail' 'wv8k mx4j'
 obs_leak "escaped quote in escaped JSON" 'body {\"password\":\"zq\\\"wv8k\"} sent' wv8k
-eq "obs group: text after escaped-backslash close survives" "{redacted} tail" \
-  "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'password="zq7wv\\" tail' | n1_release_obs_group "$CUT" | cut -f6)"
+# SEC-1: a value ending in an unescaped backslash must not hide the next secret key (over-redacting to end of line is safe).
+obs_leak "trailing backslash then second secret" 'pwd="C:\app\" token="s3cr3t"' s3cr3t
+obs_leak "trailing backslash then second secret, single quote" "pwd='C:\\app\\' token='s3cr3t'" s3cr3t
+obs_leak "escaped backslash close then second secret" 'password="zq7wv\\" token="s3cr3t"' s3cr3t
+obs_leak "trailing backslash, three secrets" 'pwd="C:\x\" a=1 token="s3cr3t" secret="t0p5ecret"' t0p5ecret
+obs_leak "trailing backslash, escaped JSON" 'body {\"pwd\":\"C:\\\" ,\"token\":\"s3cr3t\"}' s3cr3t
+obs_leak "trailing backslash, tail unquoted" 'pwd="C:\app\" token=s3cr3t' s3cr3t
 obs_leak "secret_key" 'secret_key=hunter2pw x' hunter2pw
 obs_leak "credentials" 'credentials=hunter2pw x' hunter2pw
 obs_leak "passwords" 'passwords: hunter2pw x' hunter2pw

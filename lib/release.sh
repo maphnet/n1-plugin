@@ -138,6 +138,8 @@ n1_release_obs_group() {
             KS = "(^|[^a-z@])((proxy|basic)?o?auth|sig(nature)?|sid|jwt)([_-]?(key|code|secret|pass|token))?"
             KB = "(" KW "|" KS ")[\\\\\"\047 ]*[=:][ ]*"
             KQ1 = KB "\\\\*\"([^\"\\\\]|\\\\.)*\"?"; KQ2 = KB "\047([^\047\\\\]|\\\\.)*\047?"; KU = KB "[^ \",;&\047\\\\]+"
+            # A value ending in a backslash (C:\dir\") is ambiguous with an escaped quote: redact to end of line.
+            KQ1X = KB "\\\\*\"[^\"]*\\\\\".*"; KQ2X = KB "\047[^\047]*\\\\\047.*"
             AUTH = "authorization[\\\\\"\047 ]*[=:][ ]*[\\\\\"\047]*[a-z]+[ ]+[^ \",\047\\\\]+"
             COOKIE = "cookie[a-z_-]*[ ]*:.*"
             AIZA = "aiza"; for (i = 0; i < 20; i++) AIZA = AIZA "[a-z0-9_-]"; AIZA = AIZA "[a-z0-9_-]*"
@@ -151,7 +153,7 @@ n1_release_obs_group() {
             text = $0; sub(/^[^\t]*\t[^\t]*\t[^\t]*\t/, "", text)
             gsub(/[[:cntrl:]]/, " ", text)
             text = redact(redact(redact(redact(redact(redact(text, "bearer[ ]+[^ ]+"), "xox[a-z][-.][^ ]+"), "xapp-[^ ]+"), "hooks[.]slack[.]com/services/[^ ]+"), AIZA), COOKIE)
-            text = redact(redact(redact(redact(redact(redact(text, AUTH), KQ1), KQ2), KU), "://[^ \"]*@"), LONG)
+            text = redact(redact(redact(redact(redact(redact(redact(redact(text, AUTH), KQ1X), KQ1), KQ2X), KQ2), KU), "://[^ \"]*@"), LONG)
             gsub(/[|`$<>\\]/, " ", text); text = squeeze(text)
             s = tolower(text); gsub(TS, "{ts}", s); gsub(UUID, "{id}", s)
             out = ""
