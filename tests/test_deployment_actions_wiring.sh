@@ -321,4 +321,19 @@ check "release: no-deploy case is reported" 'No deployment workflow triggered by
 check "release: gh errors are not a deploy failure" 'This is not a deploy failure' "$R4"
 check "release: SKILL.md forbids stopping after step 2" 'do not stop after step 2' skills/n1-release/SKILL.md
 
+# --- N1-568: § Command classifies Check: items as check (Manual: wins; backticks inside Check: stay check)
+check "contract defines the Check: kind" 'An item starting with `Check:` is a \*\*check item\*\*' "$P"
+TSV8="$T/check.tsv"
+printf '9\tafter\tafter\tCheck: `curl -sf https://x.example/health` returns 200\n' > "$TSV8"
+printf '9\tafter\tafter\tManual: Check: the dashboard by eye\n' >> "$TSV8"
+printf '9\tafter\tafter\t`echo shell`\n' >> "$TSV8"
+run8() { PATH="$T/bin:$PATH" bash -c "$(snippet "## § Command" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV8\"|" -e "s|^K=.*|K=$1|")"; }
+out=$(run8 3)
+check "command: shell item still classified shell" "^shell$" <(printf '%s\n' "$out")
+out=$(run8 1)
+check "command: Check: prefix classified check" "^check$" <(printf '%s\n' "$out")
+[ ! -f "$TSV8.cmd" ] && echo "PASS: check item leaves no .cmd file" || { echo "FAIL: check item left a .cmd file"; FAIL=1; }
+out=$(run8 2)
+check "command: Manual: wins over Check:" "^manual$" <(printf '%s\n' "$out")
+
 exit $FAIL

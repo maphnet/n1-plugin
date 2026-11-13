@@ -16,9 +16,10 @@ Runs the deploy-time actions a PR declares in its body. Called from n1-finish (S
 
 ### After deploy
 - [ ] `<shell command>`
+- [ ] Check: <read-only verification and its expected result, e.g. the health endpoint returns 200>
 ```
 
-One action per `- [ ]` line. An item starting with `Manual:` is always a **manual item**. Otherwise it is a **shell item** only when it starts with a backtick, contains exactly two backticks, and the extracted command is non-empty; its command is the text between the backticks, extracted by § Command. Everything else is a **manual item**. `- [x]` means done: it is never offered again. Secret values never appear, only names.
+One action per `- [ ]` line. An item starting with `Manual:` is always a **manual item**. An item starting with `Check:` is a **check item**: a read-only verification written in prose; § Check composes and runs the read-only commands, and a `Check:` item is never a shell item, even when it contains backticks. Otherwise it is a **shell item** only when it starts with a backtick, contains exactly two backticks, and the extracted command is non-empty; its command is the text between the backticks, extracted by § Command. Everything else is a **manual item**. `- [x]` means done: it is never offered again. Secret values never appear, only names.
 
 The per-run working copy is a TSV file, one row per unticked item: `<PR>\t<orig phase: before|after|release>\t<phase: before|after|drop>\t<item text>`. § Parse sets the orig-phase and phase columns identically, except a `### Before release` item, which gets orig phase `release` and phase `before`. § Edit may later change only the phase column (move/drop); the orig-phase column stays put, so § Tick can still find the item under the heading it actually lives under in the PR body. Rows are addressed by row number `K` (the `cat -n` number), so item text is never pasted into a shell command. Paths: n1-finish uses `$N1_HOME/scratch/deploy-actions-<PR>.tsv`; n1-release uses `$N1_HOME/scratch/release-actions.tsv`. § Parse also writes `"$OUT.deferred"` (same row format; scratch only, rewritten on every Parse).
 
@@ -101,7 +102,7 @@ Result: `WALK=complete` or `WALK=aborted`.
 
 ## § Command
 
-Extracts row `K`'s command from `$OUT` into `"$OUT.cmd"`, so the bytes shown to the user and the bytes executed are always identical — the model never re-types the command. Applies the same rule as the contract: an item starting with `Manual:` is always a manual item; otherwise it is a shell item only when it starts with a backtick, contains exactly two backticks, and the extracted command is non-empty — any other case is a manual item.
+Extracts row `K`'s command from `$OUT` into `"$OUT.cmd"`, so the bytes shown to the user and the bytes executed are always identical — the model never re-types the command. Applies the same rule as the contract: an item starting with `Manual:` is always a manual item; an item starting with `Check:` is a check item (no command is extracted; § Check composes it); otherwise it is a shell item only when it starts with a backtick, contains exactly two backticks, and the extracted command is non-empty — any other case is a manual item.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -110,17 +111,17 @@ K=<row number>
 rm -f "$OUT.cmd"
 ITEM=$(sed -n "${K}p" "$OUT" | cut -f4-)
 NBT=$(printf '%s' "$ITEM" | tr -dc '`' | wc -c)
-CMD=""
+CMD=""; CLASS="manual"
 case "$ITEM" in
   'Manual:'*) ;;
+  'Check:'*) CLASS="check" ;;
   '`'*) if [ "$NBT" -eq 2 ]; then CMD=$(printf '%s' "$ITEM" | awk -F'`' '{ printf "%s", $2 }'); fi ;;
 esac
 if [ -n "$CMD" ]; then
   printf '%s' "$CMD" > "$OUT.cmd"
-  echo "shell"
-else
-  echo "manual"
+  CLASS="shell"
 fi
+echo "$CLASS"
 ```
 
 ## § Tick
