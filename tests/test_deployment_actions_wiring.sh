@@ -391,4 +391,12 @@ check "finish Step 6 Report carries deployment action outcomes" "^Deployment act
 check "tail-worker treats a check item as no question" "runs without a prompt" agents/tail-worker.md
 check "handoff: passing checks never cause tail:prompt" "passing .check. items never stop it" skills/n1-finish/steps/handoff.md
 
+# --- N1-568: n1-release Step 5 and Step 8b (D7, D9)
+R2=skills/n1-release/steps/02-confirm-execute.md
+R4=skills/n1-release/steps/04-report.md
+check "release Step 5 walk runs check rows without a prompt" "check. rows run without a prompt" "$R2"
+check "release Step 5 headless STOP unchanged" "before-deploy actions require confirmation and this is a queue/headless run" "$R2"
+check "release Step 8b headless runs after checks after a watched deploy" "run § Check on each .after. row" "$R4"
+check "release Step 8b runs no check without a watched deploy" "When no deploy was watched, run no check" "$R4"
+
 exit $FAIL
