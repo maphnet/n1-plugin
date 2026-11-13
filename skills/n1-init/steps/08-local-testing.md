@@ -26,7 +26,7 @@ Requires the app to be startable from the command line.
 **Auto live (only when the project root has a compose file** — `compose.yaml`, `compose.yml`, `docker-compose.yaml`, or `docker-compose.yml`; reuse step 02's Consolidated Detection when available, else run `n1_compose_file "$(git rev-parse --show-toplevel)"` — `lib/config.sh`, the same helper `n1_resolve_local_testing_mode` and the session-start enable offer use — as a direct root check). If no compose file exists, do not ask and leave `autoLive` absent (defaults to `false`). Otherwise ask the user:
 ```
 Run live Docker e2e automatically?
-A compose file was detected. With auto live on, N1 starts the stack and tests live endpoints after review (an explicit mode overrides this).
+A compose file was detected. With auto live on, N1 starts the stack and tests live endpoints after review (an explicit live or smoke mode overrides this).
 1 — Yes
 2 — No (default)
 ```
@@ -46,28 +46,28 @@ Select the testing mode:
 ```
 How should N1 test this project locally?
 1 -- Live: start infrastructure + app, run tests against live endpoints (services with Docker Compose, local dev servers)
-2 -- Test: run test suite only, no infrastructure startup (libraries, CLIs, SDKs)
+2 -- None: no live verification; the local-testing step is skipped and the PR states it was not run (libraries, CLIs, SDKs)
 3 -- Smoke: skip pre-merge testing; configure post-deploy verification separately in n1-finish (cloud-native services that cannot run locally)
 ```
 
 **Mode suggestion heuristic:** Before presenting, check the project:
 - If Startup Detection (below) would find a match (docker-compose, Makefile with run targets, package.json with dev/start, manage.py, Procfile) -> suggest `1 -- Live (Recommended)` with reason: "Detected `<file>` -- this project appears locally runnable."
 - If .github/workflows/ exists AND no startup mechanism detected -> suggest `3 -- Smoke (Recommended)` with reason: "No local startup detected but the repo has CI workflows (deploy watch is always on) -- smoke testing after deploy may be appropriate."
-- Otherwise -> suggest `2 -- Test (Recommended)` with reason: "No local startup mechanism detected."
-- Present the suggested mode as its `(Recommended)` line with the reason above, and give each of the two other modes one line from this list: Live: works when the app and its services start locally; Test: works when the test suite alone covers the change; Smoke: works when the service runs only after deploy. Format: `<N1_ROOT>/references/question-format.md`.
+- Otherwise -> suggest `2 -- None (Recommended)` with reason: "No local startup mechanism detected."
+- Present the suggested mode as its `(Recommended)` line with the reason above, and give each of the two other modes one line from this list: Live: works when the app and its services start locally; None: works when the QA test suite alone covers the change; Smoke: works when the service runs only after deploy. Format: `<N1_ROOT>/references/question-format.md`.
 
-Write the selected mode:
+Write the selected mode. Live and Smoke write `mode`; None writes no `mode` key and `localTesting.autoLive: false` (an explicit decline, so the n1-start live-testing offer never re-asks a user who just chose None; the resolver then yields `none` unless `startCommand` makes it live):
 ```json
 {
   "localTesting": {
     "enabled": true,
-    "mode": "<live|test|smoke>",
+    "mode": "<live|smoke>",
     "maxFixAttempts": 3
   }
 }
 ```
 
-**If mode is `"live"` or `"test"`:** run the **Startup Detection** flow below. (For `"test"` mode, startCommand is optional but may still be useful.)
+**If mode is `"live"`:** run the **Startup Detection** flow below. **If None:** skip Startup Detection (a `startCommand` would turn local testing live).
 **If mode is `"smoke"`:** skip Startup Detection. Optionally ask for smoke config:
 ```
 Optional: configure smoke verification for post-deploy testing.
@@ -84,6 +84,7 @@ Optional: configure smoke verification for post-deploy testing.
 If no pre-detection is available (targeted upgrade or reconfiguration flow), run the full heuristic scan below.
 
 Check the project root for the following files in priority order:
+`n1_detect_start_command` in `lib/config.sh` implements this table (the n1-start live-testing offer uses it); keep both in sync.
 
 | Priority | File Pattern | Suggested startCommand | Notes |
 |----------|-------------|----------------------|-------|
@@ -131,7 +132,7 @@ If `localTesting` already exists in the current config, show current state and o
 ```
 Current local testing configuration:
   Enabled: <true/false>
-  Mode: <current mode or "(not set -- will infer from autoLive + compose file, then startCommand)">
+  Mode: <current mode, "test (legacy: no live verification)" for "test", or "(not set -- will infer from autoLive + compose file, then startCommand, else none)">
   Auto live: <current autoLive or "false">
   Start command: <current value or "(not set)">
   Teardown command: <current value or "(not set)">
@@ -146,7 +147,7 @@ Current local testing configuration:
 - **1** → leave unchanged.
 - **2** → set `enabled: true`, `maxFixAttempts: 3`. If `mode` is absent and `autoLive` is not `true`, run the Auto live question and then the mode selection prompt from the fresh-setup flow. Then run the Startup Detection flow above.
 - **3** → set `enabled: false`. Remove `maxFixAttempts`, `startCommand`, `teardownCommand`, `mode`, and `autoLive` keys.
-- **4** → run the mode selection prompt from the fresh-setup flow. Update `localTesting.mode`. If switching to/from `"smoke"`, adjust related keys accordingly.
+- **4** → run the mode selection prompt from the fresh-setup flow. Live/Smoke: set `localTesting.mode`; None: delete `localTesting.mode` and set `localTesting.autoLive: false`. If switching to/from `"smoke"`, adjust related keys accordingly.
 - **5** → run the Startup Detection flow above (regardless of enabled state).
 
 If `localTesting` is absent from the current config, run the fresh-setup flow above.

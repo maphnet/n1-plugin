@@ -24,8 +24,7 @@ Create all files:
   "ticketTagging": { ... },
   "observability": null,
   "localTesting": {
-    "enabled": true,
-    "mode": "test"
+    "enabled": true
   },
   "finishWork": {
     "mergeOnFinish": false,

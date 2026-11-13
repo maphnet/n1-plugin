@@ -161,4 +161,10 @@ assert_eq "W8 (AC6): tech-writer uses the not-run first line as the summary line
 assert_eq "W9 (AC6): Gate 3 rule names the exact sentence" "1" \
   "$(grep -cF "$SENT" "$R/skills/n1-start/procedures/output-gates.md")"
 
+I08="$R/skills/n1-init/steps/08-local-testing.md"
+assert_eq "W10 (AC7): n1-init menu has no Test option or test mode value" "0" "$(grep -cE '^2 -- Test:|live\|test\|smoke|`"test"`' "$I08")"
+assert_eq "W11: n1-init None fallback carries the single (Recommended) label" "1" "$(grep -cF '2 -- None (Recommended)' "$I08")"
+assert_eq "W12 (AC7): fresh config default writes no test mode" "0" "$(grep -cF '"mode": "test"' "$R/skills/n1-init/steps/13-write-config.md")"
+assert_eq "W13: n1-init None records an explicit autoLive false (no re-ask in n1-start)" "1" "$(grep -cF 'None writes no `mode` key and `localTesting.autoLive: false`' "$I08")"
+
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
