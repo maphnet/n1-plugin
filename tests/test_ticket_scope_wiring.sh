@@ -134,6 +134,10 @@ host_block = hook[hb_start:hb_end] if 0 <= hb_start < hb_end else ''
 check('HOST ROUTING routes free-form creation to the scope rule',
       'TICKET CREATION:' in host_block and 'references/ticket-scope.md' in host_block)
 check('HOST ROUTING honors a user-named type', 'a user-named type wins' in host_block)
+check('HOST ROUTING scopes free-form creation to outside n1-ticket only',
+      'outside n1-ticket (' in host_block)
+check('HOST ROUTING gates free-form Story or Epic on the user',
+      'Story or Epic only when the user names or confirms it' in host_block)
 
 if failures:
     raise SystemExit(1)

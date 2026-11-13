@@ -218,7 +218,7 @@ has "N1-557: SKILL states children only for confirmed actions" 'only for actions
 lacks "N1-557: SKILL has no preview" 'preview' skills/n1-refine/SKILL.md
 has "N1-296: SKILL loop blurb names scope classification" 'scope classification' skills/n1-refine/SKILL.md
 line_has "N1-296: architecture row describes decomposition" '| n1-refine |' 'Epic into Stories, Story into Sub-tasks' references/architecture.md
-has "N1-296: duplicate-check lists n1-refine as caller" 'n1-ticket, n1-story and n1-refine (before creation)' references/duplicate-check.md
+has "N1-296: duplicate-check lists n1-refine as caller" 'n1-ticket and n1-refine (before creation)' references/duplicate-check.md
 
 # --- N1-33: premise check for bug tickets
 SA=agents/solution-architect.md
