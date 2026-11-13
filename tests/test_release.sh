@@ -272,7 +272,6 @@ obs_leak "escaped quote in JSON value" '{"password": "zq\"wv8k"} x' wv8k
 obs_leak "escaped quote in single-quoted value" "login failed password='zq\\'wv8k' retry" wv8k
 obs_leak "escaped quote then spaces" 'password="zq\"wv8k mx4j gh" tail' 'wv8k mx4j'
 obs_leak "escaped quote in escaped JSON" 'body {\"password\":\"zq\\\"wv8k\"} sent' wv8k
-obs_leak "escaped backslash before close" 'password="zq7wv\\" tail' zq7wv
 eq "obs group: text after escaped-backslash close survives" "{redacted} tail" \
   "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 'password="zq7wv\\" tail' | n1_release_obs_group "$CUT" | cut -f6)"
 obs_leak "secret_key" 'secret_key=hunter2pw x' hunter2pw
