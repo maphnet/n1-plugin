@@ -47,6 +47,18 @@ has "entry: non-numeric cycle becomes 1" "$(n1_review_entry "$REPO" 2>&1)" "CYCL
 printf 'x\n' > "$MEM/review-status.md"; n1_review_entry "$REPO" >/dev/null 2>&1
 if [ -e "$MEM/review-status.md" ]; then no "entry: removes stale review-status.md"; else ok "entry: removes stale review-status.md"; fi
 
+# CR-1/CX-2: a dispute-only cycle (empty fix.diff, `## Fix Cycle <N>` section) is still re-reviewed incrementally
+printf -- '---\nreview_fix_cycle: 1\n---\n' > "$MEM/overview.md"; : > "$MEM/fix.diff"; rm -f "$MEM/review-prev.md"
+printf '### Verdict: FAIL\n- [CR-1] High a.sh:1 — one\n' > "$MEM/review.md"
+has "entry: empty fix.diff without a Fix Cycle section stays full scope" "$(n1_review_entry "$REPO" 2>&1)" "CYCLE=1 INCREMENTAL=false"
+printf '# Impl\n## Fix Cycle 1\n- [CR-1] disputed: false positive\n' > "$MEM/implementation.md"
+has "entry: dispute-only cycle is incremental" "$(n1_review_entry "$REPO" 2>&1)" "CYCLE=1 INCREMENTAL=true"
+eq "entry: dispute-only cycle keeps the previous review" "1" "$(grep -c 'CR-1' "$MEM/review-prev.md" 2>/dev/null)"
+printf '### Verdict: PASS\n' > "$MEM/review-hdr.md"; printf '## CR\n' > "$MEM/review-cr.md"
+printf -- '- [CR-1] WITHDRAWN\n' > "$MEM/review-status.md"; rm -f "$MEM/fp-new.tsv" "$MEM/fingerprints.jsonl"
+has "collect: dispute-only cycle derives the withdrawn state" "$(n1_review_collect false 2>&1)" "FIX_STATES: resolved=1 carried=0 new=0"
+printf '# Impl\n' > "$MEM/implementation.md"; rm -f "$MEM/overview.md" "$MEM/review.md" "$MEM/review-prev.md" "$MEM/review-status.md" "$MEM/fix.diff" "$MEM/fingerprints.jsonl"
+
 # --- n1_review_collect ---
 rm -f "$MEM/review.md" "$MEM/overview.md" "$MEM/fp-new.tsv"
 put_reviews() { printf '### Verdict: PASS\n' > "$MEM/review-hdr.md"; printf '## CR\n' > "$MEM/review-cr.md"; printf '## SEC\n' > "$MEM/review-sec.md"; }

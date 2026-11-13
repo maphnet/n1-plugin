@@ -85,7 +85,7 @@ eq "W7c exhausted names open SEC IDs with severities" "1" "$(grep -cF 'Name open
 R=skills/n1-start/steps/review.md
 RL=lib/review-step.sh   # N1-436
 RI=skills/n1-start/procedures/review-incremental.md
-eq "V1 re-review is incremental from cycle 1 on the fix diff" "1" "$(grep -cF '[ "$CYCLE" -ge 1 ] && [ -s "$N1_HOME/memory/$ID/fix.diff" ]' "$RL")"
+eq "V1 re-review is incremental from cycle 1 on the fix diff or a Fix Cycle section" "1" "$(grep -cF '[ "$1" -ge 1 ] && { [ -s "$MEM/fix.diff" ] ||' "$RL")"
 eq "V2 incremental reviewers get only the fix diff" "1" "$(grep -cE 'INCREMENTAL=true.*fix\.diff.*review only the changes' "$RI")"
 eq "V3 review.md no longer claims default 2" "0" "$(grep -c 'maxFixAttempts` (default 2)' "$R")"
 eq "V4 review FAIL routes to the fix-step cap gate" "1" "$(grep -cF '**FAIL → Step 8** (its **Cap gate** bounds the loop).' "$R")"
