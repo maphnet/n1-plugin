@@ -187,8 +187,19 @@ source ~/.n1/preamble.sh
 PR_BODY_FILE="<the path from pr:body-file=>"
 case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*/*) echo "PR body path invalid"; exit 1;; "$N1_HOME"/scratch/pr-body-*) ;; *) echo "PR body path invalid"; exit 1;; esac
 [ -s "$PR_BODY_FILE" ] && [ -s "$PR_BODY_FILE.title" ] && echo "pr:body ok" || echo "pr:body missing"
+[ -s "$PR_BODY_FILE" ] && tr -d '\r' < "$PR_BODY_FILE" | awk '
+  /^## / { in_da = ($0 ~ /^## Deployment Actions[[:space:]]*$/); b = 0; next }
+  in_da && /^### / { b = ($0 ~ /^### Before deploy/); next }
+  in_da && b && /^- \[ \] / { sub(/^- \[ \] /, ""); print "before-deploy: " $0 }' || true
 ```
 
 `pr:body missing` after tech-writer → dispatch tech-writer once more with the same inputs (including `RULES_BLOCK`) plus `phase: 2` (skip Phase 1; the docs are already updated and committed) and re-run the check. If it is still missing (or missing on the input path) → stop: "PR body missing — PR not created." Otherwise `gh pr create --body-file` would create a PR with an empty body.
+
+Each `before-deploy: <item>` line is an unticked before-deploy item. Keep them for the Step 10 Report (in `03-codex-review.md`), rendered after the report block as:
+```
+Do these before merging; `/n1:n1-finish <ID>` walks them while the PR is open.
+- <item>
+```
+Use `#<PR number>` for `<ID>` when there is no ticket. No `before-deploy:` line → no listing.
 
 **Autonomy gate:** no prompt — create the PR as composed, append Decision Ledger row (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `auto`). Pipeline invocations already bypass.

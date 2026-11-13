@@ -399,4 +399,18 @@ check "release Step 5 headless STOP unchanged" "before-deploy actions require co
 check "release Step 8b headless runs after checks after a watched deploy" "run § Check on each .after. row" "$R4"
 check "release Step 8b runs no check without a watched deploy" "When no deploy was watched, run no check" "$R4"
 
+# --- N1-568 S3: n1-pr's body check lists unticked before-deploy items (CRLF-safe; ticked items and other sections ignored)
+PP=skills/n1-pr/steps/01-prepare.md
+export N1_HOME="$T/n1h"; mkdir -p "$N1_HOME/scratch"
+BF="$N1_HOME/scratch/pr-body-T-1.abc"
+printf '## Summary\r\n- [ ] not an action\r\n\r\n## Deployment Actions\r\n\r\n### Before deploy\r\n- [ ] Manual: set secret STRIPE_KEY\r\n- [x] `echo done`\r\n\r\n### After deploy\r\n- [ ] Check: health returns 200\r\n' > "$BF"
+echo "title" > "$BF.title"
+out=$(bash -c "$(awk 'index($0, "**Check the body file:**") == 1 {f = 1; next} f && /^```bash/ {b = 1; next} b && /^```/ {exit} b' "$PP" | sed -e '/preamble\.sh/d' -e "s|^PR_BODY_FILE=.*|PR_BODY_FILE=\"$BF\"|")")
+check "n1-pr body check still reports ok" "^pr:body ok$" <(printf '%s\n' "$out")
+check "n1-pr lists the unticked before-deploy item" "^before-deploy: Manual: set secret STRIPE_KEY$" <(printf '%s\n' "$out")
+[ "$(printf '%s\n' "$out" | grep -c '^before-deploy: ')" = "1" ] \
+    && echo "PASS: n1-pr lists only unticked before-deploy items" || { echo "FAIL: n1-pr before-deploy listing count"; FAIL=1; }
+check "n1-pr listing text" "Do these before merging; ./n1:n1-finish <ID>. walks them while the PR is open\." "$PP"
+check "n1-pr Report points to the before-deploy listing" "before-deploy listing from .01-prepare\.md." skills/n1-pr/steps/03-codex-review.md
+
 exit $FAIL
