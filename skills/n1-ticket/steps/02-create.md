@@ -18,7 +18,9 @@ If `GET_PROJECT_FIELDS_OP` is non-empty:
 - Call `mcp__<TRACKER_MCP>__<GET_PROJECT_FIELDS_OP>` with `projectId: <PROJECT_KEY>`
 - Look for a field of type "enum" named "Type" that includes the `TICKET_TYPE` value
 - If the value exists: use it when creating the issue
-- If it does not exist: fall back to default issue type and add a note in the description: "**Note:** <TICKET_TYPE> type not available in project — created as default type."
+- If it does not exist: fall back to default issue type and add a note in the description: "**Note:** <TICKET_TYPE> type not available in project — created as default type." Set `CREATED_TYPE` to Task and print the same note in Step 7 and Step 9.
+
+`CREATED_TYPE` is `TICKET_TYPE` unless the fallback above applied.
 
 If `GET_PROJECT_FIELDS_OP` is empty: skip type querying. Use `TICKET_TYPE` as-is and print this note with the Type in Step 7: "<TICKET_TYPE> type availability could not be verified (getProjectFields operation not configured)."
 
@@ -99,9 +101,9 @@ Skip if ANY of: `ASSIGN_TO_CREATOR` is `false`, `GET_USER_OP` is empty, `ASSIGN_
 
 Report: "Created **[<TICKET_ID>](<ticket URL>)**: <title>"
 
-**Story or Epic:** ask the user, in the `<N1_ROOT>/references/question-format.md` layout, "Break it down now with n1-refine?":
+**Story or Epic (by `CREATED_TYPE`):** if `CREATED_TYPE` differs from `TICKET_TYPE`, say it was created as <CREATED_TYPE> because <TICKET_TYPE> is unavailable and treat it as the Task or Bug case below. Otherwise ask the user, in the `<N1_ROOT>/references/question-format.md` layout, "Break it down now with n1-refine?":
 
-1 — Yes, run n1-refine now (Recommended): `<N1_ROOT>/skills/n1-refine/steps/03-write.md` creates the children confirmed in its loop per `<N1_ROOT>/references/ticket-scope.md` § Decomposition by ticket type, and the new <TICKET_TYPE> has none yet.
+1 — Yes, run n1-refine now (Recommended): `<N1_ROOT>/skills/n1-refine/steps/03-write.md` creates the children confirmed in its loop per `<N1_ROOT>/references/ticket-scope.md` § Decomposition by ticket type, and the new <CREATED_TYPE> has none yet.
 2 — Later: works when the breakdown waits for more scoping.
 
 Yes: invoke skill `n1-refine` with `<TICKET_ID>`; if that fails, print "Run `/n1:n1-refine <TICKET_ID>` to break it down." Later (and always under `N1_HEADLESS=1`, because n1-refine needs a user answer): print "Run `/n1:n1-refine <TICKET_ID>` to break it down before `/n1:n1-start`." Skip the Task/Bug lines below.
