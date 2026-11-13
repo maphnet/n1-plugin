@@ -97,6 +97,17 @@ n1_config_val() {
     fi
 }
 
+# n1_tag_is_service_label <tag> [config-file] — rc 0 when <tag> equals the ticketTagging service label (N1-548).
+# The label pipeline mirrors references/ticket-tagging.md § Resolve (parity checked by tests/test_ticket_tagging_wiring.sh);
+# the tag is normalized the same way. Disabled tagging, empty service or empty label: rc 1.
+n1_tag_is_service_label() {
+    local file="${2:-$(n1_config_file)}" label tag
+    [ "$(n1_config_val '.ticketTagging.enabled' "$file")" = true ] || return 1
+    label=$(printf '%s' "$(n1_config_val '.ticketTagging.service' "$file")" | tr '[:upper:]' '[:lower:]' | tr -s ' \t' '-' | tr -cd 'a-z0-9._-' | sed 's/^[-._]*//; s/[-._]*$//')
+    tag=$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -s ' \t' '-' | tr -cd 'a-z0-9._-' | sed 's/^[-._]*//; s/[-._]*$//')
+    [ -n "$label" ] && [ "$tag" = "$label" ]
+}
+
 n1_config_ops() {
     local path="$1" file="${2:-$(n1_config_file)}"
     [ -f "$file" ] || return 0

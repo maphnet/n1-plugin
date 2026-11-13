@@ -40,6 +40,7 @@ case "$QUEUE_ID" in http://*|https://*) QUEUE_ID=$(n1_extract_ticket_from_url "$
 [ -n "$KEYS" ] && QUEUE_ID=$(printf '%s-%08x' "${GOAL:-list}" "$(printf '%s\n' $KEYS | LC_ALL=C sort -u | cksum | cut -d' ' -f1)")
 SRC="${KEYS:-$QUEUE_ID}"
 if ! [[ "$QUEUE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then echo "Invalid queue id: $QUEUE_ID"
+elif [ "$MODE" = tag ] && n1_tag_is_service_label "$QUEUE_ID"; then echo "Invalid queue id: tag '$QUEUE_ID' equals the ticketTagging service label N1 puts on every ticket it creates"
 else
   if [ -n "$UNATTENDED" ]; then mkdir -p "$N1_HOME/queue/$QUEUE_ID" || QUEUE_ID=""
   else QUEUE_ID=$(n1_queue_new_id "$QUEUE_ID") || QUEUE_ID=""; fi

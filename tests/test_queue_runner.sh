@@ -3278,6 +3278,27 @@ test_queue_integration_wiring() {
         "$(grep -qF 'Queue integration branch (N1-446)' "$REPO_ROOT/references/architecture.md" && echo yes || echo no)"
 }
 
+# --- N1-548: refuse a --tag equal to the ticketTagging service label ---
+test_tag_is_service_label() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    local c="$tmp/config.json"
+    echo '{"ticketTagging":{"enabled":true,"service":"My Service"}}' > "$c"
+    assert_eq "svc-label: exact label collides" 0 "$(n1_tag_is_service_label my-service "$c"; echo $?)"
+    assert_eq "svc-label: other case collides" 0 "$(n1_tag_is_service_label My-Service "$c"; echo $?)"
+    assert_eq "svc-label: other tag passes" 1 "$(n1_tag_is_service_label n1-auto "$c"; echo $?)"
+    echo '{"ticketTagging":{"enabled":false,"service":"My Service"}}' > "$c"
+    assert_eq "svc-label: disabled passes" 1 "$(n1_tag_is_service_label my-service "$c"; echo $?)"
+    echo '{"ticketTagging":{"enabled":true,"service":"!!!"}}' > "$c"
+    assert_eq "svc-label: empty label passes" 1 "$(n1_tag_is_service_label '' "$c"; echo $?)"
+    echo '{"ticketTagging":{"enabled":true}}' > "$c"
+    assert_eq "svc-label: no service passes" 1 "$(n1_tag_is_service_label '' "$c"; echo $?)"
+    local f="$REPO_ROOT/skills/n1-queue/steps/input.md" g n
+    g=$(line_of "$f" 'n1_tag_is_service_label "$QUEUE_ID"'); n=$(line_of "$f" 'n1_queue_new_id "$QUEUE_ID"')
+    assert_eq "svc-label: input.md guard precedes mkdir and n1_queue_new_id" yes \
+        "$([ -n "$g" ] && [ -n "$n" ] && [ "$g" -lt "$n" ] && echo yes || echo no)"
+}
+
+test_tag_is_service_label
 test_n1_339_cleanup_helpers
 test_pr_view
 test_checks_class

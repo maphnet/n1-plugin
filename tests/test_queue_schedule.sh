@@ -194,6 +194,22 @@ reset; eq "reschedule: create failure -> rc 1" 1 "$(FAKE_AUTOS=one FAKE_CREATE_F
 hasnt "reschedule: create failure keeps the old automation" "automations remove" "$(calls)"
 reset; eq "create: bad tag rejected" 1 "$(rc n1_queue_schedule create "a'b" daily Jira jira TP "To Do")"
 eq "create: bad tag never reaches Orca automations" "" "$(grep automations "$FAKE/calls")"
+# N1-548: a tag equal to the ticketTagging service label would enqueue every N1-created ticket.
+CFG_BAK=""; [ -f "$N1_HOME/config.json" ] && CFG_BAK=$(cat "$N1_HOME/config.json")
+echo '{"ticketTagging":{"enabled":true,"service":"Inference"}}' > "$N1_HOME/config.json"
+for t in inference Inference; do
+    reset; out=$(FAKE_AUTOS=none n1_queue_schedule create "$t" daily Jira jira TP "To Do"); r=$?
+    eq "create: service-label tag '$t' -> rc 1" 1 "$r"
+    has "create: service-label tag '$t' names the collision" "ticketTagging service label" "$out"
+    hasnt "create: service-label tag '$t' creates nothing" "automations create" "$(calls)"
+done
+reset; eq "create: other tag with tagging on -> rc 0" 0 "$(FAKE_AUTOS=none rc n1_queue_schedule create n1-auto daily Jira jira TP "To Do")"
+echo '{"ticketTagging":{"enabled":false,"service":"inference"}}' > "$N1_HOME/config.json"
+reset; eq "create: tagging disabled -> label tag allowed" 0 "$(FAKE_AUTOS=none rc n1_queue_schedule create inference daily Jira jira TP "To Do")"
+echo '{"ticketTagging":{"enabled":true}}' > "$N1_HOME/config.json"
+reset; eq "create: no service -> tag allowed" 0 "$(FAKE_AUTOS=none rc n1_queue_schedule create inference daily Jira jira TP "To Do")"
+has "create: no service -> automation created" "automations create" "$(calls)"
+if [ -n "$CFG_BAK" ]; then printf '%s\n' "$CFG_BAK" > "$N1_HOME/config.json"; else rm -f "$N1_HOME/config.json"; fi
 reset; eq "create: bad trigger rejected" 1 "$(rc n1_queue_schedule create n1-auto 'daily$(id)' Jira jira TP "To Do")"
 reset; eq "create: quoted TODO status rejected" 1 "$(rc n1_queue_schedule create n1-auto daily Jira jira TP "To'Do")"
 reset; out=$(FAKE_AUTOS=none n1_queue_schedule create n1-auto daily YouTrack youtrack TP Open)
