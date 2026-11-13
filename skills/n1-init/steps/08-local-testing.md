@@ -147,7 +147,7 @@ Current local testing configuration:
 - **1** → leave unchanged.
 - **2** → set `enabled: true`, `maxFixAttempts: 3`. If `mode` is absent and `autoLive` is not `true`, run the Auto live question and then the mode selection prompt from the fresh-setup flow. Then run the Startup Detection flow above.
 - **3** → set `enabled: false`. Remove `maxFixAttempts`, `startCommand`, `teardownCommand`, `mode`, and `autoLive` keys.
-- **4** → run the mode selection prompt from the fresh-setup flow. Live/Smoke: set `localTesting.mode`; None: delete `localTesting.mode` and set `localTesting.autoLive: false`. If switching to/from `"smoke"`, adjust related keys accordingly.
+- **4** → run the mode selection prompt from the fresh-setup flow. Live/Smoke: set `localTesting.mode`; None: delete `localTesting.mode`, `startCommand` and `teardownCommand` and set `localTesting.autoLive: false`. If switching to/from `"smoke"`, adjust related keys accordingly.
 - **5** → run the Startup Detection flow above (regardless of enabled state).
 
 If `localTesting` is absent from the current config, run the fresh-setup flow above.

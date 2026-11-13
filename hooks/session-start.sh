@@ -319,7 +319,7 @@ RELATED PROJECTS ROUTING (from N1 config — explore these repos when tasks invo
 fi
 
 # Local-testing enable offer (NP-222, N1-559): only when live testing would not run -- enabled=false, or
-# mode is not explicitly "live" and autoLive != true. An explicit mode "smoke" is a deliberate choice:
+# mode is not explicitly "live", autoLive != true and no startCommand is set. An explicit mode "smoke" is a deliberate choice:
 # never offer, never touch it. A legacy mode "test" is ignored by n1_resolve_local_testing_mode, so it
 # qualifies, and accepting deletes it. Decline memory is this instruction's own lifetime (one
 # conversation) -- no state file; the n1-start live-testing offer honours the same rule.
@@ -327,14 +327,14 @@ lt_dir=$(git -C "${HOOK_CWD:-$PWD}" rev-parse --show-toplevel 2>/dev/null || pri
 lt_mode_val=$(n1_config_val '.localTesting.mode' "$CONFIG_FILE")
 if [ "$lt_mode_val" = "smoke" ]; then
     : # explicit smoke mode -- deliberate user choice, never offer
-elif [ "$(n1_config_val '.localTesting.enabled' "$CONFIG_FILE")" = "false" ] || { [ "$lt_mode_val" != "live" ] && [ "$(n1_config_val '.localTesting.autoLive' "$CONFIG_FILE")" != "true" ]; }; then
+elif [ "$(n1_config_val '.localTesting.enabled' "$CONFIG_FILE")" = "false" ] || { [ "$lt_mode_val" != "live" ] && [ "$(n1_config_val '.localTesting.autoLive' "$CONFIG_FILE")" != "true" ] && [ -z "$(n1_config_val '.localTesting.startCommand' "$CONFIG_FILE")" ]; }; then
     lt_f=$(n1_compose_file "$lt_dir") || lt_f=""
     if [ -n "$lt_f" ]; then
         context="${context}
 
 LOCAL TESTING OFFER (live Docker e2e is off for this project; ${lt_f} found in the repo root):
 If the user asks for local, docker, or e2e testing (any phrasing), first perform the test they asked for. Then ask once whether to enable live local testing so N1 runs it automatically after review. Skip this offer if N1 already asked to enable live local testing in this conversation.
-- Yes: run \`source ~/.n1/preamble.sh; f=\$(n1_config_file); jq '.localTesting.enabled = true | .localTesting.autoLive = true | if .localTesting.mode == \"test\" then del(.localTesting.mode) else . end' \"\$f\" > \"\$f.tmp\" && cat \"\$f.tmp\" > \"\$f\" && rm -f \"\$f.tmp\"\`
+- Yes: run \`source ~/.n1/preamble.sh; f=\$(n1_config_file); cp -p \"\$f\" \"\$f.tmp\" && jq '.localTesting.enabled = true | .localTesting.autoLive = true | if .localTesting.mode == \"test\" then del(.localTesting.mode) else . end' \"\$f\" > \"\$f.tmp\" && mv -f \"\$f.tmp\" \"\$f\"\`
 - No: do not offer again in this conversation.
 - Only if an N1 ticket is active, append an audit row to the Decision Ledger in its overview.md: | local-testing | scope | C | [asked] | Enable live local testing? | <yes/no> | - | user answer to enable offer | --- |
 Never offer when the user did not ask for local/docker/e2e testing."
