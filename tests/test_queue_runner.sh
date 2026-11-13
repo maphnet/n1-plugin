@@ -453,6 +453,11 @@ EOF
     cp "$q2" "$tmp/orig.md"
     rc=0; out=$(printf 'U-1;rm\n' | n1_queue_rerun_release "$q2") || rc=$?
     assert_eq "rerun: invalid key ignored" "0||same" "$rc|$out|$(_same)"
+    rc=0; out=$(printf 'U - 1\nU -1\nU- 1\n \t \n' | n1_queue_rerun_release "$q2") || rc=$?
+    assert_eq "rerun: inner-whitespace and blank keys ignored, not rewritten" "0||same" "$rc|$out|$(_same)"
+    q2p="$tmp/queue/q2/padded.md"; cp "$q2" "$q2p"
+    rc=0; out=$(printf '  U-1\t \r\n' | n1_queue_rerun_release "$q2p") || rc=$?
+    assert_eq "rerun: edge-padded key still accepted" "0|$(printf 'done\t1\tU-1\tpending')" "$rc|$out"
     start_fake_runner "$REPO_ROOT" "$q2"; n1_write_frontmatter "$q2" pid "$FAKE_RUNNER_PID"; cp "$q2" "$tmp/orig.md"
     rc=0; out=$(printf 'U-1\n' | n1_queue_rerun_release "$q2" 2>&1) || rc=$?
     assert_eq "rerun: live runner refused, nothing changed" "1|yes|same" "$rc|$(grep -qF 'is running' <<< "$out" && echo yes || echo no)|$(_same)"

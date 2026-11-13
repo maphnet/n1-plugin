@@ -1674,7 +1674,7 @@ n1_queue_rerun_release() {
     st=$(n1_read_frontmatter "$q" step)
     case "$st" in done|halted) ;; *) n1_queue_interrupted "$q" || { echo "n1-queue: queue $(n1_read_frontmatter "$q" queue_id) is at step ${st:-none}, not done, halted or interrupted; nothing changed" >&2; return 1; } ;; esac
     while IFS= read -r k; do
-        k=${k//[[:space:]]/}
+        k=${k#"${k%%[![:space:]]*}"}; k=${k%"${k##*[![:space:]]}"}
         [[ "$k" =~ $kre ]] && isdone[$k]=1
     done
     if [ "${#isdone[@]}" -gt 0 ]; then
