@@ -1,4 +1,4 @@
-<!-- Purpose: Context capture, sanity check, tracker gate, light analysis, light discovery (Steps 1-5). -->
+<!-- Purpose: Context capture, scope routing, tracker gate, light analysis, light discovery (Steps 1-5). -->
 
 ## Step 1: Context Capture
 
@@ -11,7 +11,7 @@ Two input sources — combine both when available:
 
 Combine into a structured summary:
 - **Title** — imperative mood, concise (under 80 chars)
-- **Type** — `Task` or `Bug`. Auto-detect from context: bug indicators are broken behavior, regressions, errors, exceptions, crash reports. Default to `Task` when ambiguous.
+- **Type** — `Task` or `Bug`. Auto-detect from context: bug indicators are broken behavior, regressions, errors, exceptions, crash reports. Default to `Task` when ambiguous. Step 2 may replace it with `Story` or `Epic`.
 - **Description** — 2-3 paragraphs covering what, why, and how
 - **Acceptance criteria** — bulleted checklist (3-7 items)
 
@@ -19,7 +19,13 @@ Present the summary to the user for confirmation: "Here's what I captured — do
 
 ## Step 2: Scope Routing
 
-Read `<N1_ROOT>/references/ticket-scope.md` and classify the confirmed summary. `SCOPE_TYPE=Story`: perform its Story handoff now and end this flow. `SCOPE_TYPE=Task`: continue with Step 3, retaining Bug detection for defect reports. Unresolved scope: continue through analysis/discovery, then reclassify before creation approval.
+Read `<N1_ROOT>/references/ticket-scope.md` and classify the confirmed summary into `SCOPE_TYPE`. Set `TICKET_TYPE`:
+
+- `SCOPE_TYPE=Task`: `TICKET_TYPE` is the Step 1 type (`Bug` for a defect report, else `Task`).
+- `SCOPE_TYPE=Story` or `Epic`: `TICKET_TYPE=<SCOPE_TYPE>`. Say "This scope looks like a <TICKET_TYPE>." and continue with Step 3; Step 7 asks the user before creating it.
+- Unresolved scope: continue through analysis/discovery, then reclassify before Step 7.
+
+A type the user explicitly named (e.g. "create an Epic") sets `TICKET_TYPE` instead of the table; a named Story or Epic still goes through the Step 7 question.
 
 ## Step 3: Tracker Gate
 

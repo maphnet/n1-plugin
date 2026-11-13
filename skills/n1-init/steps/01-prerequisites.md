@@ -37,7 +37,6 @@ Check for N1 configuration in priority order:
 
          To reconfigure, run: /n1-init reconfigure
          ```
-         For Jira projects with `tracker.versionMcp` set, add after the block: "Adopting existing tickets in n1-story needs jc-mcp 0.9.0 or newer (`issueKeys` input)."
          **STOP.**
      - **If missing keys found:** Tell the user: "N1 is already configured for this project (state at `$N1_HOME`). Current config:" then show the config. Then show:
 
@@ -163,7 +162,7 @@ Applies when `HAS_GET_ISSUE_LINKS` is empty and `TRACKER_TYPE` is `"jira"` or `"
 
 **Gap: `getCurrentUser` and/or `assign` missing**
 
-Applies when `ASSIGN_TO_CREATOR` is not `false`, `TRACKER_TYPE` is `"jira"` or `"youtrack"`, and `HAS_GET_USER` or `HAS_ASSIGN` is empty. (Without them, n1-start, n1-ticket and n1-story cannot assign tickets and now print a warning.)
+Applies when `ASSIGN_TO_CREATOR` is not `false`, `TRACKER_TYPE` is `"jira"` or `"youtrack"`, and `HAS_GET_USER` or `HAS_ASSIGN` is empty. (Without them, n1-start and n1-ticket cannot assign tickets and now print a warning.)
 
 Infer the operation names deterministically (never guess):
 

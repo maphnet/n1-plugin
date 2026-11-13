@@ -43,15 +43,11 @@ for pair in 'My Service|my-service' '  A  B |a-b' '!!!|' 'Svc_1|svc_1' 'Tailnet-
     fi
 done
 
-# Create sites: n1-ticket, n1-story.
-for f in skills/n1-ticket/steps/02-create.md skills/n1-story/steps/02-compose.md; do
-    check "$f resolves via ticket-tagging" 'ticket-tagging\.md` § Resolve' "$f"
-    check "$f labels via ticket-tagging" 'ticket-tagging\.md` § Label after create' "$f"
-    lacks "$f has no inline tagging block" 'TAGGING_ENABLED=' "$f"
-done
-check "n1-story subtasks label after create" 'ticket-tagging\.md` § Label after create with the new subtask ID' skills/n1-story/steps/02-compose.md
-check "n1-story adopt gets no tagging or label" 'Adopted tickets get no tagging or label' skills/n1-story/steps/02-compose.md
-lacks "n1-story has no vague subtask tagging line" 'same logic as story' skills/n1-story/steps/02-compose.md
+# Create site: n1-ticket.
+f=skills/n1-ticket/steps/02-create.md
+check "$f resolves via ticket-tagging" 'ticket-tagging\.md` § Resolve' "$f"
+check "$f labels via ticket-tagging" 'ticket-tagging\.md` § Label after create' "$f"
+lacks "$f has no inline tagging block" 'TAGGING_ENABLED=' "$f"
 
 # Create sites: n1-start (investigation follow-up, brain-dump), n1-refine children.
 for f in skills/n1-start/steps/investigation-deliverable.md skills/n1-start/steps/ticket.md skills/n1-refine/steps/03-write.md; do

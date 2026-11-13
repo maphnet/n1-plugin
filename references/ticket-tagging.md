@@ -1,6 +1,6 @@
 # Procedure: Ticket Tagging
 
-Applies to every tracker create call N1 makes: n1-ticket, n1-story (story and subtasks), n1-refine children, n1-start brain-dump creation and investigation follow-ups, n1-finish telemetry follow-ups, follow-up filing (`followup-filing.md` § File), and n1-run or ad hoc creation (`ticket-scope.md` § Create-call parameters). Creation only: an adopted ticket (n1-story Step 9b, n1-refine Adopt) or any existing ticket is never re-tagged or labeled.
+Applies to every tracker create call N1 makes: n1-ticket, n1-refine children, n1-start brain-dump creation and investigation follow-ups, n1-finish telemetry follow-ups, follow-up filing (`followup-filing.md` § File), and n1-run or ad hoc creation (`ticket-scope.md` § Create-call parameters). Creation only: an adopted ticket (n1-refine Adopt) or any existing ticket is never re-tagged or labeled.
 
 ## § Resolve
 
@@ -30,5 +30,5 @@ Run after the create call succeeds and the new key is known, before any assign, 
 
 - **Jira, create op (`tracker.operations.createIssue`) starts with `jcm_`** (jc-mcp; its create call has no labels parameter): if `EDIT_OP` is empty, emit `> Warning: Could not label <KEY> with <TAGGING_LABEL>: tracker.operations.editTicket is not configured` and continue. Otherwise call `mcp__<TRACKER_MCP>__<EDIT_OP>` with `issueKey: <KEY>` and `update: {"labels":[{"add":"<TAGGING_LABEL>"}]}`. Never pass labels under `fields`: `fields` replaces the whole label list, and `fields` plus `update` on the same field is rejected. A tool error or an `ok:false` response (for example a declined write confirmation) is a failure: emit `> Warning: Could not label <KEY> with <TAGGING_LABEL>: <error or message>` and continue. No retry, no rollback, never block; the label result never changes what later steps do (same as the assign step).
 - **YouTrack:** no label operation. Emit `> Warning: Service label skipped: YouTrack has no label operation (prefix and **Service:** line still applied)` once per run, not per ticket, and continue.
-- **Jira, any other create op, ticket created through `mcp__<VERSION_MCP>__jcm_createIssue`** (n1-story subtasks and n1-refine children on a Rovo tracker with a jc-mcp version server): the ticket was created by jc-mcp, so label it with `mcp__<VERSION_MCP>__jcm_editIssue` using the same `issueKey` and `update` arguments and the same failure handling.
+- **Jira, any other create op, ticket created through `mcp__<VERSION_MCP>__jcm_createIssue`** (n1-refine children on a Rovo tracker with a jc-mcp version server): the ticket was created by jc-mcp, so label it with `mcp__<VERSION_MCP>__jcm_editIssue` using the same `issueKey` and `update` arguments and the same failure handling.
 - **Jira, any other create op, created through the tracker's own op** (Atlassian Rovo `createJiraIssue`): no label; the prefix and the `**Service:**` line still apply.
