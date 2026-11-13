@@ -394,6 +394,33 @@ The N1-116 soft-findings policy does not apply to Codex triage (N1-123): P3 find
 
 Enforcement: `hooks/pr-review-observe.sh` (PostToolUse on `gh pr create`) and `n1_review_check_run` (Stop via `hooks/pr-review-stop.sh`, and the n1-start PR and finalize post-conditions) look up the branch receipt in any session. When a PR exists for a branch without a processed receipt, they record a `skipped step-not-run` receipt and request one continuation to run step 3, which discloses the PR as not Codex-reviewed. n1-finish merge-on-finish reads the receipt by the PR's `headRefName`.
 
+## Orchestrator Bash Calls Per Run (N1-552)
+
+Decision record: no batching change shipped; the repeated Bash sources below stay. Attribution comes from a read-only scan of Bash `tool_use` commands in run transcripts (helper-name count per run; the probe is scratch, not committed).
+
+| Helper | 5.90.1 (n=5) | 5.94.0 (n=17) | 5.95.0 (n=18) |
+|---|---|---|---|
+| `n1_resolve_agent` | 13.8 | 9.4 | 9.1 |
+| `n1_review_entry` | 4.2 | 1.5 | 1.8 |
+| `n1_review_collect` | 4.0 | 1.35 | 2.0 |
+| `n1_review_codex_start` | 1.4 | 1.1 | 1.1 |
+| `n1_review_codex_collect` | 1.6 | 0.9 | 1.3 |
+| `n1_review_codex_index` | 1.2 | 0.35 | 0.8 |
+| `n1_review_preexisting_diff` | 0.8 | 0.1 | 0.3 |
+
+Orchestrator Bash calls per run (`orchestrator.totals.tools_used.Bash` in raw run records): 5.85.0 68.6 (n=36), 5.90.1 97.4 (n=5), 5.94.0 57.1 (n=17), 5.95.0 60.7 (n=18). The 5.90.1 spike tracks review cycles per run (entry and collect repeated about 4 times), not the Codex poll or the pre-existing check. Different run mixes, so not a controlled comparison.
+
+Why each source stays:
+
+- `n1_resolve_agent` (`lib/config.sh`): about 9 per run at 9 distinct dispatch points in `skills/n1-start` (each dispatch resolves its own persona model). Outside the review step; merging would couple unrelated steps.
+- `n1_review_entry` and `n1_review_collect` (`lib/review-step.sh`): already one batched call each. They repeat once per fix cycle, which is the review loop itself.
+- `n1_review_codex_collect`: the wait is capped by `N1_CODEX_COLLECT_WAIT` (default 100 s) to fit the host's 120 s shell-call timeout, so a longer Codex run needs another call. Typical 1 to 1.3 calls per run.
+- `n1_review_codex_start`, `_collect`, `_index`: cannot merge. Reviewers spawn between start and collect; the `tail-worker` validate dispatch sits between collect and index, and the marker is written only after the validated file exists (SEC-1).
+- `n1_review_preexisting_diff`: already one call per review. The ticket's "per-finding checks" premise is not what the code does; matching findings to hunks is in-model.
+- Declined: printing the `tail-worker` model with `codex:ran findings:file=` to save one inline `n1_resolve_agent`. It saves about 0.3 calls per run, changes the pinned `codex:ran` output, and puts model text in a shell helper, which the guardrail in `skills/n1-start/procedures/review-codex.md` (line 5) forbids.
+
+**AC1 status (N1-476 target: below the 65.6 baseline at 5.85.0).** Interim: 5.94.0 is 57.1 and 5.95.0 is 60.7. The required 5+ runs after 5.95.0 are NOT yet measured: no telemetry exists for any later version. Remaining work: run `scripts/benchmark.py collect` then `scripts/benchmark.py report --by version`, plus the transcript helper-count scan used here. If the re-measure is above 65.6, file a separate ticket for `n1_resolve_agent`.
+
 ## PR Body Reconcile
 
 `references/reconcile-pr-body.md` keeps the PR description in sync with pushes made after PR creation (N1-79). n1-ci (Step 1 capture, Step 7a or before finish chaining in Step 4) and n1-review-response Step 6a record the PR head SHA at run start in its own `mktemp`-generated `$N1_HOME/scratch/reconcile-start-<PR>.<rand>` file (keyed by PR number plus a random suffix so standalone runs without a ticket ID work and overlapping runs on the same PR don't collide), and carry that path forward to § Check the same way `<D>` is carried from `reconcile:run dir=`. Every fix-cycle exit that may follow a developer push — exhaustion, escalation/abort, and dispatch-failure branches in both call sites — routes through this reconcile before any final report, not only the clean-pass path. At the end of the run, if the head moved, tech-writer runs once in `mode: reconcile`. It re-checks every claim against the PR diff, copies Deployment Actions checkbox lines and every locally-verified/manual-check annotated line verbatim, may reword (but never untick or drop) a plain `- [x]` line outside that frozen set when the diff makes its stated fact stale, passes unknown sections through, lists possibly stale docs under Review Notes instead of editing them (a doc commit would trigger another push), and runs deploy-action detection against the untruncated `full diff` file (grepped, not read whole) so a diff over the 30KB read cap can't hide a deploy action. § Apply refuses a revised body that drops or changes a frozen line, or that lowers the total count of ticked `- [x]` lines, re-fetches the live PR body just before posting and aborts if it changed since § Check (concurrent edit) or the re-fetch fails, strips a trailing stray `</content>` wrapper line if present, posts via `gh pr edit --body-file`, and never blocks the run. A metadata fetch failure in § Check still consumes the start file before reporting `reconcile:failed:fetch`. Ad-hoc pushes outside a skill follow the same procedure with `ADHOC=1` via the HOST ROUTING `PR BODY RECONCILE` line.
