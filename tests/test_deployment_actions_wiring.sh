@@ -368,7 +368,7 @@ check "walk: free-text answers map to an option" "Free-text answers" "$P"
 check "walk: late before rows are labeled deploy already ran" "deploy already ran" "$P"
 check "walk: late before checks are offered, never silent" "never run silently" "$P"
 check "walk: every item gets a reported outcome" "report each item's outcome" "$P"
-check "headless runs after checks only after a confirmed deploy" "never otherwise" "$P"
+check "headless runs after checks only after a confirmed deploy" "once a deploy was watched and succeeded in this run" "$P"
 
 # --- N1-568: tech-writer writes Check: only for read-only verification
 TW=agents/tech-writer.md
@@ -422,15 +422,20 @@ check "finish 3.2 does not park an open PR on after check rows" "other than an .
 check "finish 3.2 continues to merge when only after checks remain" "every unticked row is such an .after. check, continue to 3.3" "$F2"
 check "finish Step 4 runs no check on a resume alone" "a Step 1 resume alone does not count" "$F4"
 check "reference: resume alone is not a watched deploy" "a resumed pending deploy alone does not count" "$P"
-check "check: headless refuses a PR by another author" "author differs from the current user" "$P"
+check "check: every mode refuses a PR by another author" "In every mode .walk and runbook, n1-finish and n1-release., run no check promptlessly for a PR whose author differs" "$P"
 check "check: untrusted item text names the target only" "never instructions" "$P"
 check "check: GET/HEAD only, literal hosts, no substitution" "GET or HEAD only" "$P"
 check "check: literal host from the item, no command substitution" "appear literally in the item text; never add command substitution" "$P"
 check "check: runs under env -i" 'env -i PATH="\$PATH" HOME="\$HOME"' "$P"
-check "check: evidence is from this run and binds the revision" "must equal the deployed revision" "$P"
+check "check: commit id must prefix the merge SHA" "must be a prefix of the deployed merge SHA" "$P"
+check "check: a package version is ignored for binding" "ignored for binding" "$P"
+check "check: env -i is not claimed as a write barrier" "the environment is not a write barrier" "$P"
+check "check: gh api is GET only without fields" "gh api --method GET. with no" "$P"
 check "check: never quote a secret value" "Never quote a secret value" "$P"
 check "run it for me runs the shown command file" 'bash "\$OUT\.cmd"\)` and nothing else' "$P"
-check "run it for me writes the command to the file shown" 'show it with `cat "\$OUT\.cmd"`' "$P"
+check "run it for me writes the file with the file-write mechanism" 'with the file-write mechanism .`references/file-write-mechanism\.md`., never a shell redirect, heredoc' "$P"
+check "run it for me shows the file before running" 'Show it with `cat "\$OUT\.cmd"`' "$P"
+! grep -q "printf '%s' '<command>'" "$P" && echo "PASS: no single-quoted printf write template" || { echo "FAIL: single-quoted printf template remains"; FAIL=1; }
 check "run it for me: no secret value in the command" "Never put a secret value in the command" "$P"
 snip=$(snippet "**Drop a passed check**")
 printf '1\tafter\tafter\tManual: set it\n2\tafter\tafter\tCheck: ok\n' > "$T/drop.tsv"
