@@ -631,6 +631,7 @@ n1_queue_schedule() {
             tag="${2:-}" trig="${3:-}" ttype="${4:-}" mcp="${5:-}" key="${6:-}" todo="${7:-}"
             home="${N1_HOME:-$(n1_home)}"
             _n1_sched_safe "$tag" && _n1_sched_safe "$key" || { echo "Invalid tag or project key."; return 1; }
+            ! n1_tag_is_service_label "$tag" || { echo "Tag '$tag' equals the ticketTagging service label; refusing to schedule."; return 1; }
             [[ "$trig" =~ $trig_re ]] || { echo "Invalid trigger: $trig"; return 1; }
             [[ "$todo" =~ $todo_re ]] || { echo "Invalid TODO status name: $todo"; return 1; }
             case "$home" in /*) ;; *) echo "N1 home is not an absolute path."; return 1 ;; esac

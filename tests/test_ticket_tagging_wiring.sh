@@ -43,6 +43,19 @@ for pair in 'My Service|my-service' '  A  B |a-b' '!!!|' 'Svc_1|svc_1' 'Tailnet-
     fi
 done
 
+# N1-548: n1_tag_is_service_label (lib/config.sh) must use the same pipeline as the reference.
+pipe=$(sed -n 's/^TAGGING_LABEL=$(printf .%s. "$TAGGING_SERVICE" \(.*\))$/\1/p' "$R")
+if [ -n "$pipe" ] && grep -qF -- "$pipe" lib/config.sh; then echo "PASS: helper label pipeline matches reference"
+else echo "FAIL: helper label pipeline differs from reference ('$pipe')"; FAIL=1; fi
+(
+    source lib/config.sh; c=$(mktemp); trap 'rm -f "$c"' EXIT
+    for pair in 'My Service|my-service' '  A  B |a-b' 'Svc_1|svc_1' 'Tailnet-ACL|tailnet-acl'; do
+        printf '{"ticketTagging":{"enabled":true,"service":"%s"}}' "${pair%%|*}" > "$c"
+        if n1_tag_is_service_label "${pair#*|}" "$c"; then echo "PASS: helper '${pair%%|*}' == '${pair#*|}'"
+        else echo "FAIL: helper '${pair%%|*}' != '${pair#*|}'"; exit 1; fi
+    done
+) || FAIL=1
+
 # Create site: n1-ticket.
 f=skills/n1-ticket/steps/02-create.md
 check "$f resolves via ticket-tagging" 'ticket-tagging\.md` § Resolve' "$f"
