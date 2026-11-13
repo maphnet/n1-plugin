@@ -45,7 +45,7 @@ Step 3 runs autonomously (brainstormer, auto-confirmed acceptance gate). Gate 2 
 
 **Ticket watch:** before Step 10 (PR creation) run `source ~/.n1/preamble.sh; source "$N1_ROOT/lib/ticket-watch.sh"; n1_tw_check_http "$ID"`. No output: continue without reading the procedure. Any output, an error or a timeout: read `procedures/ticket-watch.md § Check` and act on that output as it says (do not re-run the call).
 
-**Run each step file in order:** read and follow it; never do a step inline or replace its persona dispatch with your own work (simple-path skips only 3, 4, 4b). **Transition turn:** issue in ONE turn, in parallel, the prior step's end block, the ticket-watch Check when due, and the read of the next step file (only when no gate or tier decision in the prior step picks it); act on Check output before running the next step's opening snippet.
+**Run each step file in order:** read and follow it; never do a step inline or replace its persona dispatch with your own work (simple-path skips only 3, 4, 4b). **On a return to a step file already read in this context** (e.g. Step 8 to Step 7, pre-PR re-review) do not read it again: re-run its opening block (entry and counter computation included) and follow the copy in context; read it again only after compaction or on resume. **Transition turn:** issue in ONE turn, in parallel, the prior step's end block, the ticket-watch Check when due, and the read of the next step file (only when no gate or tier decision in the prior step picks it); act on Check output before running the next step's opening snippet.
 
 | Step | File | Notes |
 |------|------|-------|
