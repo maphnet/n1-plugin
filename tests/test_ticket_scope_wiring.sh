@@ -109,6 +109,10 @@ step2 = section(collection, '## Step 2: Scope Routing', '## Step 3')
 check('n1-ticket Step 2 sets TICKET_TYPE from SCOPE_TYPE', 'TICKET_TYPE=<SCOPE_TYPE>' in step2)
 check('n1-ticket Step 2 has no handoff', 'handoff' not in step2.lower())
 check('YouTrack type check covers Story and Epic', 'includes the `TICKET_TYPE` value' in creation)
+step6 = section(creation, '## Step 6', '## Step 7: ')
+check('scope recheck runs before YouTrack type verification',
+      0 <= step6.find('**Pre-creation scope check:**') < step6.find('**YouTrack:**'))
+check('Task classified as Epic has a Decomposition row', '| Task | `SCOPE_TYPE=Epic` |' in scope)
 step7 = section(creation, '## Step 7: Approval Gate', '## Step 7.5')
 check('Story/Epic creation always asks',
       '**Story or Epic:** always ask the user; never auto-select.' in step7)

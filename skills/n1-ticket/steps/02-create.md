@@ -2,6 +2,8 @@
 
 ## Step 6: Type Detection
 
+**Pre-creation scope check:** re-run the `<N1_ROOT>/references/ticket-scope.md` classification on the latest confirmed scope before Step 7. A changed `SCOPE_TYPE` updates `TICKET_TYPE` per `01-compose.md` Step 2, and Step 7 uses the new type; unresolved scope returns to analysis/discovery. No tracker write happens before this check.
+
 If `TICKET_TYPE` is `Bug`, `Story` or `Epic`:
 
 **Jira:** these are native issue types; pass `TICKET_TYPE` as the type in Step 8 (parameter name per the configured create op, see `<N1_ROOT>/references/ticket-scope.md` § Create-call parameters).
@@ -21,8 +23,6 @@ If `GET_PROJECT_FIELDS_OP` is non-empty:
 If `GET_PROJECT_FIELDS_OP` is empty: skip type querying. Use `TICKET_TYPE` as-is and print this note with the Type in Step 7: "<TICKET_TYPE> type availability could not be verified (getProjectFields operation not configured)."
 
 The detected type is shown in Step 7.
-
-**Pre-creation scope check:** re-run the `<N1_ROOT>/references/ticket-scope.md` classification on the latest confirmed scope before Step 7. A changed `SCOPE_TYPE` updates `TICKET_TYPE` per `01-compose.md` Step 2, and Step 7 uses the new type; unresolved scope returns to analysis/discovery. No tracker write happens before this check.
 
 ## Step 7: Approval Gate
 

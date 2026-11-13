@@ -51,6 +51,7 @@ n1-refine applies this mapping to an existing ticket: `issue_type` from intake, 
 | Story, no children | one atomic deliverable | offer converting to Task; no children |
 | Story with children | already decomposed | list the children, flag gaps and overlaps, propose only missing ones; never convert |
 | Task | `SCOPE_TYPE=Story` | offer converting to Story, then propose Sub-tasks |
+| Task | `SCOPE_TYPE=Epic` | refine the block only; note the multi-repository scope and that no Epic conversion is offered |
 | Task | `SCOPE_TYPE=Task` | refine the block only |
 
-Any other type (Bug and the like) is handled as a Task with `SCOPE_TYPE=Task`: refine the block only.
+A Story that classifies as `SCOPE_TYPE=Epic` follows its Story rows above. Any other type (Bug and the like) is handled as a Task with `SCOPE_TYPE=Task`: refine the block only.
