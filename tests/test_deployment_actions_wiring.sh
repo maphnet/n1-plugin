@@ -360,4 +360,14 @@ check "runbook prints runbook:none when every row passed" "^runbook:none$" <(pri
 if grep -q '^## Deployment Actions' "$N1_HOME/memory/T-1/runbook.md" 2>/dev/null; then echo "FAIL: runbook:none left a Deployment Actions section"; FAIL=1; else echo "PASS: runbook:none strips the stale section"; fi
 [ ! -s "$T/fm.log" ] && echo "PASS: runbook:none never sets deploy_pending" || { echo "FAIL: runbook:none touched deploy_pending"; FAIL=1; }
 
+# --- N1-568: § Walk text (S1, S2, D2) and the headless exception (AC3, D9)
+check "walk: check items run without a prompt" 'except a `check` item' "$P"
+check "walk: offers Run it for me as the recommended option" "Run it for me \(Recommended" "$P"
+check "walk: Run it for me shows the one-line how" "How: <one line" "$P"
+check "walk: free-text answers map to an option" "Free-text answers" "$P"
+check "walk: late before rows are labeled deploy already ran" "deploy already ran" "$P"
+check "walk: late before checks are offered, never silent" "never run silently" "$P"
+check "walk: every item gets a reported outcome" "report each item's outcome" "$P"
+check "headless runs after checks only after a confirmed deploy" "never when no deploy was watched" "$P"
+
 exit $FAIL

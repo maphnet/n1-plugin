@@ -23,7 +23,7 @@ One action per `- [ ]` line. An item starting with `Manual:` is always a **manua
 
 The per-run working copy is a TSV file, one row per unticked item: `<PR>\t<orig phase: before|after|release>\t<phase: before|after|drop>\t<item text>`. § Parse sets the orig-phase and phase columns identically, except a `### Before release` item, which gets orig phase `release` and phase `before`. § Edit may later change only the phase column (move/drop); the orig-phase column stays put, so § Tick can still find the item under the heading it actually lives under in the PR body. Rows are addressed by row number `K` (the `cat -n` number), so item text is never pasted into a shell command. Paths: n1-finish uses `$N1_HOME/scratch/deploy-actions-<PR>.tsv`; n1-release uses `$N1_HOME/scratch/release-actions.tsv`. § Parse also writes `"$OUT.deferred"` (same row format; scratch only, rewritten on every Parse).
 
-**Queue and headless runs** (`N1_QUEUE_RUN_ID` non-empty or `N1_HEADLESS=1`, printed as `mode:runbook`) never run § Walk. Callers use § Runbook instead.
+**Queue and headless runs** (`N1_QUEUE_RUN_ID` non-empty or `N1_HEADLESS=1`, printed as `mode:runbook`) never run § Walk. The one exception: n1-finish Step 4 and n1-release Step 8b run § Check on `after` check rows once the deploy is confirmed, never when no deploy was watched. For everything else, n1-finish uses § Runbook and n1-release reports the rows.
 
 ## § Parse
 
@@ -57,11 +57,11 @@ cat -n "$OUT"
 
 ## § Walk
 
-Inputs: `PHASE` (`before` or `after`) and `OUT`. The prompt `<label>` comes from column 2: `before` → `before deploy`, `after` → `after deploy`, `release` → `before release`. Walk the rows whose phase column (column 3) equals `PHASE`, in row order. Rows in the same phase with identical item text (different PRs) are one action: ask once, run once, and § Tick every one of those rows.
+Inputs: `PHASE` (`before` or `after`), `OUT`, and optional `LATE=1` (n1-finish Step 4 only: `before` rows walked after the merge). The prompt `<label>` comes from column 2: `before` → `before deploy`, `after` → `after deploy`, `release` → `before release`; with `LATE=1` the label is `before deploy, deploy already ran`. Walk the rows whose phase column (column 3) equals `PHASE`, in row order. Rows in the same phase with identical item text (different PRs) are one action: ask once, run once, and § Tick every one of those rows.
 
-This is an unconditional gate. Ask the user for every item, never auto-resolve, never pick an option on the user's behalf, and never run an item the user has not confirmed in this run.
+This is an unconditional gate. Ask the user for every item except a `check` item, which runs without a prompt (§ Check); never auto-resolve, never pick an option on the user's behalf, and never run an item the user has not confirmed in this run.
 
-- Run § Command first, with `K=<row number>`, to classify the item and (for a shell item) extract the command into `"$OUT.cmd"`. Treat the item as a **shell item** only when § Command printed `shell`; `manual` → the Manual item branch below.
+- Run § Command first, with `K=<row number>`, to classify the item and (for a shell item) extract the command into `"$OUT.cmd"`. Treat the item as a **shell item** only when § Command printed `shell`; `manual` → the Manual item branch below; `check` → the Check item branch below.
 - **Shell item**: display the command with `cat "$OUT.cmd"` — never by re-typing the item text — then show:
   ```
   Deployment action (<label>, PR #<N>): <item text>
@@ -78,7 +78,17 @@ This is an unconditional gate. Ask the user for every item, never auto-resolve, 
   (cd "$(git rev-parse --show-toplevel)" && bash "$OUT.cmd")
   ```
   and show its output. Exit 0 → § Tick. Non-zero → report the failure and ask `1 — Retry / 2 — Skip / 3 — Abort`. Retry re-runs the same command — the same file, never re-typed.
-- **Manual item** (§ Command printed `manual`):
+- **Manual item** (§ Command printed `manual`): when you can perform the item yourself in this session (your judgment; there is no host setting), show it with a one-line how:
+  ```
+  Deployment action (<label>, PR #<N>): <item text>
+  How: <one line: exactly what you will run or do>
+  1 — Run it for me (Recommended: tech-writer step 7b writes most items as `Manual:`, so this removes a hand step; the How line is what runs)
+  2 — Done (I did it)
+  3 — Skip (not done yet)
+  4 — Abort
+  ```
+  Run it for me → do only what the How line says. The shown line is the user's consent for a state-changing step, so never go beyond it. Success → show the evidence (command output or a quoted result) and § Tick. Failure → say why, then show the plain menu below. Done → § Tick.
+  When you cannot perform the item, show the plain menu:
   ```
   Deployment action (<label>, PR #<N>): <item text>
   Done?
@@ -87,8 +97,17 @@ This is an unconditional gate. Ask the user for every item, never auto-resolve, 
   3 — Abort
   ```
   Yes → § Tick.
-- **Skip** (including skipping a failed command) leaves the item unticked; a later run offers it again.
-- **Abort** stops the walk; nothing after it runs. Report which items ran, which were skipped, and which remain.
+- **Check item** (§ Command printed `check`): no prompt → § Check. With `LATE=1` the deploy already ran, so the check is offered and never run silently:
+  ```
+  Deployment action (before deploy, deploy already ran, PR #<N>): <item text>
+  1 — Run the check (Recommended: § Check is read-only, so verifying after the fact changes nothing)
+  2 — Skip
+  3 — Abort
+  ```
+  1 → § Check.
+- **Free-text answers** map to the option they name ("do it yourself" → Run it for me when it is offered; "done" → Done or Yes). When an answer maps to no option, ask once more.
+- **Skip** (including skipping a failed command or check) leaves the item unticked; a later run offers it again.
+- **Abort** stops the walk; nothing after it runs.
 
 When `PHASE=before` and at least one item was skipped, ask once after the last item:
 ```
@@ -98,7 +117,7 @@ When `PHASE=before` and at least one item was skipped, ask once after the last i
 ```
 No counts as Abort.
 
-Result: `WALK=complete` or `WALK=aborted`.
+Result: `WALK=complete` or `WALK=aborted`. Every item ends ticked, skipped, failed or not reached (after an Abort); report each item's outcome, with the evidence for a passed check or a Run it for me item.
 
 ## § Command
 
@@ -131,8 +150,8 @@ Runs one `check` row `K` without a prompt. Called by § Walk, and in queue and h
 1. Compose the smallest set of read-only commands that verifies the item, e.g. `curl -sf <url>`, a `gh api` GET, a SELECT query, a log grep. Read-only means the command changes nothing: no write, create, update, delete, deploy, migrate, restart, send or set, and no secret value on the command line. When any step would write, or the item cannot be verified read-only, run nothing: `CHECK=refused`.
 2. Show each command, run it from the repo root (`cd "$(git rev-parse --show-toplevel)"`), and show its output.
 3. `CHECK=pass` only with quoted evidence: a line of that output that proves the item, quoted in the report. A failing command, output that does not show the item, or nothing quotable is `CHECK=fail` (inconclusive counts as fail).
-4. `CHECK=pass` → § Tick, then the drop snippet below for row `K` and every row merged with it. Report `Check passed (<label>, PR #<N>): <item> — evidence: "<quoted line>"`.
-5. `CHECK=fail` or `CHECK=refused` → never tick; say why. Attended (`mode:walk`): ask the plain manual-item menu of § Walk (Done / Skip / Abort). Queue or headless (`mode:runbook`): leave the row; § Runbook lists it (n1-finish) or the caller reports it (n1-release).
+4. `CHECK=pass` → § Tick, then run the drop snippet below once per row: for row `K` and for every row merged with it. Report `Check passed (<label>, PR #<N>): <item> — evidence: "<quoted line>"`.
+5. `CHECK=fail` or `CHECK=refused` → never tick; say why. Attended (`mode:walk`): ask the plain manual-item menu of § Walk. Queue or headless (`mode:runbook`): leave the row; § Runbook lists it (n1-finish) or the caller reports it (n1-release).
 
 **Drop a passed check** (keeps a passed row out of § Runbook; the ticked PR body is the record):
 
@@ -147,7 +166,7 @@ A `tick-failed` or `tick-missing` after a pass still drops the row; the PR body 
 
 ## § Tick
 
-Marks row `K` as done in its PR body. It runs only after a shell item exits 0 or the user confirms a manual item. The match is scoped to the row's **original** PR-body phase (column 2), not its current execution phase (column 3): it only flips a line under the heading that matches column 2 of row `K` (`before` → `### Before deploy`, `after` → `### After deploy`, `release` → `### Before release`). Any other column-2 value prints `tick-missing:#<N>` without fetching or editing the PR. This keeps ticking correct even after § Edit moves a row's execution phase (column 3) without moving the text in the PR body.
+Marks row `K` as done in its PR body. It runs only after a shell item exits 0, the user confirms a manual item, or a check passes (§ Check step 4). The match is scoped to the row's **original** PR-body phase (column 2), not its current execution phase (column 3): it only flips a line under the heading that matches column 2 of row `K` (`before` → `### Before deploy`, `after` → `### After deploy`, `release` → `### Before release`). Any other column-2 value prints `tick-missing:#<N>` without fetching or editing the PR. This keeps ticking correct even after § Edit moves a row's execution phase (column 3) without moving the text in the PR body.
 
 ```bash
 source ~/.n1/preamble.sh
