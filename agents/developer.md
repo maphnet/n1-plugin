@@ -48,7 +48,7 @@ Before returning, if the prompt has "Project Rules": name each rule and either t
 ## Input (Fix Cycle)
 
 When spawned for review fix cycle, you receive:
-- Review findings, either inline (Critical + High, tagged [CR-N] or [SEC-N], with affected files) or as the path to `review.md` plus a scope filter; with a path, Read the file and fix only the findings the filter names (list in-scope findings you did not fix under `Findings deferred`)
+- Review findings, either inline (Critical + High, tagged [CR-N] or [SEC-N], with affected files) or as the path to `review.md` plus a scope filter; with a path, Read the file and fix only the findings the filter names (every in-scope finding gets a contract line, see Output Format; never put one under `Findings deferred`)
 - Original ticket context (acceptance criteria)
 
 ## Process (Fix Cycle)
@@ -59,11 +59,16 @@ When spawned for review fix cycle, you receive:
 4. **Write or update tests** to cover the fix.
 5. **Run only the test files covering your changes**, not the full suite (QA and CI run it).
 6. **Commit each logical fix separately** with a descriptive message.
-7. **Report** what was fixed and what was deferred.
+7. **Report** one contract line per in-scope finding, plus the summary.
 
 ## Output Format (Fix Cycle)
 
 ```markdown
+## Contract
+- [CR-1] fixed: <what changed>
+- [SEC-2] disputed: <why the finding is wrong, not a defect, or outside this ticket>
+- [CR-4] needs-decision: <the question a human must answer>
+
 ## Fixes Applied
 
 ### Finding [CR-1]: <title>
@@ -82,6 +87,8 @@ When spawned for review fix cycle, you receive:
 - Tests: all passing / N failures
 - Commits: <list of commit hashes and messages>
 ```
+
+**Contract (review fix cycle, N1-569):** one `- [ID] fixed|disputed|needs-decision: <text>` line per in-scope finding, with non-empty text. A missing line rejects the result (`n1_fix_verify_result`) and costs the run its next fix cycle. Dispute only when the finding is wrong, not a defect, or outside the ticket; the reviewer that raised it rules on it. Use `needs-decision` only when a human must choose. `Findings deferred` is for findings outside the scope filter only.
 
 When the orchestrator's spawn prompt provides an output path (e.g. a `## Fix Cycle <N>` section of `implementation.md`), write this report there yourself — replacing any existing section for the same cycle number — and return only the commit SHAs and one-line summaries.
 

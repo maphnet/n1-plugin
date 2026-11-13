@@ -209,6 +209,12 @@ ov 1; : > "$M/fingerprints.jsonl"; row CR-2 resolved 1
 eq "C8 a contract miss of another cycle does not deny this gate" "allow" "$(gate)"
 eq "C9 an unreadable review.md fails closed" "missing: review.md" "$(n1_fix_verify_result "$T/none" 1)"
 
+# ---- developer agent contract text (D5) ----
+DV=agents/developer.md
+eq "D1 developer Output Format shows contract lines" "3" "$(grep -cE '^- \[(CR-1|SEC-2|CR-4)\] (fixed|disputed|needs-decision): <' "$DV")"
+eq "D2 developer names the rejecting helper" "1" "$(grep -cF 'n1_fix_verify_result' "$DV")"
+eq "D3 in-scope findings are never deferred" "0" "$(grep -cF 'list in-scope findings you did not fix under `Findings deferred`' "$DV")"
+
 # ---- summary ----
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
