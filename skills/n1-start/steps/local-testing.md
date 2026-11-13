@@ -40,7 +40,7 @@ CHANGED_FILES=$(git diff --name-only "$BASE" 2>/dev/null || true)
 SKIP=$(n1_classify_local_test_skip "$CHANGED_FILES")
 n1_record_decision local-testing-auto-skip "$SKIP" '{}' "skip=$SKIP"
 echo "LOCAL_TESTING_AUTO_SKIP=$SKIP"
-[ "$SKIP" = "true" ] && n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"auto_skip"}'
+if [ "$SKIP" = "true" ]; then n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"auto_skip"}'; fi
 ```
 If `LOCAL_TESTING_AUTO_SKIP=true`: log under `## Key Decisions`: "Local testing skipped — documentation-only changes." Skip to Step 10 (PR CREATION).
 
