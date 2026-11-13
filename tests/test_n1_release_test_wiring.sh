@@ -195,4 +195,6 @@ run4d() { printf '| ID | Result | Tested at |\n|---|---|---|\n| RT-01 | PASS | %
 expect "matching stamp carries the PASS" "PASS" "$(run4d "$STAMP")"
 expect "other commit or case drops the PASS" "MANUAL" "$(run4d "000000000000-1")"
 
+check "3b pre=0 means no error seen both before and since the tag" 'Baseline: no error seen both before and since the tag' "$S/steps/03b-dev-observability.md"
+
 exit $FAIL
