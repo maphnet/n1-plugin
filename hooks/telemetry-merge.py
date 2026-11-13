@@ -312,7 +312,7 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
             compactions.append({"timestamp": ts, "trigger": meta.get("trigger") or "unknown",
                                 "pre_tokens": meta.get("preTokens"), "post_tokens": meta.get("postTokens")})
 
-        def _find_step(ts: str, extend: bool = True) -> str:
+        def _find_step(ts: str, extend: bool = True, trailing: bool = True) -> str:
             for step in steps:
                 s_start = step.get("started_at")
                 s_end = step.get("completed_at")
@@ -334,7 +334,7 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
                 if nxt:
                     return min(nxt, key=lambda s: s["started_at"]).get("step", "__unattributed__")
                 ended = [s for s in steps if s.get("completed_at")]
-                if ended:
+                if trailing and ended and (not run_end or ts[:19] <= run_end[:19]):
                     return max(ended, key=lambda s: s["completed_at"]).get("step", "__unattributed__")
             return "__unattributed__"
 
@@ -359,10 +359,11 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
                     "context_start_tokens": ctx[0]["prev_context"] if ctx else None,
                     "context_end_tokens": ctx[-1]["context"] if ctx else None,
                     "context_peak_tokens": max((m["context"] for m in ctx), default=None),
-                    # Boundary timestamps carry milliseconds ("...:00.123Z") while step bounds are
+                    # Lead-in attribution as for messages, so a gap compaction agrees with the context
+                    # drop of the step it leads into; no trailing (no later call shows a drop). Boundary timestamps carry milliseconds ("...:00.123Z") while step bounds are
                     # whole seconds, and "Z" sorts after ".", so truncate to seconds before matching.
                     "compactions": sum(1 for c in compactions
-                                       if _find_step(c["timestamp"][:19] + "Z", False) == step_name),
+                                       if _find_step(c["timestamp"][:19] + "Z", True, False) == step_name),
                 })
                 if step_name in extended_steps:
                     entry["attribution_extended"] = True

@@ -130,14 +130,14 @@ class LeadInTrailingTest(unittest.TestCase):
              completed_at='2026-01-01T00:06:00Z'),
     ]
 
-    def _run(self, rows, run_start='2026-01-01T00:01:00Z'):
+    def _run(self, rows, run_start='2026-01-01T00:01:00Z', run_end=None):
         spec = importlib.util.spec_from_file_location('tm', ROOT / 'hooks/telemetry-merge.py')
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 't.jsonl'
             path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
-            return mod.parse_orchestrator_transcript(str(path), [dict(s) for s in self.STEPS], run_start, None)
+            return mod.parse_orchestrator_transcript(str(path), [dict(s) for s in self.STEPS], run_start, run_end)
 
     def test_begin_gap_and_trailing_calls_are_attributed(self):
         rows = [_msg('boot', '2026-01-01T00:00:30.000Z'),    # before run_start: startup
@@ -157,15 +157,30 @@ class LeadInTrailingTest(unittest.TestCase):
         self.assertEqual(out['unattributed']['api_calls'], 1)
         self.assertEqual(out['steps'], [])
 
-    def test_compactions_keep_the_window_only(self):
+    def test_trailing_call_after_run_end_stays_unattributed(self):
+        rows = [_msg('in', '2026-01-01T00:05:30.000Z'),
+                _msg('late', '2026-01-01T00:09:00.000Z')]
+        out = self._run(rows, run_end='2026-01-01T00:07:00Z')
+        by = {s['step']: s for s in out['steps']}
+        self.assertEqual(by['pr']['api_calls'], 1)
+        self.assertEqual(out['unattributed']['api_calls'], 1)
+
+    def test_gap_compaction_follows_the_lead_in_step(self):
         rows = [_msg('b2', '2026-01-01T00:04:59.500Z'),
                 dict(type='system', subtype='compact_boundary', timestamp='2026-01-01T00:04:59.800Z',
                      compactMetadata=dict(trigger='auto'))]
         out = self._run(rows)
         by = {s['step']: s for s in out['steps']}
         self.assertEqual(by['pr']['api_calls'], 1)
-        self.assertEqual(by['pr']['compactions'], 0)
+        self.assertEqual(by['pr']['compactions'], 1)
         self.assertEqual(len(out['compactions']), 1)
+
+    def test_trailing_compaction_is_not_counted_in_a_step(self):
+        rows = [_msg('in', '2026-01-01T00:05:30.000Z'),
+                dict(type='system', subtype='compact_boundary', timestamp='2026-01-01T00:06:30.000Z',
+                     compactMetadata=dict(trigger='auto'))]
+        out = self._run(rows)
+        self.assertEqual({s['step']: s['compactions'] for s in out['steps']}, {'pr': 0})
 
 
 class FinishExtensionTest(unittest.TestCase):
