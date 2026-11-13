@@ -370,4 +370,12 @@ check "walk: late before checks are offered, never silent" "never run silently" 
 check "walk: every item gets a reported outcome" "report each item's outcome" "$P"
 check "headless runs after checks only after a confirmed deploy" "never when no deploy was watched" "$P"
 
+# --- N1-568: tech-writer writes Check: only for read-only verification
+TW=agents/tech-writer.md
+check "tech-writer has the read-only Check: rule" "\*\*Read-only checks:\*\*" "$TW"
+check "tech-writer keeps writes and secrets out of Check:" "involves a secret stays .Manual:. or a shell command" "$TW"
+check "tech-writer Format lists Check: as the third kind" "or text starting with .Check:." "$TW"
+check "tech-writer template shows a Check: line" "^- \[ \] Check: <" "$TW"
+check "tech-writer reconcile never converts existing lines" "existing lines are never converted to .Check:." "$TW"
+
 exit $FAIL
