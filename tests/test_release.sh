@@ -241,6 +241,14 @@ eq "obs group: bad rows are counted on stderr" "dropped: 2" "$(n1_release_obs_gr
 # Bug: an offset timestamp equal to the tag time must count as new (>= cutoff), in UTC.
 eq "obs group: offset normalized, cutoff inclusive" "boundary	1	2026-02-01T08:00:00Z	2026-02-01T08:00:00Z	new since release	boundary" \
   "$(printf '%s\t%s\t%s\t%s\n' 2026-02-01T10:00:00+02:00 2026-02-01T10:00:00+02:00 1 boundary | n1_release_obs_group "$CUT")"
+# Bug: a group seen only before the tag (nothing since) is listed as pre-existing and reads as a live finding.
+GR=$(printf '%s\t%s\t%s\t%s\n' \
+  2026-02-01T05:00:00Z 2026-02-01T06:00:00Z 1 'baseline only' \
+  2026-02-01T06:00:00Z 2026-02-02T00:00:00Z 2 'spans cutoff' \
+  2026-02-01T08:00:00Z 2026-02-01T08:00:00Z 1 'at cutoff' | n1_release_obs_group "$CUT" | cut -f1,5)
+eq "obs group: baseline-only group omitted" "" "$(grep -c '^baseline only' <<<"$GR" | sed 's/^0$//;s/^1$/listed/')"
+eq "obs group: first<cutoff<=last kept as pre-existing" "spans cutoff	pre-existing" "$(grep '^spans' <<<"$GR")"
+eq "obs group: last==cutoff kept" "at cutoff	new since release" "$(grep '^at cutoff' <<<"$GR")"
 # Bug: secrets in log lines reach Confluence, or table/shell metacharacters break the one-line cell.
 eq "obs group: sample redacted and stripped" "Auth failed {redacted} {redacted} key {redacted} a b c d e f g" \
   "$(printf '%s\t%s\t%s\t%s\n' 2026-02-02T00:00:00Z 2026-02-02T00:00:00Z 1 \
