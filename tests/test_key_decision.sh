@@ -24,6 +24,10 @@ rc=0; n1_append_key_decision "$N/o.md" 'x' 2>/dev/null || rc=$?; assert_eq "key 
 rc=0; n1_append_escalation "$N/o.md" '- x' 2>/dev/null || rc=$?; assert_eq "escalation on NUL file rc 1" "1" "$rc"
 cmp -s "$N/o.md" "$N/orig"; assert_eq "NUL file unchanged" "0" "$?"
 assert_eq "no leftover temp file" "o.md orig" "$(ls "$N" | paste -sd' ')"
+{ head -c 2022 /dev/zero; printf -- '- decision\n'; } > "$N/t.md"; cp "$N/t.md" "$N/t.orig"
+rc=0; n1_append_key_decision "$N/t.md" 'y' 2>/dev/null || rc=$?; assert_eq "key decision on ticket-shaped NUL file rc 1" "1" "$rc"
+cmp -s "$N/t.md" "$N/t.orig"; assert_eq "ticket-shaped NUL file unchanged" "0" "$?"
+assert_eq "no temp file for ticket-shaped NUL file" "o.md orig t.md t.orig" "$(ls "$N" | paste -sd' ')"
 # N1-492: step snippets must source lib/memory.sh before calling n1_append_key_decision
 for f in plan plan-review; do
   F="$REPO_ROOT/skills/n1-start/steps/$f.md"
