@@ -244,3 +244,79 @@ n1_fingerprint_filter_oos() {
     done < "$idx"
     if mv -f "$tmp" "$idx"; then printf '%s' "$out"; else rm -f "$tmp"; return 1; fi
 }
+
+_n1_blocking_tsv() {
+    # Usage: _n1_blocking_tsv <review.md> -> n1_review_blocking_ids rows plus a 5th column, the fingerprint.
+    local id sev file title
+    while IFS=$'\t' read -r id sev file title; do
+        printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$sev" "$file" "$title" "$(n1_fingerprint_finding "$file" "$title")"
+    done < <(n1_review_blocking_ids "$1")
+}
+
+n1_fix_states() {
+    # Usage: n1_fix_states <memory dir> <cycle> (N1-569) -> prints "resolved=R carried=C new=N unlabeled=U";
+    # returns 1 (no output) when cycle < 1 or review-prev.md / review.md is unreadable.
+    # Per prior blocking ID (review-prev.md) appends one row in bucket <cycle> of fingerprints.jsonl. review-status.md
+    # `- [ID] FIXED|WITHDRAWN|DOWNGRADED|OOS` -> resolved|withdrawn|downgraded|oos, unless the new review.md still lists
+    # the same ID in the same file as blocking (then carried); `OPEN` -> carried; `OPEN as [X]` -> carried under X.
+    # No line (unlabeled): same ID + same file, else same fingerprint -> carried; else resolved. carried age = prior
+    # age (last open row of the ID in bucket <cycle>-1, default 0) + 1. Other blocking IDs of review.md -> new, age 0.
+    # Reviewer text is read from files as data, never placed in shell command text (N1-136).
+    local mem="$1" cyc="$2" fpj="$1/fingerprints.jsonl" st="$1/review-status.md" ages=/dev/null
+    local s id sev fp age r=0 c=0 n=0 u=0
+    [[ "$cyc" =~ ^[0-9]+$ ]] && [ "$cyc" -ge 1 ] && [ -r "$mem/review-prev.md" ] && [ -r "$mem/review.md" ] || return 1
+    [ -r "$st" ] || st=/dev/null
+    [ -r "$fpj" ] && ages=$fpj
+    while IFS=$'\t' read -r s id sev fp age; do
+        case "$s" in
+            summary) u=$id; continue ;;
+            carried) c=$((c + 1)) ;;
+            new) n=$((n + 1)) ;;
+            *) r=$((r + 1)) ;;
+        esac
+        n1_fingerprint_append "$fpj" "$fp" "$id" "$sev" "$s" "$cyc" "$age"
+    done < <(awk -v cyc="$cyc" '
+        BEGIN { FS = "\t" }
+        FILENAME == ARGV[1] {
+            sub(/\r$/, "")
+            if (match($0, /^- \[[A-Z]+-[0-9]+\] /)) {
+                id = substr($0, 4, RLENGTH - 5); rest = substr($0, RLENGTH + 1)
+                if (match(rest, /^OPEN as \[[A-Z]+-[0-9]+\]/)) { st[id] = "OPEN"; al[id] = substr(rest, 10, RLENGTH - 10) }
+                else if (match(rest, /^(FIXED|OPEN|WITHDRAWN|DOWNGRADED|OOS)([ \t]|$)/)) { split(rest, w, /[ \t]/); st[id] = w[1] }
+            }
+            next
+        }
+        FILENAME == ARGV[2] {
+            if (index($0, "\"cycle\":" (cyc - 1) ",") && $0 ~ /"status":"(active|carried|new)"/ && match($0, /"id":"[A-Z]+-[0-9]+"/)) {
+                id = substr($0, RSTART + 6, RLENGTH - 7); a = 0
+                if (match($0, /"age":[0-9]+/)) a = substr($0, RSTART + 6, RLENGTH - 6) + 0
+                age[id] = a
+            }
+            next
+        }
+        FILENAME == ARGV[3] { if (!($1 in pf)) pid[++np] = $1; psev[$1] = $2; pf[$1] = $3; pfp[$1] = $5; next }
+        {
+            if (!($1 in cf)) cid[++nc] = $1
+            csev[$1] = $2; cf[$1] = $3; cfp[$1] = $5; if (!($5 in byfp)) byfp[$5] = $1
+        }
+        END {
+            for (i = 1; i <= np; i++) {
+                p = pid[i]; s = st[p]; x = ""
+                if (s == "") {
+                    u++
+                    if ((p in cf) && cf[p] == pf[p]) x = p
+                    else if (pfp[p] in byfp) x = byfp[pfp[p]]
+                } else if (s == "OPEN") x = (p in al) ? al[p] : p
+                else if ((p in cf) && cf[p] == pf[p]) x = p
+                a = (p in age) ? age[p] : 0
+                if (x == "") {
+                    o = (s == "WITHDRAWN") ? "withdrawn" : (s == "DOWNGRADED") ? "downgraded" : (s == "OOS") ? "oos" : "resolved"
+                    print o "\t" p "\t" psev[p] "\t" pfp[p] "\t" a
+                } else if ((x in cf) && !(x in used)) { used[x] = 1; print "carried\t" x "\t" csev[x] "\t" cfp[x] "\t" (a + 1) }
+                else print "carried\t" p "\t" psev[p] "\t" pfp[p] "\t" (a + 1)
+            }
+            for (i = 1; i <= nc; i++) if (!(cid[i] in used)) print "new\t" cid[i] "\t" csev[cid[i]] "\t" cfp[cid[i]] "\t0"
+            print "summary\t" (u + 0)
+        }' "$st" "$ages" <(_n1_blocking_tsv "$mem/review-prev.md") <(_n1_blocking_tsv "$mem/review.md"))
+    printf 'resolved=%s carried=%s new=%s unlabeled=%s\n' "$r" "$c" "$n" "$u"
+}

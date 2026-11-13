@@ -46,6 +46,43 @@ n1_fingerprint_append "$FPJ" fa CR-1 High resolved 1 0
 eq "S3 a later resolved row closes the same fingerprint" "2" "$(n1_fingerprint_blocking_count_for_cycle "$FPJ" 1)"
 eq "S4 rows without age keep the old shape" "1" "$(grep -c '"status":"active","cycle":1,"ts"' "$FPJ")"
 
+# ---- per-finding states (D3, D4) ----
+st_setup() { # <prev Index lines> <new Index lines> [status lines]
+    printf '### Verdict: FAIL\n%s\n' "$1" > "$M/review-prev.md"
+    printf '### Verdict: FAIL\n%s\n' "$2" > "$M/review.md"
+    if [ $# -ge 3 ]; then printf '%s\n' "$3" > "$M/review-status.md"; else rm -f "$M/review-status.md"; fi
+    : > "$M/fingerprints.jsonl"
+}
+rows() { grep "\"cycle\":$1," "$M/fingerprints.jsonl" | sed -n 's/.*"id":"\([^"]*\)".*"status":"\([^"]*\)","cycle":[0-9]*,"age":\([0-9]*\).*/\1:\2:\3/p' | tr '\n' ' ' | sed 's/ $//'; }
+
+st_setup '- [CR-1] High lib/a.sh:10 — null deref' '- [CR-1] High lib/a.sh:12 — null pointer dereference on empty input'
+eq "ST1 re-titled finding, no status line: same ID + same file -> carried" "resolved=0 carried=1 new=0 unlabeled=1" "$(n1_fix_states "$M" 1)"
+eq "ST1b carried row with age 1" "CR-1:carried:1" "$(rows 1)"
+st_setup '- [CR-1] High lib/a.sh:10 — null deref' '- [CR-4] High lib/a.sh:12 — null pointer dereference' '- [CR-1] OPEN as [CR-4]'
+eq "ST2 re-numbered and re-titled via OPEN as -> carried, not new" "resolved=0 carried=1 new=0 unlabeled=0" "$(n1_fix_states "$M" 1)"
+eq "ST2b carried under the new ID" "CR-4:carried:1" "$(rows 1)"
+st_setup '- [CR-1] High lib/a.sh:10 — null deref' '- [CR-7] High lib/a.sh:10 — null deref'
+eq "ST3 re-numbered, no status line: same fingerprint -> carried" "CR-7:carried:1" "$(n1_fix_states "$M" 1 >/dev/null; rows 1)"
+st_setup $'- [CR-1] High lib/a.sh:1 — one\n- [CR-2] High lib/b.sh:2 — two' $'- [CR-1] High lib/a.sh:1 — one\n- [CR-3] High lib/c.sh:3 — three' $'- [CR-1] OPEN\n- [CR-2] FIXED'
+eq "ST4 2 High -> 2 High with one resolved and one new" "resolved=1 carried=1 new=1 unlabeled=0" "$(n1_fix_states "$M" 1)"
+eq "ST4b rows: resolved CR-2, carried CR-1, new CR-3" "CR-1:carried:1 CR-2:resolved:0 CR-3:new:0" "$(rows 1)"
+st_setup '- [CR-1] High lib/a.sh:1 — one' '- [CR-1] High lib/a.sh:4 — one' '- [CR-1] FIXED'
+eq "ST5 FIXED contradicted by the new Index (same ID, same file) -> carried" "resolved=0 carried=1 new=0 unlabeled=0" "$(n1_fix_states "$M" 1)"
+st_setup $'- [SEC-1] Medium lib/d.sh:7 — token logged\n- [CR-2] High lib/b.sh:3 — wrong default\n- [CR-3] High lib/c.sh:1 — slow loop' \
+    '- [CR-3] Low lib/c.sh:1 — slow loop' $'- [SEC-1] WITHDRAWN\n- [CR-2] OOS\n- [CR-3] DOWNGRADED'
+eq "ST6 dispute rulings withdrawn/oos/downgraded leave the blocking set" "resolved=3 carried=0 new=0 unlabeled=0" "$(n1_fix_states "$M" 1)"
+eq "ST6b rows keep the ruling" "SEC-1:withdrawn:0 CR-2:oos:0 CR-3:downgraded:0" "$(rows 1)"
+st_setup '- [SEC-1] Medium lib/d.sh:7 — token logged' '- [SEC-1] Medium lib/d.sh:7 — token logged' '- [SEC-1] OPEN'
+eq "ST7 dispute ruled stands (OPEN) stays blocking" "SEC-1:carried:1" "$(n1_fix_states "$M" 1 >/dev/null; rows 1)"
+st_setup '- [CR-4] High lib/a.sh:12 — x' '- [CR-4] High lib/a.sh:12 — x'
+n1_fingerprint_append "$M/fingerprints.jsonl" fz CR-4 High carried 1 1
+eq "ST8 age follows the lineage across cycles" "CR-4:carried:2" "$(n1_fix_states "$M" 2 >/dev/null; rows 2)"
+eq "ST9 cycle 0 -> rc 1, no output" "1:" "$(o=$(n1_fix_states "$M" 0); echo "$?:$o")"
+rm -f "$M/review-prev.md"; eq "ST9b missing review-prev.md -> rc 1" "1" "$(n1_fix_states "$M" 1 >/dev/null; echo $?)"
+printf '### Verdict: FAIL\n- [CR-1] High lib/a.sh:1 — %s\n' '$(touch '"$T"'/pwned)' > "$M/review-prev.md"; cp "$M/review-prev.md" "$M/review.md"; rm -f "$M/review-status.md"
+n1_fix_states "$M" 1 >/dev/null
+eq "ST10 reviewer title is data, never executed" "no" "$([ -e "$T/pwned" ] && echo yes || echo no)"
+
 # ---- summary ----
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
