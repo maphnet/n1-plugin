@@ -45,6 +45,16 @@ n1_has_nul "$T/empty.md"; assert_eq "n1_has_nul on empty file nonzero" "1" "$?"
 n1_has_nul "$T/missing.md"; assert_eq "n1_has_nul on missing file nonzero" "1" "$?"
 assert_eq "clean file read emits no stderr" "" "$(n1_read_frontmatter "$LF" zz 2>&1)"
 
+# N1-549: increment propagates write refusal and prints nothing
+out=$(n1_increment_counter "$NUL2" a 2>/dev/null); rc=$?
+assert_eq "increment on NUL-after-frontmatter file rc 1" "1" "$rc"
+assert_eq "increment on NUL-after-frontmatter file prints nothing" "" "$out"
+cmp -s "$NUL2" "$T/nul2.orig"; assert_eq "NUL file byte-identical after increment" "0" "$?"
+INC="$T/inc.md"; printf -- '---\nc: 1\n---\n' > "$INC"
+out=$(n1_increment_counter "$INC" c); rc=$?
+assert_eq "increment on clean file prints new value" "2" "$out"
+assert_eq "increment on clean file rc 0" "0" "$rc"
+
 echo "---"
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -49,7 +49,7 @@ n1_increment_counter() {
     current=${current:-0}
     [[ "$current" =~ ^[0-9]+$ ]] || { echo "ERROR: non-numeric $key in $file" >&2; return 1; }
     local new_val=$((current + 1))
-    n1_write_frontmatter "$file" "$key" "$new_val"
+    n1_write_frontmatter "$file" "$key" "$new_val" || return 1
     printf '%s' "$new_val"
 }
 
