@@ -150,11 +150,11 @@ ovl 2 "$AUTO_CAP" "$AUTO_EXTRA"
 eq "X1 N1-241 state (cycle 2, cap 1): gate reads exhausted" "exhausted" "$(n1_review_fix_gate "$OV")"
 eq "X2 N1-241 state: [auto]/[auto-decided] rows never authorize the extra cycle -> breach" "breach" "$(n1_review_fix_audit "$OV")"
 cfg '{}'
-eq "H1 Exhausted branch excludes open SEC findings" "1" "$(grep -cE '^\*\*Exhausted\*\*.*skips the rest\. No open in-diff non-Low `\[SEC-N\]` or security-class finding' "$F")"
-eq "H2 open SEC always routes to the ask, never an [auto] row" "1" "$(grep -cE '^\*\*Exhausted\*\*.*security-class finding always needs this ask; never an `\[auto\]` row' "$F")"
+eq "H1 Exhausted: headless always takes the For Human Review exit; interactive only without open SEC" "1" "$(grep -cE '^\*\*Exhausted\*\*.*headless \(`N1_HEADLESS=1`, queue included\), or interactive with no open in-diff non-Low `\[SEC-N\]` or security-class finding' "$F")"
+eq "H2 interactive open SEC always routes to the ask, never an [auto] row" "1" "$(grep -cE '^\*\*Exhausted\*\*.*\(interactive with an open in-diff non-Low `\[SEC-N\]`/security-class finding always needs this ask; never an `\[auto\]` row\)' "$F")"
 eq "H3a no (Recommended) on option 2 for SEC" "0" "$(grep -c 'Mark (Recommended) on 2' "$F")"
 eq "H3b N1-259 wins: no SEC no-recommendation override, option 1 always recommended" "0" "$(grep -cF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$F")"
-eq "H4 Exhausted runs § Grant first; the Headless Guard path still never auto-extends" "1" "$(grep -cE '^\*\*Exhausted\*\* \(FAIL\): `procedures/review-extra-round\.md § Grant` first; `granted` skips the rest\. No open.*Headless Guard.*never auto-extend' "$F")"
+eq "H4 Exhausted no longer runs the grant or the Headless Guard" "0" "$(grep -E '^\*\*Exhausted\*\*' "$F" | grep -cE 'Headless Guard|§ Grant|\[granted\]')"
 eq "H5 rule: gate before every FAIL dispatch, no inline fixes, no extra developer" "1" "$(grep -cE '^\*\*Rule \(N1-260\):\*\* `n1_review_fix_gate` .*runs before every FAIL developer dispatch.*never fixes findings inline.*never dispatches a developer outside this step' "$F")"
 AUDIT_LN=$(awk '/^[[:space:]]*```/{b=!b; next} b && /n1_review_fix_audit/{print NR; exit}' "$F")
 eq "W7 fix.md runs the audit in a fence before the first developer spawn" "yes" "$([ -n "$AUDIT_LN" ] && [ -n "$SPAWN_LN" ] && [ "$AUDIT_LN" -lt "$SPAWN_LN" ] && echo yes || echo no)"
@@ -162,6 +162,28 @@ eq "W8 audit breach is listed under For Human Review as [FIX-CAP]" "1" "$(grep -
 PIN=$(grep -oE '`\| fix \| quality \| A \| \[asked\] \| review fix cap reached \| One more FAIL fix cycle \|`' "$F" | head -1 | tr -d '`')
 ovl 4 "$PIN a | r | codebase |"
 eq "W9 the option-2 ledger row fix.md prescribes satisfies the audit" "ok" "$(n1_review_fix_audit "$OV")"
+BP=skills/n1-start/procedures/review-fix-budget.md
+eq "W10 FAIL prompt asks for one contract line per in-scope ID" "1" "$(grep -cF '`- [ID] fixed|disputed|needs-decision: ' "$F")"
+VF_LN=$(awk '/^[[:space:]]*```/{b=!b; next} b && /n1_fix_verify_result/{print NR; exit}' "$F")
+FAIL_LN=$(grep -n '^\*\*FAIL\*\*: spawn developer' "$F" | head -1 | cut -d: -f1)
+eq "W11 contract fence runs after the FAIL dispatch" "yes" "$([ -n "$VF_LN" ] && [ -n "$FAIL_LN" ] && [ "$VF_LN" -gt "$FAIL_LN" ] && echo yes || echo no)"
+eq "W12 fix step_end carries the gate/state outcome" "1" "$(grep -cF 'n1_step_end "fix" 10 "success" "$(n1_review_fix_outcome "$N1_HOME/memory/$ID")"' "$F")"
+eq "W13 MAX fallback is the default budget 3" "1" "$(grep -c 'REVIEW_FIX_MAX=3' "$F")"
+VF=$(awk '/^```bash$/{f=1; b=""; next} /^```$/{ if (f && b ~ /n1_fix_verify_result/) printf "%s", b; f=0; next} f{b = b $0 "\n"}' "$F" | sed '\#^source ~/.n1/preamble.sh$#d')
+W14=$( export N1_ROOT="$PWD" ID=FX-1; MEM="$N1_HOME/memory/FX-1"; mkdir -p "$MEM"
+    printf -- '---\nreview_fix_cycle: 1\n---\n' > "$MEM/overview.md"
+    printf '### Verdict: FAIL\n- [CR-1] High a.sh:1 — a\n' > "$MEM/review.md"
+    printf '## Fix Cycle 1\n- [CR-1] fixed: x\n' > "$MEM/implementation.md"
+    eval "$VF" 2>&1 )
+eq "W14 the fix.md contract fence runs as written" "FIX_CONTRACT=ok" "$W14"
+eq "W15 fix.md no longer mentions the grant" "0" "$(grep -c 'granted' "$F")"
+eq "B1 budget procedure has its six sections" "6" "$(grep -cE '^## (Gate|Contract|Disputes|Needs decision|Status lines|Exit)$' "$BP")"
+eq "B2 dispute rulings map to status words" "1" "$(grep -cE 'stands → `OPEN`.*withdrawn → `WITHDRAWN`.*downgraded.*`DOWNGRADED`.*out of scope → `OOS`' "$BP")"
+eq "B3 out of scope files a follow-up via § Append" "1" "$(grep -cF 'followup-filing.md` § Append (source `review`)' "$BP")"
+eq "B4 stop-list needs-decision is asked in the cycle; headless via Headless Guard" "1" "$(grep -cE '^A `needs-decision` line.*stop-list category.*asked in this cycle.*Headless: § Headless Guard' "$BP")"
+eq "B5 headless exit never pauses, SEC included" "1" "$(grep -cE '^- Headless \(`N1_HEADLESS=1`, queue children included\): always the For Human Review exit, open in-diff non-Low `\[SEC-N\]` included.*no pause' "$BP")"
+eq "B6 status-line vocabulary" "1" "$(grep -cF '`- [ID] FIXED | OPEN | OPEN as [NEW-ID] | WITHDRAWN | DOWNGRADED | OOS`' "$BP")"
+eq "B7 autonomy-headless: budget exhaustion is not a Headless Guard prompt" "1" "$(grep -cF '**Review fix budget exhausted (N1-569):** not a Headless Guard prompt' skills/n1-start/procedures/autonomy-headless.md)"
 
 PRF=skills/n1-start/steps/pr.md
 PA_LN=$(awk '/^[[:space:]]*```/{b=!b; next} b && /n1_pr_entry/{print NR; exit}' "$PRF")
@@ -240,7 +262,6 @@ eq "FL13c no temp file left" "0" "$(ls "$IDX".* 2>/dev/null | wc -l | tr -d ' ')
 
 # ---- wiring: extra round (N1-345) ----
 XP=skills/n1-start/procedures/review-extra-round.md
-eq "XW1 Rule counts one [granted] row as a cap extension" "1" "$(grep -cF 'or one `[granted]` row raises `review_fix_cycle` past the cap' "$F")"
 eq "XW2 Exhausted For Human Review write merges (keeps filtered entries)" "1" "$(grep -cE '^\*\*Exhausted\*\*.*## For Human Review` to review\.md \(file-write; merge if present\)' "$F")"
 eq "XW3 Exhausted no longer replaces For Human Review" "0" "$(grep -cE '^\*\*Exhausted\*\*.*replace if present' "$F")"
 FILT_LN=$(grep -n 'procedures/review-extra-round.md § Filter' "$R" | head -1 | cut -d: -f1)

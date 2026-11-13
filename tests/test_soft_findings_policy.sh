@@ -63,7 +63,7 @@ check "pre-existing Critical/High escalates" 'Critical/High or any other or unpa
 check "pre-existing prompt: Fix now recommended with external evidence (N1-284)" '1\. Fix now \(Recommended\): treat as in-diff.*NIST SP 800-218 RV\.2.*2\. File as follow-up \(§ Append\) and proceed: works when ' "$RP"
 check_absent "pre-existing prompt: no equivalence sentence (N1-284)" 'No recommendation.' "$RP"
 check "non-pre-existing hard findings still FAIL" 'Other Critical/High/`\[RULE-N\]` always FAIL' "$R"
-check "Exhausted gate: in-diff non-Low SEC blocks auto-resolve" 'No open in-diff non-Low `\[SEC-N\]` or security-class finding' "$F"
+check "Exhausted gate: interactive in-diff non-Low SEC blocks auto-resolve" 'interactive with no open in-diff non-Low `\[SEC-N\]` or security-class finding' "$F"
 
 check "security-reviewer marks pre-existing findings" '^- \*\*Pre-existing marker:\*\*.*` \(pre-existing\)`' "$SR"
 check "security-reviewer Index title carries the marker" 'when the Pre-existing marker constraint applies, end `<title>` with ` \(pre-existing\)`; never otherwise' "$SR"
