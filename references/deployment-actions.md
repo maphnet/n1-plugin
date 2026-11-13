@@ -124,6 +124,27 @@ fi
 echo "$CLASS"
 ```
 
+## § Check
+
+Runs one `check` row `K` without a prompt. Called by § Walk, and in queue and headless runs by n1-finish Step 4 and n1-release Step 8b for `after` rows once the deploy is confirmed. § Command extracts no command for a check item, so you compose the commands from the item text; the rule that shown bytes equal run bytes does not hold here, which is why a check is read-only.
+
+1. Compose the smallest set of read-only commands that verifies the item, e.g. `curl -sf <url>`, a `gh api` GET, a SELECT query, a log grep. Read-only means the command changes nothing: no write, create, update, delete, deploy, migrate, restart, send or set, and no secret value on the command line. When any step would write, or the item cannot be verified read-only, run nothing: `CHECK=refused`.
+2. Show each command, run it from the repo root (`cd "$(git rev-parse --show-toplevel)"`), and show its output.
+3. `CHECK=pass` only with quoted evidence: a line of that output that proves the item, quoted in the report. A failing command, output that does not show the item, or nothing quotable is `CHECK=fail` (inconclusive counts as fail).
+4. `CHECK=pass` → § Tick, then the drop snippet below for row `K` and every row merged with it. Report `Check passed (<label>, PR #<N>): <item> — evidence: "<quoted line>"`.
+5. `CHECK=fail` or `CHECK=refused` → never tick; say why. Attended (`mode:walk`): ask the plain manual-item menu of § Walk (Done / Skip / Abort). Queue or headless (`mode:runbook`): leave the row; § Runbook lists it (n1-finish) or the caller reports it (n1-release).
+
+**Drop a passed check** (keeps a passed row out of § Runbook; the ticked PR body is the record):
+
+```bash
+source ~/.n1/preamble.sh
+OUT="<TSV path>"
+K=<row number>
+awk -F'\t' -v OFS='\t' -v k="$K" 'NR == k { $3 = "drop" } { print }' "$OUT" > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+```
+
+A `tick-failed` or `tick-missing` after a pass still drops the row; the PR body keeps it unticked, so a resumed run offers it again.
+
 ## § Tick
 
 Marks row `K` as done in its PR body. It runs only after a shell item exits 0 or the user confirms a manual item. The match is scoped to the row's **original** PR-body phase (column 2), not its current execution phase (column 3): it only flips a line under the heading that matches column 2 of row `K` (`before` → `### Before deploy`, `after` → `### After deploy`, `release` → `### Before release`). Any other column-2 value prints `tick-missing:#<N>` without fetching or editing the PR. This keeps ticking correct even after § Edit moves a row's execution phase (column 3) without moving the text in the PR body.
@@ -217,7 +238,7 @@ The caller reached its after-deploy point with `after` rows, but no deploy was w
 
 ## § Runbook
 
-n1-finish only, for headless runs. It never executes an item. It writes the unticked items into the ticket's runbook and marks the ticket deploy-pending, the same handling as the SSH-delivery runbook. `### Before release` items never reach it: n1-finish's § Parse defers them to `"$OUT.deferred"`.
+n1-finish only, for headless runs. It never executes an item. It writes the unticked items into the ticket's runbook and marks the ticket deploy-pending, the same handling as the SSH-delivery runbook. `### Before release` items never reach it: n1-finish's § Parse defers them to `"$OUT.deferred"`. A `drop` row (a passed check, § Check) is not listed. When no `before` or `after` row is left, it strips any stale section, prints `runbook:none`, and writes nothing else: no section and no `deploy_pending`.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -226,16 +247,21 @@ OUT="<TSV path>"
 SHA="<merge SHA, or empty when not merged>"
 DIR="$N1_HOME/memory/$ID"; F="$DIR/runbook.md"; OV="$DIR/overview.md"
 mkdir -p "$DIR"
-if [ -f "$F" ]; then sed '/^## Deployment Actions$/,$d' "$F" > "$F.tmp" && mv "$F.tmp" "$F"; else printf '# Deploy runbook: %s\n' "$ID" > "$F"; fi
-{
-  printf '\n## Deployment Actions\n\nResume with `n1-finish %s`: it asks before each action and ticks it in the PR body.\n' "$ID"
-  printf '\n### Before deploy\n\n'; awk -F'\t' '$3 == "before" { print "- [ ] #" $1 " " $4 }' "$OUT"
-  printf '\n### After deploy\n\n'; awk -F'\t' '$3 == "after" { print "- [ ] #" $1 " " $4 }' "$OUT"
-} >> "$F"
-[ -f "$OV" ] || printf -- '---\n---\n' > "$OV"
-n1_write_frontmatter "$OV" deploy_pending true
-if [ -n "$SHA" ]; then n1_write_frontmatter "$OV" deploy_merge_sha "$SHA"; fi
-echo "runbook:$F"
+if [ -f "$F" ]; then sed '/^## Deployment Actions$/,$d' "$F" > "$F.tmp" && mv "$F.tmp" "$F"; fi
+if ! awk -F'\t' '$3 == "before" || $3 == "after" { f = 1 } END { exit !f }' "$OUT"; then
+  echo "runbook:none"
+else
+  [ -f "$F" ] || printf '# Deploy runbook: %s\n' "$ID" > "$F"
+  {
+    printf '\n## Deployment Actions\n\nResume with `n1-finish %s`: it asks before each action and ticks it in the PR body.\n' "$ID"
+    printf '\n### Before deploy\n\n'; awk -F'\t' '$3 == "before" { print "- [ ] #" $1 " " $4 }' "$OUT"
+    printf '\n### After deploy\n\n'; awk -F'\t' '$3 == "after" { print "- [ ] #" $1 " " $4 }' "$OUT"
+  } >> "$F"
+  [ -f "$OV" ] || printf -- '---\n---\n' > "$OV"
+  n1_write_frontmatter "$OV" deploy_pending true
+  if [ -n "$SHA" ]; then n1_write_frontmatter "$OV" deploy_merge_sha "$SHA"; fi
+  echo "runbook:$F"
+fi
 ```
 
 The section is always last in `runbook.md`, so a re-run replaces it instead of duplicating it. `n1_delivery_runbook` (SSH delivery) rewrites the file without this section. The PR body still holds every unticked item, so a resumed `n1-finish` offers them again. The runbook holds item text only (names, never secret values) and is never posted to the tracker.

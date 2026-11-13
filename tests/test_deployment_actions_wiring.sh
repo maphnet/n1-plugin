@@ -336,4 +336,28 @@ check "command: Check: prefix classified check" "^check$" <(printf '%s\n' "$out"
 out=$(run8 2)
 check "command: Manual: wins over Check:" "^manual$" <(printf '%s\n' "$out")
 
+# --- N1-568: § Check is read-only with quoted evidence; a passed check is dropped from the TSV;
+# § Runbook omits dropped rows and prints runbook:none when no before/after row is left (D1, D8)
+check "procedure has Check section" "^## § Check" "$P"
+check "check: refuses a step that would write" "would write" "$P"
+check "check: pass requires quoted evidence" "quoted evidence" "$P"
+export N1_HOME="$T/n1h"; mkdir -p "$N1_HOME"
+TSV9="$T/rb.tsv"
+printf '7\tafter\tafter\tCheck: health returns 200\n7\tafter\tafter\tManual: warm the cache\n' > "$TSV9"
+drop9() { bash -c "$(snippet "**Drop a passed check**" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV9\"|" -e "s|^K=.*|K=$1|")"; }
+rb9() { bash -c "n1_write_frontmatter() { printf '%s %s\n' \"\$2\" \"\$3\" >> \"$T/fm.log\"; }; $(snippet "## § Runbook" | sed -e '/preamble\.sh/d' -e 's|^ID=.*|ID="T-1"|' -e "s|^OUT=.*|OUT=\"$TSV9\"|" -e 's|^SHA=.*|SHA=""|')"; }
+drop9 1
+[ "$(sed -n 1p "$TSV9")" = "$(printf '7\tafter\tdrop\tCheck: health returns 200')" ] \
+    && echo "PASS: drop marks the passed check row drop" || { echo "FAIL: drop did not mark the row"; FAIL=1; }
+rm -f "$T/fm.log"
+out=$(rb9)
+check "runbook lists the unpassed row" "^- \[ \] #7 Manual: warm the cache$" "$N1_HOME/memory/T-1/runbook.md"
+if grep -q 'health returns 200' "$N1_HOME/memory/T-1/runbook.md" 2>/dev/null; then echo "FAIL: runbook listed a passed check"; FAIL=1; else echo "PASS: runbook omits the passed check"; fi
+check "runbook with an unpassed row sets deploy_pending" "^deploy_pending true$" "$T/fm.log"
+drop9 2; rm -f "$T/fm.log"
+out=$(rb9)
+check "runbook prints runbook:none when every row passed" "^runbook:none$" <(printf '%s\n' "$out")
+if grep -q '^## Deployment Actions' "$N1_HOME/memory/T-1/runbook.md" 2>/dev/null; then echo "FAIL: runbook:none left a Deployment Actions section"; FAIL=1; else echo "PASS: runbook:none strips the stale section"; fi
+[ ! -s "$T/fm.log" ] && echo "PASS: runbook:none never sets deploy_pending" || { echo "FAIL: runbook:none touched deploy_pending"; FAIL=1; }
+
 exit $FAIL
