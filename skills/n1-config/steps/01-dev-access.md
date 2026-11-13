@@ -117,14 +117,17 @@ source ~/.n1/preamble.sh
 V=<true|false>
 case "$V" in true|false) ;; *) echo flag:invalid; exit 1 ;; esac
 CFG=$(n1_config_file)
-if jq --argjson v "$V" '.finishWork.postDeployVerification.enabled = $v' "$CFG" > "$CFG.tmp"; then
-  mv "$CFG.tmp" "$CFG" && echo "flag:$V gate=$(n1_post_deploy_verification_enabled)"
+KEEP=
+if cp "$CFG" "$CFG.bak" && jq --argjson v "$V" '.finishWork.postDeployVerification.enabled = $v' "$CFG" > "$CFG.tmp" \
+   && { cat "$CFG.tmp" > "$CFG" || { cmp -s "$CFG.bak" "$CFG" || cat "$CFG.bak" > "$CFG" || KEEP=1; false; }; }; then
+  rm -f "$CFG.tmp" "$CFG.bak"; echo "flag:$V gate=$(n1_post_deploy_verification_enabled)"
 else
-  rm -f "$CFG.tmp"; echo flag:write-failed; exit 1
+  rm -f "$CFG.tmp"; [ -n "$KEEP" ] && echo "flag:restore-failed original kept in $CFG.bak" || rm -f "$CFG.bak"
+  echo flag:write-failed; exit 1
 fi
 ```
 
-The write keeps every sibling (`mergeMethod`, `mergeOnFinish`, `deployWatch`) and creates `finishWork` when absent. `flag:invalid` or `flag:write-failed`: report it and **STOP**; the config is unchanged and `dev-access.md` stays as written, so a re-run completes it. `gate=` must equal `V`; otherwise report the mismatch.
+The write goes through the existing file (`cat >`, not `mv`), so its mode, owner and symlink stay; a copy-back failure restores the original content from `$CFG.bak`. It keeps every sibling (`mergeMethod`, `mergeOnFinish`, `deployWatch`) and creates `finishWork` when absent. `flag:invalid` or `flag:write-failed`: report it and **STOP**; the config keeps its original content (if `flag:restore-failed` is also printed, restore it from the named `.bak` file) and `dev-access.md` stays as written, so a re-run completes it. `gate=` must equal `V`; otherwise report the mismatch.
 
 ## 1.7 Summary
 
