@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # N1 YAML frontmatter helpers for memory files (overview.md, etc.)
 
-# N1-549: true (0) when the file contains a NUL byte. tr byte-count compare: grep/ugrep treat NULs inconsistently.
+# N1-549: true (0) when the file contains a NUL byte. count NULs in one read (a second read could straddle a concurrent rename); grep/ugrep treat NULs inconsistently.
 n1_has_nul() {
-    [ -f "$1" ] && [ "$(tr -d '\0' < "$1" | wc -c)" -ne "$(wc -c < "$1")" ]
+    [ -f "$1" ] && [ "$(tr -cd '\0' < "$1" | wc -c)" -gt 0 ]
 }
 
 n1_read_frontmatter() {

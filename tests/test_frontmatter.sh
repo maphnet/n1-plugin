@@ -55,6 +55,20 @@ out=$(n1_increment_counter "$INC" c); rc=$?
 assert_eq "increment on clean file prints new value" "2" "$out"
 assert_eq "increment on clean file rc 0" "0" "$rc"
 
+# N1-549: n1_has_nul reads once, so a concurrent rename of a clean file never reads as NUL
+RF="$T/race.md"; printf 'aaaa\n' > "$RF"
+printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' > "$T/race.big"
+printf 'cc\n' > "$T/race.small"
+( while [ ! -e "$T/race.stop" ]; do
+    cp "$T/race.big" "$T/race.tmp"; mv -f "$T/race.tmp" "$RF"
+    cp "$T/race.small" "$T/race.tmp"; mv -f "$T/race.tmp" "$RF"
+  done ) &
+RPID=$!
+RACE_FALSE=0
+for _ in $(seq 1 400); do n1_has_nul "$RF" && RACE_FALSE=$((RACE_FALSE+1)); done
+: > "$T/race.stop"; wait "$RPID"
+assert_eq "n1_has_nul never true for clean file under concurrent rename" "0" "$RACE_FALSE"
+
 echo "---"
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
