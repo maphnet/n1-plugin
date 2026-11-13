@@ -66,7 +66,11 @@ class StepWindowTest(unittest.TestCase):
             orch = {s['step']: s for s in row['orchestrator']['steps']}
             self.assertEqual(orch['ticket']['api_calls'], 2)
             self.assertEqual(orch['finish']['api_calls'], 2)
-            self.assertEqual(row['orchestrator']['unattributed']['api_calls'], 1)
+            # m3 sits in the gap before plan begins: lead-in attribution (N1-556).
+            self.assertEqual(orch['plan']['api_calls'], 2)
+            self.assertTrue(orch['plan']['attribution_extended'])
+            self.assertNotIn('attribution_extended', orch['ticket'])
+            self.assertEqual(row['orchestrator']['unattributed']['api_calls'], 0)
 
 class TranscriptCountTest(unittest.TestCase):
     def test_record_counts_match_transcript(self):
@@ -116,6 +120,52 @@ def _parse(tmp, rows, steps):
     path = Path(tmp) / 't.jsonl'
     path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
     return mod.parse_orchestrator_transcript(str(path), steps, '2026-01-01T00:00:00Z', None)
+
+
+class LeadInTrailingTest(unittest.TestCase):
+    STEPS = [
+        dict(step='plan', step_number=4, started_at='2026-01-01T00:02:00Z',
+             completed_at='2026-01-01T00:03:00Z'),
+        dict(step='pr', step_number=12, started_at='2026-01-01T00:05:00Z',
+             completed_at='2026-01-01T00:06:00Z'),
+    ]
+
+    def _run(self, rows, run_start='2026-01-01T00:01:00Z'):
+        spec = importlib.util.spec_from_file_location('tm', ROOT / 'hooks/telemetry-merge.py')
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 't.jsonl'
+            path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
+            return mod.parse_orchestrator_transcript(str(path), [dict(s) for s in self.STEPS], run_start, None)
+
+    def test_begin_gap_and_trailing_calls_are_attributed(self):
+        rows = [_msg('boot', '2026-01-01T00:00:30.000Z'),    # before run_start: startup
+                _msg('b1', '2026-01-01T00:01:59.500Z'),      # first step begin call
+                _msg('b2', '2026-01-01T00:04:59.500Z'),      # gap after plan ended
+                _msg('t1', '2026-01-01T00:08:00.000Z')]      # after the last step
+        out = self._run(rows)
+        by = {s['step']: s for s in out['steps']}
+        self.assertEqual((by['plan']['api_calls'], by['pr']['api_calls']), (1, 2))
+        self.assertTrue(by['plan']['attribution_extended'] and by['pr']['attribution_extended'])
+        self.assertEqual(out['unattributed']['api_calls'], 1)
+        self.assertEqual(sum(p['api_calls'] for p in out['steps'] + [out['unattributed']]),
+                         out['totals']['api_calls'])
+
+    def test_startup_without_lower_bound_stays_unattributed(self):
+        out = self._run([_msg('boot', '2026-01-01T00:01:59.500Z')], run_start=None)
+        self.assertEqual(out['unattributed']['api_calls'], 1)
+        self.assertEqual(out['steps'], [])
+
+    def test_compactions_keep_the_window_only(self):
+        rows = [_msg('b2', '2026-01-01T00:04:59.500Z'),
+                dict(type='system', subtype='compact_boundary', timestamp='2026-01-01T00:04:59.800Z',
+                     compactMetadata=dict(trigger='auto'))]
+        out = self._run(rows)
+        by = {s['step']: s for s in out['steps']}
+        self.assertEqual(by['pr']['api_calls'], 1)
+        self.assertEqual(by['pr']['compactions'], 0)
+        self.assertEqual(len(out['compactions']), 1)
 
 
 class FinishExtensionTest(unittest.TestCase):
