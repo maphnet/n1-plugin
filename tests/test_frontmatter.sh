@@ -30,6 +30,17 @@ printf -- '---\r\na: 1\r\n---\r\n' > "$CRLF"
 n1_write_frontmatter "$CRLF" a 2 >/dev/null
 assert_eq "CRLF write succeeds under shimmed grep" "2" "$(n1_read_frontmatter "$CRLF" a)"
 
+# N1-549: NUL-filled file is refused by write and reported by read
+NUL="$T/nul.md"; head -c 2022 /dev/zero > "$NUL"; cp "$NUL" "$T/nul.orig"
+assert_eq "read of NUL file is empty" "" "$(n1_read_frontmatter "$NUL" a 2>/dev/null)"
+assert_eq "read of NUL file prints ERROR" "ERROR: NUL bytes in $NUL" "$(n1_read_frontmatter "$NUL" a 2>&1 >/dev/null)"
+n1_read_frontmatter "$NUL" a >/dev/null 2>&1; assert_eq "read of NUL file rc 0" "0" "$?"
+n1_write_frontmatter "$NUL" a 1 2>/dev/null; assert_eq "write of NUL file rc 1" "1" "$?"
+cmp -s "$NUL" "$T/nul.orig"; assert_eq "NUL file byte-identical after write" "0" "$?"
+NUL2="$T/nul2.md"; { printf -- '---\na: 1\n---\n'; head -c 8 /dev/zero; } > "$NUL2"
+n1_write_frontmatter "$NUL2" a 2 2>/dev/null; assert_eq "write with NUL after frontmatter rc 1" "1" "$?"
+assert_eq "clean file read emits no stderr" "" "$(n1_read_frontmatter "$LF" zz 2>&1)"
+
 echo "---"
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -18,6 +18,12 @@ assert_eq "ledger table untouched and last" '| r |' "$(tail -n1 "$T/e.md")"
 printf '# T\n\n## Decision Ledger\n| r |\n' > "$T/n.md"
 n1_append_escalation "$T/n.md" '- x'
 assert_eq "section created at EOF when absent" '## Escalations|- x' "$(tail -n2 "$T/n.md" | paste -sd'|')"
+# N1-549: NUL-filled overview is refused, left unchanged, no temp file left behind
+N="$T/nd"; mkdir "$N"; head -c 2022 /dev/zero > "$N/o.md"; cp "$N/o.md" "$N/orig"
+rc=0; n1_append_key_decision "$N/o.md" 'x' 2>/dev/null || rc=$?; assert_eq "key decision on NUL file rc 1" "1" "$rc"
+rc=0; n1_append_escalation "$N/o.md" '- x' 2>/dev/null || rc=$?; assert_eq "escalation on NUL file rc 1" "1" "$rc"
+cmp -s "$N/o.md" "$N/orig"; assert_eq "NUL file unchanged" "0" "$?"
+assert_eq "no leftover temp file" "o.md orig" "$(ls "$N" | paste -sd' ')"
 # N1-492: step snippets must source lib/memory.sh before calling n1_append_key_decision
 for f in plan plan-review; do
   F="$REPO_ROOT/skills/n1-start/steps/$f.md"
