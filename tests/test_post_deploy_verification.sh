@@ -157,5 +157,42 @@ check_fixed "n1-config secret guard covers selectors" 'questions 1-3 or a select
 check_fixed "n1-config empty enable answer with unset flag follows the legacy gate" 'with `enabled=` not set it follows `gate=`' "$CONFIG_STEP"
 check_fixed "n1-config enable question states no recommendation" 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$CONFIG_STEP"
 
+# N1-545: the step 1.6 flag write goes through the existing inode (mode, owner, symlink preserved).
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+{
+    echo 'n1_config_file() { echo "$CFG_PATH"; }; n1_post_deploy_verification_enabled() { echo ok; }'
+    awk '/^## 1\.6/{s=1} s&&/^```bash/{b=1;next} b&&/^```/{exit} b&&!/^source /' "$CONFIG_STEP" | sed 's/^V=<true|false>/V=true/'
+} > "$T/step16.sh"
+mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
+run16() { CFG_PATH="$1" bash "$T/step16.sh" 2>&1; }
+
+printf '{"finishWork":{"mergeMethod":"squash"}}\n' > "$T/a.json"; chmod 600 "$T/a.json"
+out=$(run16 "$T/a.json")
+if [ "$(mode_of "$T/a.json")" = 600 ] && [ "$(jq -r .finishWork.postDeployVerification.enabled "$T/a.json")" = true ] \
+    && [ "$(jq -r .finishWork.mergeMethod "$T/a.json")" = squash ] && [[ "$out" == "flag:true gate=ok" ]]; then
+    echo "PASS: flag write keeps config mode and siblings"; PASS=$((PASS + 1))
+else
+    echo "FAIL: flag write keeps config mode and siblings ($out)"; FAIL=$((FAIL + 1))
+fi
+
+printf '{}\n' > "$T/real.json"; ln -s real.json "$T/link.json"
+run16 "$T/link.json" >/dev/null
+if [ -L "$T/link.json" ] && [ "$(jq -r .finishWork.postDeployVerification.enabled "$T/real.json")" = true ]; then
+    echo "PASS: flag write keeps a symlinked config and updates its target"; PASS=$((PASS + 1))
+else
+    echo "FAIL: flag write keeps a symlinked config and updates its target"; FAIL=$((FAIL + 1))
+fi
+
+printf '{not json' > "$T/bad.json"; cp "$T/bad.json" "$T/bad.orig"
+out=$(run16 "$T/bad.json"); rc=$?
+if [ "$rc" -ne 0 ] && [[ "$out" == *flag:write-failed* ]] && cmp -s "$T/bad.json" "$T/bad.orig" && [ ! -e "$T/bad.json.tmp" ]; then
+    echo "PASS: failed jq leaves config unchanged and no temp file"; PASS=$((PASS + 1))
+else
+    echo "FAIL: failed jq leaves config unchanged and no temp file"; FAIL=$((FAIL + 1))
+fi
+[ ! -e "$T/a.json.tmp" ] && [ ! -e "$T/real.json.tmp" ] && [ ! -e "$T/link.json.tmp" ] \
+    && { echo "PASS: successful write removes the temp file"; PASS=$((PASS + 1)); } \
+    || { echo "FAIL: successful write removes the temp file"; FAIL=$((FAIL + 1)); }
+
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
