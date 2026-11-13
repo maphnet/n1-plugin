@@ -80,7 +80,7 @@ Each step reads ONLY its declared dependencies:
 
 | Step | Reads | Writes |
 |------|-------|--------|
-| ticket | — | `ticket.md` (+ `<!-- n1:signals -->` block: `task_type`, `has_acceptance_criteria`, `description_quality`). For tracker tickets: parent context (`### Parent Context`) appended when the ticket has a parent; current ticket's non-parent links (`### Linked Tickets`) appended when qualifying links exist (blockers, relates-to, depends-on). |
+| ticket | — | `ticket.md` (+ `<!-- n1:signals -->` block: `task_type`, `has_acceptance_criteria`, `description_quality`). For tracker tickets: parent context (`### Parent Context`) appended when the ticket has a parent; current ticket's non-parent links (`### Linked Tickets`) appended when qualifying links exist (blockers, relates-to, depends-on). The analyst also writes `linked-tickets.md` next to it (same table, `none` or `unknown` marker; analyst-owned, no tracker text); the ticket-step blocker check (CALLER=start) reuses it only when it is exactly one table or one `none` line, otherwise it makes the live link call. |
 | analysis | `ticket.md` | `analysis.md` (+ signals: `blast_radius`, `security_relevant`, `files_changed`, `complexity_delta`, `has_bug_root_cause`, `ticket_contradictions`) |
 | brainstorm | `ticket.md`, `analysis.md`, `investigation.md` (optional) | `brainstorm.md` (+ signals: `planning_need`, `design_clarity`, `approach_count`) |
 | plan | `ticket.md`, `brainstorm.md`, `analysis.md` | `plan.md` |
