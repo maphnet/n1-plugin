@@ -137,7 +137,7 @@ n1_release_obs_group() {
             KW = "(token|secret|password|passwd|pwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|cookie|session[_-]?id|sessid|signing[_-]?key|authorization)[a-z_-]*"
             KS = "(^|[^a-z@])((proxy|basic)?o?auth|sig(nature)?|sid|jwt)([_-]?(key|code|secret|pass|token))?"
             KB = "(" KW "|" KS ")[\\\\\"\047 ]*[=:][ ]*"
-            KQ1 = KB "\\\\*\"[^\"]*\"?"; KQ2 = KB "\047[^\047]*\047?"; KU = KB "[^ \",;&\047\\\\]+"
+            KQ1 = KB "\\\\*\"([^\"\\\\]|\\\\.)*\"?"; KQ2 = KB "\047([^\047\\\\]|\\\\.)*\047?"; KU = KB "[^ \",;&\047\\\\]+"
             AUTH = "authorization[\\\\\"\047 ]*[=:][ ]*[\\\\\"\047]*[a-z]+[ ]+[^ \",\047\\\\]+"
             COOKIE = "cookie[a-z_-]*[ ]*:.*"
             AIZA = "aiza"; for (i = 0; i < 20; i++) AIZA = AIZA "[a-z0-9_-]"; AIZA = AIZA "[a-z0-9_-]*"
