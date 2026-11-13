@@ -3,6 +3,7 @@
 # NP-222: local-testing mode resolution precedence and worktree.copyFiles copy rules.
 # Run: bash tests/test_local_testing_config.sh
 set -euo pipefail
+unset N1_HEADLESS  # the headless guard in n1_local_testing_offer_write must not leak in from the caller
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/config.sh"
@@ -108,13 +109,42 @@ assert_eq "O13: No never deletes an explicit mode" "smoke" "$(n1_config_val '.lo
 rm "$O/compose.yml"; printf '{"scripts":{"dev":"vite"}}' > "$O/package.json"
 cfg '{"localTesting":{"mode":"test"}}'
 assert_eq "O14 (AC3): no compose, start script -> startCommand offer" "start:npm run dev" "$(offer)"
-n1_local_testing_offer_write 'start:npm run dev -- --port 5173'
+n1_local_testing_offer_write start-stdin <<'N1CMD'
+npm run dev -- --port 5173
+N1CMD
 assert_eq "O15 (AC3): Yes writes startCommand verbatim" "npm run dev -- --port 5173" "$(n1_config_val '.localTesting.startCommand')"
 assert_eq "O16 (AC3): resolver live after startCommand write" "live" "$(n1_resolve_local_testing_mode "$O")"
 rm "$O/package.json"; cfg '{}'
 assert_eq "O17: no runnable service -> no offer" "" "$(offer)"
 assert_eq "O18: invalid answer is rejected" "1" "$(n1_local_testing_offer_write maybe; echo $?)"
 assert_eq "O19: invalid answer leaves config untouched" "{}" "$(cat "$N1_HOME/config.json")"
+cfg '{}'
+assert_eq "O20: start with nothing detectable fails" "1" "$(n1_local_testing_offer_write start "$O"; echo $?)"
+printf '{"scripts":{"dev":"vite"}}' > "$O/package.json"; cfg '{}'
+n1_local_testing_offer_write start "$O"
+assert_eq "O21: start re-detects the command itself" "npm run dev" "$(n1_config_val '.localTesting.startCommand')"
+rm "$O/package.json"
+# SEC-1: repo-derived Procfile text is stored literally and never executed
+rm -f /tmp/n1559-pwn
+printf 'web: x $(touch /tmp/n1559-pwn) `touch /tmp/n1559-pwn` it'"'"'s\n' > "$O/Procfile"
+cfg '{}'
+n1_local_testing_offer_write start "$O"
+assert_eq "O22 (SEC-1): injection-shaped Procfile line stored literally" 'x $(touch /tmp/n1559-pwn) `touch /tmp/n1559-pwn` it'"'"'s' "$(jq -r '.localTesting.startCommand' "$N1_HOME/config.json")"
+assert_eq "O23 (SEC-1): nothing executed" "no" "$([ -e /tmp/n1559-pwn ] && echo yes || echo no)"
+printf 'web: a\001b\n' > "$O/Procfile"; cfg '{}'
+assert_eq "O24 (SEC-1): control characters rejected" "1|{}" "$(n1_local_testing_offer_write start "$O"; echo "$?|$(cat "$N1_HOME/config.json")")"
+n1_local_testing_offer_write start-stdin <<'N1CMD' || true
+a
+b
+N1CMD
+assert_eq "O25 (SEC-1): multi-line stdin command rejected" "{}" "$(cat "$N1_HOME/config.json")"
+rm "$O/Procfile"
+cfg '{}'
+assert_eq "O26 (SEC-3): headless never writes" "1|{}" "$(N1_HEADLESS=1 n1_local_testing_offer_write no; echo "$?|$(cat "$N1_HOME/config.json")")"
+assert_eq "O27: failed write returns non-zero and keeps config" "1|{}" "$(mkdir -p "$O/ro"; n1_config_file() { echo "$O/ro/c.json"; }; echo '{}' > "$O/ro/c.json"; chmod 500 "$O/ro"; n1_local_testing_offer_write no; r=$?; chmod 700 "$O/ro"; echo "$r|$(tr -d '\n ' < "$O/ro/c.json")")"
+touch "$O/compose.yml"; rm -f "$N1_HOME/config.json"
+assert_eq "O28 (CR-5): no config file -> no offer" "" "$(offer)"
+rm -f "$O/compose.yml"
 
 # ---- worktree.copyFiles ----
 SRC="$T/a/src"; WT="$T/b/wt"
@@ -166,5 +196,10 @@ assert_eq "W10 (AC7): n1-init menu has no Test option or test mode value" "0" "$
 assert_eq "W11: n1-init None fallback carries the single (Recommended) label" "1" "$(grep -cF '2 -- None (Recommended)' "$I08")"
 assert_eq "W12 (AC7): fresh config default writes no test mode" "0" "$(grep -cF '"mode": "test"' "$R/skills/n1-init/steps/13-write-config.md")"
 assert_eq "W13: n1-init None records an explicit autoLive false (no re-ask in n1-start)" "1" "$(grep -cF 'None writes no `mode` key and `localTesting.autoLive: false`' "$I08")"
+
+assert_eq "W14 (CR-2): step removes a stale stub before the gate checks" "yes" "$(a=$(ln_of "$LT" 'rm -f "$N1_HOME/memory/$ID/local-testing.md"'); b=$(ln_of "$LT" 'local-testing-gate'); [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ] && echo yes || echo no)"
+assert_eq "W15 (SEC-1): offer decisions record only the kind" "0" "$(grep -cE 'offer=<LOCAL_TESTING_OFFER>|offer_write .<' "$LT")"
+assert_eq "W16 (SEC-1): step passes an edited command via a quoted heredoc" "1" "$(grep -cF "offer_write start-stdin <<'N1CMD'" "$LT")"
+assert_eq "W17 (CR-3): n1-init None also removes startCommand" "1" "$(grep -cF 'None: delete `localTesting.mode`, `startCommand` and `teardownCommand` and set `localTesting.autoLive: false`' "$I08")"
 
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]

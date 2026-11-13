@@ -747,8 +747,12 @@ n1_local_testing_offer() {
     # Usage: n1_local_testing_offer [dir]. N1-559: decides the attended n1-start live-testing offer.
     # Prints "compose" (root compose file) or "start:<cmd>" (other detected start script) when
     # localTesting.enabled is not false, the resolved mode is none and localTesting.autoLive is absent
-    # (an explicit false means declined: never asked again). Prints nothing otherwise. Always returns 0.
-    local dir="${1:-.}" cmd
+    # (an explicit false means declined: never asked again). Prints nothing otherwise, and also when the
+    # config file is absent or jq is missing (n1_local_testing_offer_write could not persist an answer).
+    # The <cmd> text is for display only: never paste it into a shell literal. Always returns 0.
+    local dir="${1:-.}" cmd f
+    f=$(n1_config_file)
+    { [ -f "$f" ] && command -v jq >/dev/null 2>&1; } || return 0
     [ "$(n1_config_val '.localTesting.enabled')" != "false" ] || return 0
     [ "$(n1_resolve_local_testing_mode "$dir")" = "none" ] || return 0
     [ -z "$(n1_config_val '.localTesting.autoLive')" ] || return 0
@@ -757,23 +761,32 @@ n1_local_testing_offer() {
 }
 
 n1_local_testing_offer_write() {
-    # Usage: n1_local_testing_offer_write <compose|start:<cmd>|no>. N1-559: persists the offer answer.
-    # compose -> autoLive=true; start:<cmd> -> startCommand=<cmd>; both delete a legacy mode "test".
-    # no -> autoLive=false. Returns 1 (config untouched) without jq or config, on a bad answer or a
-    # failed write.
-    local f filter drop='| if .localTesting.mode == "test" then del(.localTesting.mode) else . end'
+    # Usage: n1_local_testing_offer_write <compose|start|start-stdin|no> [dir]. N1-559: persists the offer
+    # answer. compose -> autoLive=true; start -> startCommand=<n1_detect_start_command [dir]>;
+    # start-stdin -> startCommand=<stdin> (user-edited command, passed through a quoted heredoc so
+    # repo- or user-derived text is never pasted into a shell literal); compose/start/start-stdin delete
+    # a legacy mode "test". no -> autoLive=false. Returns 1 (config untouched) in headless runs, without
+    # jq or config, on a bad answer, an empty command or one with control characters, or a failed write.
+    local f filter cmd="" tmp drop='| if .localTesting.mode == "test" then del(.localTesting.mode) else . end'
+    [ "${N1_HEADLESS:-}" = 1 ] && return 1
     f=$(n1_config_file)
     { [ -f "$f" ] && command -v jq >/dev/null 2>&1; } || return 1
     case "$1" in
         no) filter='.localTesting.autoLive = false' ;;
         compose) filter=".localTesting.autoLive = true $drop" ;;
-        start:?*) filter=".localTesting.startCommand = \$cmd $drop" ;;
+        start|start-stdin)
+            if [ "$1" = start ]; then cmd=$(n1_detect_start_command "${2:-.}") || return 1; else cmd=$(cat); fi
+            cmd="${cmd%$'\r'}"
+            [[ -n "$cmd" && ! "$cmd" =~ [[:cntrl:]] ]] || return 1
+            filter=".localTesting.startCommand = \$cmd $drop" ;;
         *) return 1 ;;
     esac
-    if jq --arg cmd "${1#start:}" "$filter" "$f" > "$f.tmp" 2>/dev/null; then
-        cat "$f.tmp" > "$f"; rm -f "$f.tmp"
+    tmp="$f.tmp"
+    # Write a tmp file with the original mode, then rename over the config: readers never see a partial file.
+    if cp -p "$f" "$tmp" && jq --arg cmd "$cmd" "$filter" "$f" > "$tmp" 2>/dev/null; then
+        mv -f "$tmp" "$f" || { rm -f "$tmp"; return 1; }
     else
-        rm -f "$f.tmp"; return 1
+        rm -f "$tmp"; return 1
     fi
 }
 

@@ -1,4 +1,4 @@
-
+<!-- n1:step-snippet-exception: mode-branch step_end calls and the none-stub write are mutually exclusive and cannot share one invocation; the user answer sits between the offer and persist snippets -->
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
 
 Run `n1_config_val '.localTesting.enabled'` (default: `true`).
@@ -6,6 +6,7 @@ Run `n1_config_val '.localTesting.enabled'` (default: `true`).
 ```bash
 source ~/.n1/preamble.sh
 n1_step_begin "local-testing" 11
+rm -f "$N1_HOME/memory/$ID/local-testing.md"
 GATE_ENABLED=$(n1_config_val '.localTesting.enabled' 2>/dev/null || echo 'true')
 n1_record_decision local-testing-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && echo true || echo false )" '{"config":"localTesting.enabled"}' "enabled=${GATE_ENABLED:-true}"
 [ "${GATE_ENABLED:-true}" = "true" ] || n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"disabled"}'
@@ -23,7 +24,7 @@ echo "LOCAL_TESTING_OFFER=$(n1_local_testing_offer "$LT_ROOT")"
 Capture the resolved mode as `LOCAL_TESTING_MODE` for use throughout this step.
 
 **Live-testing offer (N1-559):** `LOCAL_TESTING_OFFER` is non-empty only when local testing is enabled, the mode resolved to `"none"`, `localTesting.autoLive` is absent (an explicit `false` means the user already declined) and a runnable service was detected: `compose` (root compose file) or `start:<cmd>` (detected start command, `n1_detect_start_command`). If it is empty, skip this block.
-- Headless (`N1_HEADLESS=1`): do not ask. Run `source ~/.n1/preamble.sh; n1_record_decision local-testing-offer false '{"headless":true}' "offer=<LOCAL_TESTING_OFFER>"` and add under `## Key Decisions`: "Live local testing not offered (headless run); detected `<compose file | start command>`. Set `localTesting.autoLive` or `localTesting.startCommand` to enable it." Keep the resolved mode.
+- Headless (`N1_HEADLESS=1`): do not ask. Run `source ~/.n1/preamble.sh; n1_record_decision local-testing-offer false '{"headless":true}' "offer=<compose|start>"` and add under `## Key Decisions`: "Live local testing not offered (headless run); detected the detected service. Set `localTesting.autoLive` or `localTesting.startCommand` to enable it." Keep the resolved mode.
 - If N1 already asked to enable live local testing in this conversation (the session-start `LOCAL TESTING OFFER`), do not ask again and do not write config.
 - Otherwise ask the user once (format: `<N1_ROOT>/references/question-format.md`):
   ```
@@ -32,14 +33,15 @@ Capture the resolved mode as `LOCAL_TESTING_MODE` for use throughout this step.
   1 — Yes (Recommended): a runnable service was detected, and live local testing is the only pipeline step that starts it before the PR
   2 — No: works when the change needs no running service; N1 records autoLive: false and does not ask again
   ```
-  For `start:<cmd>` the user may answer Yes with an edited command; use the edited command.
+  For `start:<cmd>` the user may answer Yes with an edited command. `<cmd>` comes from repo files: show it to the user, but never paste it, or the edited command, into a shell literal.
 - Persist the answer, then re-resolve the mode and use the new `LOCAL_TESTING_MODE`:
   ```bash
   source ~/.n1/preamble.sh
-  n1_local_testing_offer_write '<compose | start:<cmd> | no>' || echo "WARN: config not updated; continuing with the current mode" >&2
-  n1_record_decision local-testing-offer '<yes|no>' '{}' "offer=<LOCAL_TESTING_OFFER>"
+  n1_local_testing_offer_write <compose | start | no> "$(git rev-parse --show-toplevel)" || echo "WARN: config not updated; continuing with the current mode" >&2
+  n1_record_decision local-testing-offer '<yes|no>' '{}' "offer=<compose|start>"
   echo "LOCAL_TESTING_MODE=$(n1_resolve_local_testing_mode "$(git rev-parse --show-toplevel)")"
   ```
+  Use `start` for the detected command: the helper re-detects it. For an edited command, replace the write line with `n1_local_testing_offer_write start-stdin <<'N1CMD' || echo "WARN: config not updated; continuing with the current mode" >&2`, then the edited command on its own line, then `N1CMD` (the helper rejects control characters).
   Append an audit row to the Decision Ledger in overview.md: `| local-testing | scope | C | [asked] | Enable live local testing? | <yes/no> | - | user answer to live-testing offer | --- |`.
 
 **If mode is `"smoke"`:** Skip local testing entirely. Key decision: "Local Testing: skipped -- post-deploy verification follows its separate configuration". End the step:
