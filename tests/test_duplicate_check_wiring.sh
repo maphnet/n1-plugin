@@ -145,4 +145,15 @@ else
     echo "FAIL: N1-231: blocker check sits after the duplicate check and before Tracker status"; FAIL=1
 fi
 
+# N1-555: analyst owns readTicket/getIssueLinks, never getTransitions; records links once in ticket.md
+PA=agents/product-analyst.md
+check "N1-555: analyst states read ownership" "Read ownership.*readTicket.*getIssueLinks.*orchestrator owns .getTransitions." "$PA"
+if grep -qF 'operations.getTransitions' "$PA" 2>/dev/null; then echo "FAIL: N1-555: analyst never calls getTransitions"; FAIL=1; else echo "PASS: N1-555: analyst never calls getTransitions"; fi
+check "N1-555: analyst calls getIssueLinks on Jira when issuelinks is absent" "Otherwise, if .operations\.getIssueLinks. is present, call .mcp__<trackerMcp>__<operations\.getIssueLinks>. once" "$PA"
+check "N1-555: analyst maps the jc-mcp Blocks inward link to is blocked by" "Blocks. \+ .inwardIssue. .* .is blocked by." "$PA"
+check "N1-555: analyst writes the none marker" "<!-- linked-tickets: none -->" "$PA"
+check "N1-555: analyst writes no marker when the link read failed" "never write it when the read failed" "$PA"
+check "N1-555: analyst writes neither table nor marker on an unrecognized link type" "Any other bare name is unrecognized.*no table and no marker" "$PA"
+check "N1-555: analyst sanitises pipes in summaries" "Replace .\|. and newlines in a summary with a space" "$PA"
+
 exit $FAIL
