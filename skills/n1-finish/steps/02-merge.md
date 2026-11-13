@@ -17,7 +17,7 @@ Evaluate the PR state:
    2. **Deployment actions:** follow `<N1_ROOT>/references/deployment-actions.md` § Parse (already read at entry; do not re-read) with `PRS=<n>` and `OUT=$N1_HOME/scratch/deploy-actions-<n>.tsv`. `### Before release` items are deferred (`deferred:<M>`): they never count in `unticked`, are never walked here or written to the runbook, and Step 4 reports them.
       - `fetch-failed:#<n>` → "Could not read the PR #<n> body, so its deployment actions are unknown. Re-run `/n1:n1-finish`." **STOP.**
       - `unticked:0` → nothing to do.
-      - `mode:runbook` (headless run) with any unticked row → § Runbook with `ID=<ID>` and an empty `SHA`. Report "Deployment actions pending for <ID>. Resume with `n1-finish <ID>` (runbook in N1 memory)." **STOP.**
+      - `mode:runbook` (headless run) with any unticked row other than an `after` row that § Command classifies `check` → § Runbook with `ID=<ID>` and an empty `SHA`. Report "Deployment actions pending for <ID>. Resume with `n1-finish <ID>` (runbook in N1 memory)." **STOP.** When every unticked row is such an `after` check, continue to 3.3 and 3.4 (Step 4 runs the checks after the watched deploy).
       - `mode:walk` with `before` rows → § Walk with `PHASE=before` (its `check` rows run without a prompt; a manual row you can perform offers Run it for me). `WALK=aborted` → "Merge blocked: before-deploy actions are not complete. Re-run `/n1:n1-finish` when ready; ticked actions are not repeated." **STOP.**
       - `after` rows wait for Step 4.
    3. **Without `merge-on-finish:yes`:** report "PR #<n> is open. Merge it, then re-run /n1:n1-finish." **STOP.**
