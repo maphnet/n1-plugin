@@ -27,12 +27,22 @@ n1_step_end "local-testing" 11 skipped '{"action_type":"smoke_deferred","skip_re
 ```
 Skip to Step 10 (PR CREATION).
 
-> **ORCHESTRATOR GUARDRAIL (local testing): do not run test suites, `pytest`/`make test`/`npm test`, coverage runs, package installs (`pip`, `uv`, `npm`), interpreter/venv discovery or repair, or app/infrastructure startup in this step. All execution belongs to the developer spawn in 9c. If the environment is broken, the developer reports it and it is routed through the `local_test_env_failure` escalation — the orchestrator never debugs it inline. The only permitted orchestrator commands here are the memory/config helpers, `git diff --stat` for the auto-skip check, removing a stale `local-test-plan.md` and `test -s` on it, and the Ensure Dependencies fast path.**
+> **ORCHESTRATOR GUARDRAIL (local testing): do not run test suites, `pytest`/`make test`/`npm test`, coverage runs, package installs (`pip`, `uv`, `npm`), interpreter/venv discovery or repair, or app/infrastructure startup in this step. All execution belongs to the developer spawn in 9c. If the environment is broken, the developer reports it and it is routed through the `local_test_env_failure` escalation — the orchestrator never debugs it inline. The only permitted orchestrator commands here are the memory/config helpers, `git diff --name-only` and `n1_classify_local_test_skip` for the auto-skip check, removing a stale `local-test-plan.md` and `test -s` on it, and the Ensure Dependencies fast path.**
 
-**Auto-skip conditions (even when enabled):**
-- If the diff against the default branch contains ONLY non-runtime files (`.md`, `.txt`, `.yml`/`.yaml` config, `.gitignore`, `LICENSE`, `CHANGELOG`) → skip with message: "Local testing skipped — documentation/config-only changes."
-- If `implementation.md` indicates no runtime-affecting code was modified → skip.
-- Log skip reason in overview under `## Key Decisions`, then run `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"auto_skip"}'`.
+**Auto-skip (even when enabled):** skip only when every changed file is non-runtime (docs, `.gitignore`; any YAML or env file is runtime). A failed or empty diff never skips. Run via Bash:
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/classify.sh"
+SB=$(n1_story_base) || { echo "ERROR: invalid story base" >&2; exit 1; }
+BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_REF=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || { [ -n "$SB" ] && echo "origin/$SB"; } || n1_config_val '.git.defaultBranch' )
+BASE=$(git merge-base "$BASE_REF" HEAD 2>/dev/null || git rev-parse HEAD~1 2>/dev/null || echo "HEAD")
+CHANGED_FILES=$(git diff --name-only "$BASE" 2>/dev/null || true)
+SKIP=$(n1_classify_local_test_skip "$CHANGED_FILES")
+n1_record_decision local-testing-auto-skip "$SKIP" '{}' "skip=$SKIP"
+echo "LOCAL_TESTING_AUTO_SKIP=$SKIP"
+[ "$SKIP" = "true" ] && n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"auto_skip"}'
+```
+If `LOCAL_TESTING_AUTO_SKIP=true`: log under `## Key Decisions`: "Local testing skipped — documentation-only changes." Skip to Step 10 (PR CREATION).
 
 **QA dedup gate (`test` mode only):** In `live` mode pytest-only QA does not cover infrastructure or live endpoints, so the gate never skips there; it still captures `QA_RUNNER_CMDS` for the planner. Run via Bash, substituting the resolved mode:
 ```bash

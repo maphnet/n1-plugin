@@ -251,4 +251,28 @@ foo/.claude-plugin/plugin.json")"
 BUMP_PATHS=$(grep -o '^set_version [^ ]*' "$(dirname "$0")/../scripts/bump-version.sh" | awk '{print $2}' | sort | tr '\n' ' ')
 assert_eq "alr: manifest paths match bump-version.sh" "$(printf '%s\n%s\n' "$M1" "$M2" | sort | tr '\n' ' ')" "$BUMP_PATHS"
 
+# compose rule and local-test skip predicate (N1-558)
+assert_eq "compose.yaml -> build" "build" "$(n1_classify_path compose.yaml)"
+assert_eq "compose.yml -> build" "build" "$(n1_classify_path compose.yml)"
+for f in helm/values.yaml k8s/deploy.yaml config/app.yaml .env.example; do
+  assert_eq "config stays config: $f" "config" "$(n1_classify_path "$f")"
+done
+for f in compose.yaml compose.yml docker-compose.yml helm/values.yaml k8s/deploy.yaml config/app.yaml .env.example docs/schema.yaml; do
+  assert_eq "lts: runtime $f" "false" "$(n1_classify_local_test_skip "$f")"
+done
+for f in notes.md a.txt LICENSE CHANGELOG .gitignore; do
+  assert_eq "lts: non-runtime $f" "true" "$(n1_classify_local_test_skip "$f")"
+done
+assert_eq "lts: docs list" "true" "$(n1_classify_local_test_skip "README.md
+docs/guide.md
+.gitignore")"
+assert_eq "lts: docs + compose" "false" "$(n1_classify_local_test_skip "README.md
+compose.yaml")"
+assert_eq "lts: empty" "false" "$(n1_classify_local_test_skip "")"
+assert_eq "lts: manifests only" "false" "$(n1_classify_local_test_skip "$M1
+$M2")"
+assert_eq "lts: docs + manifests" "true" "$(n1_classify_local_test_skip "README.md
+$M1
+$M2")"
+
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
