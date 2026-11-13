@@ -1,6 +1,6 @@
 ---
 name: n1-ticket
-description: "Create a single backlog ticket from conversation context and/or brain dump: /n1:n1-ticket [description]"
+description: "Create one backlog ticket (Task, Bug, Story or Epic, chosen by scope) from conversation context and/or brain dump; also use for requests like 'create a Story' or 'file an Epic': /n1:n1-ticket [description]"
 argument-hint: "[description or brain dump text]"
 model: sonnet
 effort: medium
@@ -10,7 +10,7 @@ effort: medium
 
 **Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context. "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
 
-Create a single tracker ticket (Task or Bug) from the current conversation context and/or a provided description. The ticket is created as a backlog item — no status transitions, no branch creation.
+Create a single tracker ticket (Task, Bug, Story or Epic) from the current conversation context and/or a provided description. The ticket is created as a backlog item — no status transitions, no branch creation. Story and Epic are created without children; n1-refine breaks them down.
 
 **Announce at start:** "I'm using the n1-ticket skill to create a backlog ticket."
 
@@ -27,8 +27,8 @@ If the output shows `N1_NOT_CONFIGURED` — N1 is not configured. Tell the user:
 
 Execute steps in order. Read each step file and follow its instructions before proceeding to the next.
 
-1. **Compose** — context capture, sanity check, tracker gate, light analysis, light discovery
+1. **Compose** — context capture, scope routing, tracker gate, light analysis, light discovery
    Read `<N1_ROOT>/skills/n1-ticket/steps/01-compose.md`
 
-2. **Create** — bug type detection, approval gate, create ticket, done
+2. **Create** — type detection, approval gate, duplicate check, create ticket, done
    Read `<N1_ROOT>/skills/n1-ticket/steps/02-create.md`

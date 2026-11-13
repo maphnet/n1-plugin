@@ -101,6 +101,32 @@ check('n1-ticket has a jc-mcp create branch',
       'starts with `jcm_`' in ticket_create and '`issueType`' in ticket_create)
 check('n1-ticket keeps the Atlassian create branch', '`issueTypeName`' in ticket_create)
 
+# N1-297: n1-ticket files Task, Bug, Story or Epic; Story/Epic always ask; one ticket only.
+ticket_skill = Path('skills/n1-ticket/SKILL.md').read_text()
+desc = line_with(ticket_skill, 'description:')
+check('n1-ticket description routes Story and Epic requests', 'Story' in desc and 'Epic' in desc)
+step2 = section(collection, '## Step 2: Scope Routing', '## Step 3')
+check('n1-ticket Step 2 sets TICKET_TYPE from SCOPE_TYPE', 'TICKET_TYPE=<SCOPE_TYPE>' in step2)
+check('n1-ticket Step 2 has no handoff', 'handoff' not in step2.lower())
+check('YouTrack type check covers Story and Epic', 'includes the `TICKET_TYPE` value' in creation)
+step7 = section(creation, '## Step 7: Approval Gate', '## Step 7.5')
+check('Story/Epic creation always asks',
+      '**Story or Epic:** always ask the user; never auto-select.' in step7)
+check('Story/Epic gate marks exactly one option Recommended', step7.count('(Recommended)') == 1)
+check('headless never auto-creates a Story or Epic',
+      'N1_HEADLESS=1' in step7 and 'create nothing' in step7)
+check('n1-ticket creates one ticket, never children',
+      'exactly one ticket and never child tickets' in creation)
+check('n1-ticket never passes parentKey',
+      'never pass `parentKey`' in creation and 'parentKey:' not in creation)
+step9 = creation[creation.find('## Step 9: Done'):] if '## Step 9: Done' in creation else ''
+check('Story/Epic result offers n1-refine', 'Break it down now with n1-refine?' in step9)
+check('refine offer marks exactly one option Recommended', step9.count('(Recommended)') == 1)
+check('refine offer invokes n1-refine on the new key',
+      'invoke skill `n1-refine` with `<TICKET_ID>`' in step9)
+check('both option lists use the shared question format',
+      'references/question-format.md' in step7 and 'references/question-format.md' in step9)
+
 hook = Path('hooks/session-start.sh').read_text()
 hb_start = hook.find('HOST_BLOCK="')
 hb_end = hook.find('CONFIG_FILE=$(n1_config_file)', hb_start)
