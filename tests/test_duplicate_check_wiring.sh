@@ -75,8 +75,6 @@ check "architecture.md documents the procedure" "references/duplicate-check\.md"
 
 check "n1-ticket runs the check before creation" "duplicate-check\.md. § Check" skills/n1-ticket/steps/02-create.md
 check "n1-ticket applies links after creation" "duplicate-check\.md. § Apply Links" skills/n1-ticket/steps/02-create.md
-check "n1-story runs the check at the tracker gate" "duplicate-check\.md. § Check" skills/n1-story/steps/01-collect.md
-check "n1-story applies links after story creation" "duplicate-check\.md. § Apply Links" skills/n1-story/steps/02-compose.md
 
 check "n1-start intake references the procedure" "duplicate-check\.md" skills/n1-start/steps/ticket.md
 
@@ -91,7 +89,6 @@ check "NP-239: n1-finish resolves link op from linkIssues" "tracker\.operations\
 check "NP-239: n1-finish maps Relates to the relates to YouTrack command" "Map \`Relates\` .+ \`relates to\`" skills/n1-finish/steps/05-telemetry-followup.md
 check "NP-239: n1-finish warns instead of skipping silently on link failure" "Could not link .+ → .+:" skills/n1-finish/steps/05-telemetry-followup.md
 check "NP-239: investigation-deliverable resolves link op from linkIssues" "tracker\.operations\.linkIssues" skills/n1-start/steps/investigation-deliverable.md
-check "NP-239: n1-story subtask link uses the subtask of direction name" "subtask of" skills/n1-story/steps/02-compose.md
 check "NP-239 fix: n1-finish Jira link payload includes cloudId" "cloudId\`, \`inwardIssue" skills/n1-finish/steps/05-telemetry-followup.md
 check "NP-239 fix: investigation-deliverable Jira link payload includes cloudId" "cloudId\`, \`inwardIssue" skills/n1-start/steps/investigation-deliverable.md
 

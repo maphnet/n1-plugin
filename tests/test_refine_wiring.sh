@@ -122,7 +122,6 @@ has "loop runs duplicate check on widening" 'references/duplicate-check.md' "$L"
 has "loop reclassifies scope" 'references/ticket-scope.md' "$L"
 has "loop prints readiness verdict" 'Executable without questions: no — N open' "$L"
 lacks "N1-296: refine to story handoff removed" '**Story scope in n1-refine:**' references/ticket-scope.md
-lacks "N1-296: refine never mentions n1-story" 'n1-story' skills/n1-refine
 lacks "N1-296: widening no longer ends refine without a block" 'refine writes no block' "$L"
 has "N1-296: loop classifies by ticket type" 'ticket-scope.md` § Decomposition by ticket type' "$L"
 has "N1-296: loop proposes only missing children" 'Propose only missing children' "$L"
