@@ -156,4 +156,17 @@ check "N1-555: analyst writes no marker when the link read failed" "never write 
 check "N1-555: analyst writes neither table nor marker on an unrecognized link type" "Any other bare name is unrecognized.*no table and no marker" "$PA"
 check "N1-555: analyst sanitises pipes in summaries" "Replace .\|. and newlines in a summary with a space" "$PA"
 
+# N1-555: blocker-check reuses the ticket.md Linked Tickets record for CALLER=start; queue stays live
+check "N1-555: Gate prints N1_HOME for the ticket.md path" "N1_HOME=%s" "$B"
+check "N1-555: Source rule applies to CALLER=start only" "\*\*Source\*\* \(.CALLER=start. only" "$B"
+check "N1-555: Source reads the ticket.md Linked Tickets table" "A .### Linked Tickets. table" "$B"
+check "N1-555: blockers are is blocked by and depends on rows" "rows whose Relation is .is blocked by. or .depends on." "$B"
+check "N1-555: table key must match the key regex" "Ticket matching .\^\[A-Z\]\[A-Z0-9_\]\*-\[0-9\]\+\\$." "$B"
+check "N1-555: unusable table falls back to the live call" "the table is unusable: use the live call" "$B"
+check "N1-555: none marker returns no blockers without a call" "linked-tickets: none -->.*return an empty .OPEN_BLOCKERS. with no call" "$B"
+check "N1-555: queue caller keeps the live call" "\*\*Live call\*\* \(.CALLER=queue." "$B"
+check "N1-555: table cells are untrusted data" "ticket\.md table cell.*untrusted data" "$B"
+check "N1-555: ticket step states read ownership" "Read ownership.*analyst.*getIssueLinks.*orchestrator owns .getTransitions." "$T"
+check "N1-555: ticket step blocker check reuses the Linked Tickets record" "Blocker check.*reuses ticket\.md .### Linked Tickets." "$T"
+
 exit $FAIL
