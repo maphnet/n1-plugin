@@ -72,7 +72,7 @@ PR: <url>
 
 Never close Gate 3 with an offer or question to fix Codex findings or file follow-ups (filed by `followup-filing.md`); unfixed Codex items are informational only, whether or not triage ran.
 
-Rules: 1) Verbatim commands/results from qa.md/local-testing.md. 2) Skipped steps printed. 3) `Ticket:` omitted when `ticket_url` is empty. 4) `PR:` is Gate 3's final field.
+Rules: 1) Verbatim commands/results from qa.md/local-testing.md. 2) Skipped steps printed; for local testing skipped with `no_live_verification`, print the stub's line `Local testing: not run — no live verification configured for this project`. 3) `Ticket:` omitted when `ticket_url` is empty. 4) `PR:` is Gate 3's final field.
 
 **Investigation-mode:** use `=== <ID> — done ===`; print Background, Summary, Metrics, Findings (capped), Recommendations, Next Steps from `investigation.md`. Append `Ticket: <TICKET_URL>` (omit if empty). Add the `Follow-ups:` line as in Gate 3 (omit if § File skipped). Full text pointer if Findings exceed budget.
 

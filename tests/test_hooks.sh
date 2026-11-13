@@ -1069,7 +1069,7 @@ rm -rf "$N1_HOME/queue"
 
 # --- session-start: local-testing enable offer (NP-222) ----------------------
 LTP="$T/ltproj"; mkdir -p "$LTP"; touch "$LTP/compose.yaml"
-# N1-321: the six offer cases are independent (config is the only input), so each runs concurrently against its own
+# N1-321: the offer cases are independent (config is the only input), so each runs concurrently against its own
 # N1_HOME copy; results are collected in order and asserted with the original labels.
 has_offer_bg() {  # has_offer_bg <idx> <config json> [project dir]: starts one session-start run, answer in $T/lt-<idx>.out
   local d="$T/lt-$1"; mkdir -p "$d/home"; printf '%s\n' "$2" > "$d/home/config.json"
@@ -1085,14 +1085,22 @@ has_offer_bg 3 '{"localTesting":{"enabled":false,"autoLive":true}}'
 has_offer_bg 4 '{"localTesting":{"mode":"test"}}'
 has_offer_bg 5 '{"localTesting":{"enabled":false,"mode":"test"}}'
 mkdir -p "$T/ltproj-bare"; has_offer_bg 6 '{}' "$T/ltproj-bare"  # same project minus compose.yaml (no race with the runs above)
+has_offer_bg 7 '{"localTesting":{"mode":"smoke"}}'
+has_offer_bg 8 '{"localTesting":{"mode":"test","autoLive":true}}'
 wait "${LT_PIDS[@]}" || true  # not a bare wait: that would also wait for the policy server
 rm "$LTP/compose.yaml"
 assert_eq "enable offer injected when live is off and compose exists" "yes" "$(cat "$T/lt-1/out")"
 assert_eq "no enable offer when live already resolves" "no" "$(cat "$T/lt-2/out")"
 assert_eq "enable offer when localTesting disabled" "yes" "$(cat "$T/lt-3/out")"
-assert_eq "no enable offer when mode explicitly set to test" "no" "$(cat "$T/lt-4/out")"
-assert_eq "no enable offer even when disabled, if mode explicitly set (never overwrite a deliberate choice)" "no" "$(cat "$T/lt-5/out")"
+assert_eq "enable offer when mode is legacy test (N1-559 AC8)" "yes" "$(cat "$T/lt-4/out")"
+assert_eq "enable offer when disabled with legacy mode test (N1-559)" "yes" "$(cat "$T/lt-5/out")"
 assert_eq "no enable offer without a compose file" "no" "$(cat "$T/lt-6/out")"
+assert_eq "no enable offer when mode is smoke" "no" "$(cat "$T/lt-7/out")"
+assert_eq "no enable offer when legacy test + autoLive already resolve live" "no" "$(cat "$T/lt-8/out")"
+assert_eq "offer Yes deletes legacy mode test (N1-559 AC8)" "1" \
+    "$(grep -cF 'if .localTesting.mode == \"test\" then del(.localTesting.mode) else . end' "$REPO_ROOT/hooks/session-start.sh")"
+assert_eq "offer carries the once-per-conversation rule shared with n1-start" "1" \
+    "$(grep -cF 'Skip this offer if N1 already asked to enable live local testing in this conversation.' "$REPO_ROOT/hooks/session-start.sh")"
 echo '{}' > "$N1_HOME/config.json"
 
 # --- notify-question hook (N1-103) --------------------------------------------

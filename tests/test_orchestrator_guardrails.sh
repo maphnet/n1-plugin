@@ -37,9 +37,14 @@ assert_contains "local-testing: orchestrator prohibition" \
 assert_contains "local-testing: developer env step 0" \
     "skills/n1-start/procedures/local-testing-run.md" \
     "0. Environment check: before anything else"
-assert_contains "local-testing: QA dedup gate requires test mode" \
+assert_contains "local-testing: QA runner commands still captured for the planner" \
     "skills/n1-start/steps/local-testing.md" \
-    'if [ -z "$NON_PYTEST" ] && [ "$LOCAL_TESTING_MODE" = "test" ]; then'
+    'echo "QA_RUNNER_CMDS<<EOF"'
+if grep -qE 'qa_dedup|QA_DEDUP_SKIP|LOCAL_TESTING_MODE" = "test"' "$REPO_ROOT/skills/n1-start/steps/local-testing.md"; then
+    echo "FAIL: local-testing: QA dedup gate removed (N1-559)"; FAIL=$((FAIL+1))
+else
+    echo "PASS: local-testing: QA dedup gate removed (N1-559)"; PASS=$((PASS+1))
+fi
 assert_contains "local-testing: auto-skip uses classifier" \
     "skills/n1-start/steps/local-testing.md" \
     'n1_classify_local_test_skip "$CHANGED_FILES"'

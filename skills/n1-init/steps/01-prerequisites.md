@@ -33,7 +33,7 @@ Check for N1 configuration in priority order:
            State: <$N1_HOME path>
            Tracker: <tracker.type> (<tracker.projectKey>) | None
            PR mode: <git.prMode>
-           Local testing: <localTesting.enabled> (<localTesting.mode>)
+           Local testing: <localTesting.enabled> (<n1_resolve_local_testing_mode output: live, smoke or none>)
 
          To reconfigure, run: /n1-init reconfigure
          ```

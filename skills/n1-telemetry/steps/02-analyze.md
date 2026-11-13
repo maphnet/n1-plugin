@@ -133,7 +133,7 @@ Across runs with `qa_overlap_pct` not null:
 - Runs with 0% overlap (fully complementary to QA): N (X%)
 - Runs with >50% overlap (mostly duplicating QA): N (X%)
 
-A low average overlap confirms local testing is complementary to the QA step rather than redundant. A high overlap may indicate the QA dedup gate threshold needs tuning.
+A low average overlap confirms local testing is complementary to the QA step rather than redundant. A high overlap may indicate the planner is duplicating the QA Runner commands it receives.
 
 Runs with `qa_overlap_pct: null` (no QA runner commands found or pre-v2.97.0): excluded from this calculation — note count separately.
 

@@ -696,8 +696,8 @@ n1_review_skip_doc_config() {
 n1_compose_file() {
     # Usage: n1_compose_file [dir]. Prints the first matching root compose filename and returns 0,
     # or prints nothing and returns 1. Single source of truth for the compose-name list (NP-222) --
-    # n1_resolve_local_testing_mode, hooks/session-start.sh's enable offer, and n1-init step 08 all
-    # call this instead of each keeping their own copy of the list.
+    # n1_resolve_local_testing_mode, n1_detect_start_command, hooks/session-start.sh's enable offer,
+    # and n1-init step 08 all call this instead of each keeping their own copy of the list.
     local dir="${1:-.}" f
     for f in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
         if [ -f "$dir/$f" ]; then printf '%s' "$f"; return 0; fi
@@ -707,16 +707,87 @@ n1_compose_file() {
 
 n1_resolve_local_testing_mode() {
     # Usage: n1_resolve_local_testing_mode [repo_dir]
-    # Prints the local-testing mode. Precedence: explicit localTesting.mode >
-    # localTesting.autoLive=true + root compose file -> live > startCommand set -> live > test.
+    # Prints live, smoke or none (N1-559 removed mode "test"). Precedence: explicit localTesting.mode
+    # "live"/"smoke" > localTesting.autoLive=true + root compose file -> live > startCommand set -> live
+    # > none. Any other explicit mode value (legacy "test") is ignored as if unset.
     local dir="${1:-.}" mode
     mode=$(n1_config_val '.localTesting.mode')
-    if [ -n "$mode" ]; then printf '%s' "$mode"; return 0; fi
+    case "$mode" in live|smoke) printf '%s' "$mode"; return 0 ;; esac
     if [ "$(n1_config_val '.localTesting.autoLive')" = "true" ] && n1_compose_file "$dir" >/dev/null; then
         printf 'live'; return 0
     fi
     if [ -n "$(n1_config_val '.localTesting.startCommand')" ]; then printf 'live'; return 0; fi
-    printf 'test'
+    printf 'none'
+}
+
+n1_detect_start_command() {
+    # Usage: n1_detect_start_command [dir]. Prints the suggested local start command and returns 0, or
+    # prints nothing and returns 1. Code form of n1-init step 08's Startup Detection table (N1-559),
+    # highest priority first: root compose file, Makefile up/run/serve/start/dev target, package.json
+    # dev then start script (needs jq), manage.py, Procfile web: line (else heroku local).
+    local dir="${1:-.}" t
+    if n1_compose_file "$dir" >/dev/null; then printf 'docker compose up -d'; return 0; fi
+    if [ -f "$dir/Makefile" ]; then
+        t=$(grep -m1 -oE '^(up|run|serve|start|dev):' "$dir/Makefile" | tr -d ':')
+        if [ -n "$t" ]; then printf 'make %s' "$t"; return 0; fi
+    fi
+    if [ -f "$dir/package.json" ] && command -v jq >/dev/null 2>&1; then
+        t=$(jq -r '.scripts // {} | if .dev then "npm run dev" elif .start then "npm start" else empty end' "$dir/package.json" 2>/dev/null)
+        if [ -n "$t" ]; then printf '%s' "$t"; return 0; fi
+    fi
+    if [ -f "$dir/manage.py" ]; then printf 'python manage.py runserver'; return 0; fi
+    if [ -f "$dir/Procfile" ]; then
+        t=$(sed -n 's/^web:[[:space:]]*//p' "$dir/Procfile" | head -1)
+        printf '%s' "${t:-heroku local}"; return 0
+    fi
+    return 1
+}
+
+n1_local_testing_offer() {
+    # Usage: n1_local_testing_offer [dir]. N1-559: decides the attended n1-start live-testing offer.
+    # Prints "compose" (root compose file) or "start:<cmd>" (other detected start script) when
+    # localTesting.enabled is not false, the resolved mode is none and localTesting.autoLive is absent
+    # (an explicit false means declined: never asked again). Prints nothing otherwise, and also when the
+    # config file is absent or jq is missing (n1_local_testing_offer_write could not persist an answer).
+    # The <cmd> text is for display only: never paste it into a shell literal. Always returns 0.
+    local dir="${1:-.}" cmd f
+    f=$(n1_config_file)
+    { [ -f "$f" ] && command -v jq >/dev/null 2>&1; } || return 0
+    [ "$(n1_config_val '.localTesting.enabled')" != "false" ] || return 0
+    [ "$(n1_resolve_local_testing_mode "$dir")" = "none" ] || return 0
+    [ -z "$(n1_config_val '.localTesting.autoLive')" ] || return 0
+    cmd=$(n1_detect_start_command "$dir") || return 0
+    if n1_compose_file "$dir" >/dev/null; then printf 'compose'; else printf 'start:%s' "$cmd"; fi
+}
+
+n1_local_testing_offer_write() {
+    # Usage: n1_local_testing_offer_write <compose|start|start-stdin|no> [dir]. N1-559: persists the offer
+    # answer. compose -> autoLive=true; start -> startCommand=<n1_detect_start_command [dir]>;
+    # start-stdin -> startCommand=<stdin> (user-edited command, passed through a quoted heredoc so
+    # repo- or user-derived text is never pasted into a shell literal); compose/start/start-stdin delete
+    # a legacy mode "test". no -> autoLive=false. Returns 1 (config untouched) in headless runs, without
+    # jq or config, on a bad answer, an empty command or one with control characters, or a failed write.
+    local f filter cmd="" tmp drop='| if .localTesting.mode == "test" then del(.localTesting.mode) else . end'
+    [ "${N1_HEADLESS:-}" = 1 ] && return 1
+    f=$(n1_config_file)
+    { [ -f "$f" ] && command -v jq >/dev/null 2>&1; } || return 1
+    case "$1" in
+        no) filter='.localTesting.autoLive = false' ;;
+        compose) filter=".localTesting.autoLive = true $drop" ;;
+        start|start-stdin)
+            if [ "$1" = start ]; then cmd=$(n1_detect_start_command "${2:-.}") || return 1; else cmd=$(cat); fi
+            cmd="${cmd%$'\r'}"
+            [[ -n "$cmd" && ! "$cmd" =~ [[:cntrl:]] ]] || return 1
+            filter=".localTesting.startCommand = \$cmd $drop" ;;
+        *) return 1 ;;
+    esac
+    tmp="$f.tmp"
+    # Write a tmp file with the original mode, then rename over the config: readers never see a partial file.
+    if cp -p "$f" "$tmp" && jq --arg cmd "$cmd" "$filter" "$f" > "$tmp" 2>/dev/null; then
+        mv -f "$tmp" "$f" || { rm -f "$tmp"; return 1; }
+    else
+        rm -f "$tmp"; return 1
+    fi
 }
 
 n1_copy_worktree_files() {
