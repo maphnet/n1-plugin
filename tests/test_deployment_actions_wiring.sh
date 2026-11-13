@@ -413,4 +413,8 @@ check "n1-pr lists the unticked before-deploy item" "^before-deploy: Manual: set
 check "n1-pr listing text" "Do these before merging; ./n1:n1-finish <ID>. walks them while the PR is open\." "$PP"
 check "n1-pr Report points to the before-deploy listing" "before-deploy listing from .01-prepare\.md." skills/n1-pr/steps/03-codex-review.md
 
+# --- N1-568: architecture.md documents Check: items and Run it for me
+check "architecture.md documents Check: items" "after .Check:. items \(read-only verification" references/architecture.md
+check "architecture.md documents Run it for me" "Run it for me" references/architecture.md
+
 exit $FAIL
