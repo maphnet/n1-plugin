@@ -56,6 +56,21 @@ has "outcome: missing implementation.md message" "$OUT" "ERROR: implementation.m
 printf '# impl\n' > "$MEM/implementation.md"
 eq "outcome: implementation.md present -> rc 0" "0" "$(n1_pr_outcome >/dev/null 2>&1; echo $?)"
 
+# --- n1_pr_mode / prMode line / gate skip (N1-567) ---
+cfg() { echo "$1" > "$N1_HOME/config.json"; }
+cfg '{"git":{"prMode":"ready"}}'; eq "prMode: git.prMode ready" "ready" "$(n1_pr_mode)"
+cfg '{}'; eq "prMode: absent -> draft" "draft" "$(n1_pr_mode)"
+cfg '{"git":{"draftPR":true}}'; eq "prMode: draftPR true -> draft" "draft" "$(n1_pr_mode)"
+cfg '{"git":{"draftPR":false}}'; eq "prMode: draftPR false -> ready" "ready" "$(n1_pr_mode)"
+cfg '{"git":{"prMode":"skip"}}'; eq "prMode: skip passthrough" "skip" "$(n1_pr_mode)"
+cfg '{"git":{"prMode":"draft","draftPR":false}}'; eq "prMode: prMode wins over draftPR" "draft" "$(n1_pr_mode)"
+cfg '{"git":{"prMode":"ready"}}'; OUT=$(n1_pr_entry 2>&1)
+has "entry: prints prMode line" $'\n'"$OUT"$'\n' $'\nprMode=ready\n'
+[[ "$OUT" == *prMode=*route:* ]] && ok "entry: prMode before route" || no "entry: prMode before route"
+cfg '{"git":{"prMode":"skip"}}'; eq "gate: skip returns early" "PRE_PR_GATE=0" "$(n1_pr_gate 2>&1)"
+cfg '{}'
+has "wiring: pr.md points at the printed prMode= line" "$(cat "$REPO_ROOT/skills/n1-start/steps/pr.md")" 'the `prMode=` line printed by `n1_pr_entry`'
+
 # --- step wiring ---
 STEP="$REPO_ROOT/skills/n1-start/steps/pr.md"
 fence() { awk -v n="$2" '/^```bash$/{c++; if (c==n) {f=1; next}} /^```$/{f=0} f' "$1" | sed '/^source /d'; }

@@ -3,7 +3,7 @@
 
 Do not read full reports — n1-pr extracts what it needs via `grep`; tech-writer reads files directly.
 
-Resolve `prMode`: `git.prMode` if present; else `git.draftPR === false` → `"ready"`; else → `"draft"`.
+`prMode` is the `prMode=` line printed by `n1_pr_entry` below (`skip`, `ready` or `draft`); never read `git.prMode` yourself.
 
 <!-- n1:step-snippet-exception: pre-PR review gate fence runs before the step begins (N1-439) -->
 **Pre-PR review gate** (N1-439; skip when `prMode` is `"skip"`): a commit made after Step 7 with no head record (local-test fix, 7b TQ fix, regression fix, "Fix manually", ad-hoc) makes `n1_review_pin set` refuse the PR head, so it is re-reviewed here first.
