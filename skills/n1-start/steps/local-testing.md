@@ -27,7 +27,7 @@ n1_step_end "local-testing" 11 skipped '{"action_type":"smoke_deferred","skip_re
 ```
 Skip to Step 10 (PR CREATION).
 
-> **ORCHESTRATOR GUARDRAIL (local testing): do not run test suites, `pytest`/`make test`/`npm test`, coverage runs, package installs (`pip`, `uv`, `npm`), interpreter/venv discovery or repair, or app/infrastructure startup in this step. All execution belongs to the developer spawn in 9c. If the environment is broken, the developer reports it and it is routed through the `local_test_env_failure` escalation — the orchestrator never debugs it inline. The only permitted orchestrator commands here are the memory/config helpers, `git diff --name-only` and `n1_classify_local_test_skip` for the auto-skip check, removing a stale `local-test-plan.md` and `test -s` on it, and the Ensure Dependencies fast path.**
+> **ORCHESTRATOR GUARDRAIL (local testing): do not run test suites, `pytest`/`make test`/`npm test`, coverage runs, package installs (`pip`, `uv`, `npm`), interpreter/venv discovery or repair, or app/infrastructure startup in this step. All execution belongs to the developer spawn in 9c. If the environment is broken, the developer reports it and it is routed through the `local_test_env_failure` escalation — the orchestrator never debugs it inline. The only permitted orchestrator commands here are the memory/config helpers, `git diff --no-renames --name-only` and `n1_classify_local_test_skip` for the auto-skip check, removing a stale `local-test-plan.md` and `test -s` on it, and the Ensure Dependencies fast path.**
 
 **Auto-skip (even when enabled):** skip only when every changed file is non-runtime (docs, `.gitignore`; any YAML or env file is runtime). An unresolvable base, a failed diff or an empty diff never skips. Run via Bash:
 ```bash
@@ -36,7 +36,7 @@ source "$N1_ROOT/lib/classify.sh"
 SB=$(n1_story_base) || { echo "ERROR: invalid story base" >&2; exit 1; }
 BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_REF=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || { [ -n "$SB" ] && echo "origin/$SB"; } || n1_config_val '.git.defaultBranch' )
 SKIP=false
-if BASE=$(git merge-base "$BASE_REF" HEAD 2>/dev/null) && CHANGED_FILES=$(git diff --name-only "$BASE" 2>/dev/null); then SKIP=$(n1_classify_local_test_skip "$CHANGED_FILES"); fi
+if BASE=$(git merge-base "$BASE_REF" HEAD 2>/dev/null) && CHANGED_FILES=$(git diff --no-renames --name-only "$BASE" 2>/dev/null); then SKIP=$(n1_classify_local_test_skip "$CHANGED_FILES"); fi
 n1_record_decision local-testing-auto-skip "$SKIP" '{}' "skip=$SKIP"
 echo "LOCAL_TESTING_AUTO_SKIP=$SKIP"
 if [ "$SKIP" = "true" ]; then n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"auto_skip"}'; fi
