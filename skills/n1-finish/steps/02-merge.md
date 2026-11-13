@@ -18,7 +18,7 @@ Evaluate the PR state:
       - `fetch-failed:#<n>` → "Could not read the PR #<n> body, so its deployment actions are unknown. Re-run `/n1:n1-finish`." **STOP.**
       - `unticked:0` → nothing to do.
       - `mode:runbook` (headless run) with any unticked row → § Runbook with `ID=<ID>` and an empty `SHA`. Report "Deployment actions pending for <ID>. Resume with `n1-finish <ID>` (runbook in N1 memory)." **STOP.**
-      - `mode:walk` with `before` rows → § Walk with `PHASE=before`. `WALK=aborted` → "Merge blocked: before-deploy actions are not complete. Re-run `/n1:n1-finish` when ready; ticked actions are not repeated." **STOP.**
+      - `mode:walk` with `before` rows → § Walk with `PHASE=before` (its `check` rows run without a prompt; a manual row you can perform offers Run it for me). `WALK=aborted` → "Merge blocked: before-deploy actions are not complete. Re-run `/n1:n1-finish` when ready; ticked actions are not repeated." **STOP.**
       - `after` rows wait for Step 4.
    3. **Without `merge-on-finish:yes`:** report "PR #<n> is open. Merge it, then re-run /n1:n1-finish." **STOP.**
    4. **With `merge-on-finish:yes`:** run § 3.4 of `merge-on-finish.md` (read in 3.1; do not re-read).

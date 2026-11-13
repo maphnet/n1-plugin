@@ -378,4 +378,17 @@ check "tech-writer Format lists Check: as the third kind" "or text starting with
 check "tech-writer template shows a Check: line" "^- \[ \] Check: <" "$TW"
 check "tech-writer reconcile never converts existing lines" "existing lines are never converted to .Check:." "$TW"
 
+# --- N1-568: n1-finish wiring (AC3, AC4, AC6, AC8; D1, D2, D9)
+F2=skills/n1-finish/steps/02-merge.md
+F4=skills/n1-finish/steps/04-close-ticket.md
+check "finish Step 2 runs before checks without a prompt" "check. rows run without a prompt" "$F2"
+check "finish Step 4 headless runs after checks first" "run § Check \(no prompt" "$F4"
+check "finish Step 4 headless closes on runbook:none" "runbook:none" "$F4"
+check "finish Step 4 walks late before rows with LATE=1" "LATE=1" "$F4"
+check "finish Step 4 labels late before rows deploy already ran" "deploy already ran" "$F4"
+check "finish Step 4 runs no check without a watched deploy" "no check runs without a watched deploy" "$F4"
+check "finish Step 6 Report carries deployment action outcomes" "^Deployment actions: " skills/n1-finish/steps/06-cleanup.md
+check "tail-worker treats a check item as no question" "runs without a prompt" agents/tail-worker.md
+check "handoff: passing checks never cause tail:prompt" "passing .check. items never stop it" skills/n1-finish/steps/handoff.md
+
 exit $FAIL
