@@ -283,9 +283,12 @@ eq "XW11 the filter runs on every incremental re-review" "1" "$(grep -cF 'Runs o
 # ---- docs (N1-345) ----
 ARCH=references/architecture.md
 eq "DOC1 architecture.md has a Review Fix Cap section" "1" "$(grep -cx '## Review Fix Cap' "$ARCH")"
-eq "DOC2 section documents NON_CONVERGING, the tie, the grant, the [granted] row and the filter" "5" "$(sed -n '/^## Review Fix Cap$/,/^## Codex Review$/p' "$ARCH" | grep -cE '^\*\*(NON_CONVERGING|Reach \(D13\)|One automatic extra round|`\[granted\]` row|Extra-round filter)')"
-eq "DOC3 architecture row text equals the helper row" "1" "$(grep -cF '| fix | quality | A | [granted] | review fix cap reached | auto extra round | ask the user |' "$ARCH")"
-eq "DOC4 tech-writer orders [granted] between [auto] and [asked]" "1" "$(grep -cF '`[auto]` before `[granted]` before `[asked]` within a tier' agents/tech-writer.md)"
+eq "DOC2 section documents the gate, states, contract, exit and filter" "5" "$(sed -n '/^## Review Fix Cap$/,/^## Codex Review$/p' "$ARCH" | grep -cE '^\*\*(Progress gate|Finding states|Developer contract|Exit at exhaustion|Out-of-scope filter)')"
+eq "DOC3 architecture no longer documents the grant helper" "0" "$(grep -cE 'n1_review_fix_grant|n1_review_fix_extra_round' "$ARCH")"
+eq "DOC4 tech-writer no longer orders [granted]" "0" "$(grep -c 'granted' agents/tech-writer.md)"
+eq "DOC6 architecture states default 3" "1" "$(grep -cF '`review.maxFixAttempts` (default 3) bounds FAIL fix cycles' "$ARCH")"
+eq "DOC7 n1-review states default 3" "1" "$(grep -cF '`review.maxFixAttempts` (default 3)' skills/n1-review/steps/01-analyze.md)"
+eq "DOC8 schema: all four loops default to 3" "1" "$(grep -cF 'all four loops default to 3' pipeline.schema.md)"
 eq "DOC5 n1-review no longer claims a fixed maximum of 2" "0" "$(grep -c 'Maximum 2 review-fix cycles' skills/n1-review/steps/01-analyze.md)"
 
 # ---- summary ----
