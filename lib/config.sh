@@ -1186,8 +1186,23 @@ _n1_clean_record() {
     return 0
 }
 
+# N1-583: "<defaultBranch>\t<sha>" for no-PR merge checks: sha of origin/<def>, else local <def>, else empty.
+# <def>: origin/HEAD, else git.defaultBranch, else main. --fetch: best-effort `git fetch origin <def>` first (a failed
+# fetch only leaves a stale origin ref, which under-reports). Usage: _n1_nopr_base [--fetch]
+_n1_nopr_base() {
+    local def sha
+    def=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null); def="${def#origin/}"
+    [ -n "$def" ] || def=$(n1_config_val '.git.defaultBranch' 2>/dev/null); def="${def:-main}"
+    [ "${1:-}" = --fetch ] && { GIT_TERMINAL_PROMPT=0 timeout 20 git fetch -q origin "$def" </dev/null >/dev/null 2>&1 || true; }
+    sha=$(git rev-parse -q --verify "refs/remotes/origin/$def^{commit}" 2>/dev/null) \
+        || sha=$(git rev-parse -q --verify "refs/heads/$def^{commit}" 2>/dev/null) || sha=""
+    printf '%s\t%s\n' "$def" "$sha"
+}
+
 # N1-339: ticket-keyed cleanup, the one entry point for n1-finish (last action), n1-clean --ticket and n1-clean general mode.
-# Usage: n1_clean_ticket <ID> <finish|clean|queue|general> [<headRef> <oid> <defaultBranch>]
+# Usage: n1_clean_ticket <ID> <finish|clean|queue|general|merged-nopr> [<headRef> <oid> <defaultBranch>]
+# merged-nopr (N1-583, n1-clean general mode after the user confirmed): no PR; the workspace_path tree is removed when
+# clean and its HEAD is an ancestor of origin/<default>; extra skips: no-base | spike | no-workspace.
 # finish passes the PR facts it already has (local merge: empty oid). Other triggers read pr_url from overview
 # (## Pending or ## Finish), require gh state MERGED and take headRefName/headRefOid/baseRefName from it; anything else
 # prints one "cleanup:skipped (<why>)" line and touches nothing. Never cwd: n1_finish_cleanup's exact branch match, else
@@ -1199,7 +1214,11 @@ n1_clean_ticket() {
     local url="" res="" st="" a main top="" gate="" out toks b="" nof=1
     [ "$trig" = finish ] && nof=0
     [[ "$id" =~ ^[A-Za-z][A-Za-z0-9]*-[0-9]+$ ]] || id=""
-    if [ "$trig" != finish ]; then
+    if [ "$trig" = merged-nopr ]; then
+        [ -n "$id" ] || { echo "cleanup:skipped (invalid-id)"; return 0; }
+        IFS=$'\t' read -r def oid <<<"$(_n1_nopr_base)"; hr=""
+        [ -n "$oid" ] || { _n1_clean_record "$id" "$trig" "cleanup:skipped (no-base)" "" ""; echo "cleanup:skipped (no-base)"; return 0; }
+    elif [ "$trig" != finish ]; then
         [ -n "$id" ] || { echo "cleanup:skipped (invalid-id)"; return 0; }
         url=$(awk '/^## (Pending|Finish)/{f=1;next} /^## /{f=0} f && /^pr_url:/{sub(/^pr_url:[[:space:]]*/,""); print; exit}' "$(n1_home)/memory/$id/overview.md" 2>/dev/null)
         if ! [[ "$url" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]]; then st=no-pr
@@ -1226,6 +1245,12 @@ n1_clean_ticket() {
         b=$(_n1_wt_records | P="$top" awk -F'\t' 'ENVIRON["P"] != "" && $1 == ENVIRON["P"] {print substr($2, 12); exit}')
         case "$b" in spike/*) top="" ;; esac   # N1-577: a spike worktree is never the ticket's workspace
         [ -n "$top" ] && nof=1
+    fi
+    if [ "$trig" = merged-nopr ]; then
+        st=""; case "$b" in spike/*) st=spike ;; esac
+        [ -n "$st" ] || [ -n "$top" ] || st=no-workspace
+        if [ -n "$st" ]; then _n1_clean_record "$id" "$trig" "cleanup:skipped ($st)" "" ""; echo "cleanup:skipped ($st)"; return 0; fi
+        hr="$b"   # the tree's own branch (empty when detached) is the one checked and deleted
     fi
     [ -n "$top" ] && gate=$(_n1_clean_gate "$top" "$main" "$oid" "$def" "$nof")
     # The surviving-session record below may emit step/queue events a second time.

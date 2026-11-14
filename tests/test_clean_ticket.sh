@@ -169,5 +169,30 @@ eq "P1: no ## Pending heading" no "$(yn grep -qx '## Pending' "$O77")"
 eq "P1: pr_url kept" yes "$(yn grep -qx "pr_url: $URL" "$O77")"
 eq "P1: n1-clean URL reader still finds pr_url" "$URL" "$(awk '/^## (Pending|Finish)/{f=1;next} /^## /{f=0} f && /^pr_url:/{sub(/^pr_url:[[:space:]]*/,""); print; exit}' "$O77")"
 
+# N0-N6 (N1-583): merged-nopr trigger (n1-clean general mode after confirmation). A no-PR tree is removed only when
+# clean and its HEAD is an ancestor of origin/<default>; local <default> may lag behind origin.
+git init -q --bare "$T/origin.git"; git -C "$M" remote add origin "$T/origin.git"; git -C "$M" push -q origin main
+nov() { mkdir -p "$N1_HOME/memory/$1"; printf -- '---\nstep: %s\n---\n# %s\n' "${2:-done}" "$1" > "$N1_HOME/memory/$1/overview.md"; }
+nc() { (cd "${2:-$M}" && n1_clean_ticket "$1" merged-nopr) | paste -sd, -; }
+wt "$T/N-1" n1b; git -C "$M" push -q origin n1b:main; nov N-1
+O=$(git -C "$M" rev-parse origin/main)
+git -C "$M" worktree add -q -b n2b "$T/N-2" "$O"; echo x > "$T/N-2/d"; nov N-2
+git -C "$M" worktree add -q -b n3b "$T/N-3" "$O"; git -C "$T/N-3" commit -q --allow-empty -m n3; nov N-3
+git -C "$M" worktree add -q -b spike/N-4 "$T/spike-N-4" "$O"; nov N-4
+sed -i "2i workspace_path: $T/spike-N-4" "$N1_HOME/memory/N-4/overview.md"
+: > "$GH_CALLS"
+eq "N0: general trigger keeps the no-pr skip" "cleanup:skipped (no-pr)" "$( (cd "$M" && n1_clean_ticket N-1 general) | paste -sd, -)"
+eq "N0: gh not called" "" "$(cat "$GH_CALLS")"
+eq "N0: local main is behind origin" no "$(yn git -C "$M" merge-base --is-ancestor n1b main)"
+eq "N1: clean tree merged into origin/main removed" "worktree:removed,branch:deleted" "$(nc N-1)"
+eq "N1: dir gone" no "$(yn test -d "$T/N-1")"
+eq "N1: recorded in ## Finish" "- **Cleanup:** worktree:removed, branch:deleted ($T/N-1)" "$(cl N-1)"
+eq "N2: dirty tree kept" "worktree:kept (dirty),branch:kept (checked out in $T/N-2)" "$(nc N-2)"
+eq "N3: not an ancestor of origin/main -> kept" "worktree:kept (unmerged),branch:kept (checked out in $T/N-3)" "$(nc N-3)"
+eq "N4: spike tree refused" "cleanup:skipped (spike)" "$(nc N-4)"
+eq "N4: spike dir kept" yes "$(yn test -d "$T/spike-N-4")"
+eq "N5: no workspace -> skipped" "cleanup:skipped (no-workspace)" "$(nc N-5)"
+eq "N6: invalid id" "cleanup:skipped (invalid-id)" "$(n1_clean_ticket '../x' merged-nopr)"
+
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]
