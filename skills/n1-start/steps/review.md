@@ -52,7 +52,7 @@ FP_RECORD_FAILED→escalate. **Headless:** `procedures/autonomy-headless.md § H
 
 ### 7b. TQ FIX LOOP
 
-No `[TQ-N]` Medium+ → skip. `tq_fix_cycle` ≥ `TQ_MAX` → § Autonomy Gate, no increment. Else `n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "tq_fix_cycle"`, then `n1_resolve_agent qa-engineer review`+split; spawn qa-engineer: `$N1_HOME/memory/$ID/review.md` path (`[TQ-N]` only), qa.md, tier, "TQ Fix Mode: remove/rewrite TQ tests only, run suite, skip Steps 1-5."
+No `[TQ-N]` Medium+ → skip. `tq_fix_cycle` ≥ `TQ_MAX` → § Autonomy Gate, no increment. Else `n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "tq_fix_cycle"`, then `n1_resolve_agent qa-engineer review`+split; spawn qa-engineer: `$N1_HOME/memory/$ID/review.md` path (`[TQ-N]` only), qa.md, "TQ Fix Mode: remove/rewrite TQ tests only, run suite, skip Steps 1-4."
 
 **FAIL → Step 8** (its **Cap gate** bounds the loop).
 
