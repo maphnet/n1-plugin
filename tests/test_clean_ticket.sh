@@ -14,11 +14,13 @@ export N1_HOME="$T/home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 unset ORCA_CLI_COMMAND N1_RUN_ID N1_QUEUE_DIR N1_QUEUE_RUN_ID
 mkdir -p "$T/bin" "$N1_HOME/memory"
-# gh stub: logs argv, prints $GH_TSV (state, headRefName, headRefOid, baseRefName). Never left empty in a case
-# that reaches gh (an empty answer triggers the 2s/4s retry backoff).
+# gh stub: logs argv; for "--state open" lists prints the head of each "head base" line in $GH_OPEN, plus the base
+# when baseRefName was requested (as the real -q '.[] | .headRefName, .baseRefName' does); else $GH_TSV (state, headRefName, headRefOid,
+# baseRefName; or merged-PR rows for n1_clean_scan). Never left empty in a case that reaches gh pr view (retry backoff).
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
-echo "$*" >> "$GH_CALLS"; printf '%s\n' "${GH_TSV:-}"
+echo "$*" >> "$GH_CALLS"
+case " $* " in *" --state open "*) case "$*" in *baseRefName*) printf '%s\n' "${GH_OPEN:-}" | tr ' ' '\n' ;; *) printf '%s\n' "${GH_OPEN:-}" | cut -d' ' -f1 ;; esac ;; *) printf '%s\n' "${GH_TSV:-}" ;; esac
 EOF
 chmod +x "$T/bin/gh"; export PATH="$T/bin:$PATH" GH_CALLS="$T/gh.calls"
 
@@ -81,11 +83,22 @@ eq "K9: head == default branch -> main untouched" "worktree:none,branch:none" "$
 eq "K9: main checkout intact" yes "$(yn test -d "$M/.git")"
 # K10: invalid id.
 eq "K10: invalid id" "cleanup:skipped (invalid-id)" "$(n1_clean_ticket '../x' clean)"
-# K11: detached workspace_path worktree is reported, never removed.
+# K11 (N1-583): a detached workspace_path worktree is removed when its HEAD is within the merged PR; kept otherwise.
 wt "$T/k11" b11; git -C "$M" merge -q --no-ff -m m11 b11; git -C "$T/k11" checkout -q --detach; ov K-11
 sed -i "2i workspace_path: $T/k11" "$N1_HOME/memory/K-11/overview.md"
-eq "K11: detached diagnostic" "worktree:kept (workspace_path $T/k11 holds detached),branch:deleted" "$(ct K-11 "$(printf 'MERGED\tb11\t%s\tmain' "$(rev b11)")")"
-eq "K11: dir kept" yes "$(yn test -d "$T/k11")"
+eq "K11: detached workspace_path tree removed" "worktree:removed,branch:deleted" "$(ct K-11 "$(printf 'MERGED\tb11\t%s\tmain' "$(rev b11)")")"
+eq "K11: dir gone" no "$(yn test -d "$T/k11")"
+eq "K11: path recorded" "- **Cleanup:** worktree:removed, branch:deleted ($T/k11)" "$(cl K-11)"
+wt "$T/k11b" b11b; git -C "$M" merge -q --no-ff -m m11b b11b; git -C "$T/k11b" checkout -q --detach
+git -C "$T/k11b" commit -q --allow-empty -m extra; ov K-111
+sed -i "2i workspace_path: $T/k11b" "$N1_HOME/memory/K-111/overview.md"
+eq "K11b: commit outside the merged PR -> kept" "worktree:kept (unmerged),branch:deleted" "$(ct K-111 "$(printf 'MERGED\tb11b\t%s\tmain' "$(rev b11b)")")"
+eq "K11b: dir kept" yes "$(yn test -d "$T/k11b")"
+# K16 (AC4): PR head maphskiy/jiaolong, local tree on maphskiy/otter -> resolved through workspace_path.
+wt "$T/k16" maphskiy/otter; ov K-16; sed -i "2i workspace_path: $T/k16" "$N1_HOME/memory/K-16/overview.md"
+eq "K16: renamed-branch tree resolved through workspace_path" "worktree:removed,branch:none" "$(ct K-16 "$(printf 'MERGED\tmaphskiy/jiaolong\t%s\tmain' "$(rev maphskiy/otter)")")"
+eq "K16: dir gone" no "$(yn test -d "$T/k16")"
+eq "K16: local branch untouched" yes "$(yn git -C "$M" show-ref -q --verify refs/heads/maphskiy/otter)"
 # K12: queue env -> ticket_cleanup event with outcome and reason.
 mkdir -p "$T/q/Q-1"; wt "$T/k12" b12; git -C "$M" merge -q --no-ff -m m12 b12; echo x > "$T/k12/d"; ov K-12
 (export N1_QUEUE_DIR="$T/q/Q-1" N1_QUEUE_RUN_ID=r1; ct K-12 "$(printf 'MERGED\tb12\t%s\tmain' "$(rev b12)")" >/dev/null)
@@ -112,6 +125,7 @@ eq "K15: empty id finish" "worktree:none,branch:none" "$( (cd "$M" && n1_clean_t
 
 # n1-clean wiring (N1-339 D5).
 S="$R/skills/n1-clean/SKILL.md"
+G="$R/skills/n1-clean/general.md"  # general-mode steps
 # W1: non-finish triggers never force an N1-managed tree (dirty / unmerged stay kept); finish still forces.
 WR="$(n1_worktree_root)"; mkdir -p "$M/$WR"
 wt "$M/$WR/w1" bw1; git -C "$M" merge -q --no-ff -m mw1 bw1; echo x > "$M/$WR/w1/d"; ov K-70
@@ -129,15 +143,26 @@ eq "W2e: finish emits cleanup event" "cleanup|success" "$(jq -r '"\(.step)|\(.ou
 eq "W2e: skill binds run id" yes "$(yn grep -qF 'N1_RUN_ID="${N1_RUN_ID:-$RUN}" n1_clean_ticket' "$R/skills/n1-finish/steps/06-cleanup.md")"
 eq "W2: ticket mode calls n1_clean_ticket" yes "$(yn grep -qF 'n1_clean_ticket "$ID"' "$S")"
 eq "W3: --ticket mode documented" yes "$(yn grep -qF -- '--ticket <ID>' "$S")"
-eq "W4: discovery not limited to the N1 worktree root" 0 "$(grep -c 'n1_worktree_root' "$S")"
-eq "W5: general mode removes through n1_clean_ticket" yes "$(yn grep -qF 'n1_clean_ticket "<ID>" general' "$S")"
-eq "W6: auto mode never removes Abandoned" yes "$(yn grep -qF 'never removes Abandoned' "$S")"
-eq "W7: Orca worktrees tagged" yes "$(yn grep -qF 'n1_orca_owns' "$S")"
-eq "W8: Completed requires a merged PR" yes "$(yn grep -qF 'MERGED' "$S")"
+eq "W4: discovery not limited to the N1 worktree root" 0 "$(cat "$S" "$G" | grep -c 'n1_worktree_root')"
+eq "W5: general mode removes through n1_clean_ticket" yes "$(yn grep -qF 'n1_clean_ticket "<ID>" general' "$G")"
+eq "W6: auto mode never removes Abandoned" yes "$(yn grep -qF 'never removes Abandoned' "$G")"
+eq "W7: Orca worktrees tagged" yes "$(yn grep -qF 'n1_orca_owns' "$G")"
+eq "W8: Completed requires a merged PR" yes "$(yn grep -qF 'MERGED' "$G")"
+# W10-W18 (N1-583): general mode scans, asks before removing (interactive), keeps the autonomy gate when unattended.
+eq "W10: general mode runs the leftover scan" yes "$(yn grep -qF 'n1_clean_scan' "$G")"
+eq "W11: no-PR trees removed through merged-nopr" yes "$(yn grep -qF 'n1_clean_ticket "<ID>" merged-nopr' "$G")"
+eq "W12: run-mode detection" yes "$(yn grep -qF 'echo mode:unattended || echo mode:interactive' "$G")"
+eq "W13: both prompts carry the no-recommendation sentence" 2 "$(grep -cF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$G")"
+eq "W14: no option marked Recommended" 0 "$(grep -cF '(Recommended)' "$G")"
+eq "W15: skill never removes worktrees with plain git" 0 "$(cat "$S" "$G" | grep -c 'git worktree remove')"
+eq "W16: unattended runs never remove leftovers" yes "$(yn grep -qF 'unattended runs never remove Leftovers or remote branches' "$G")"
+eq "W17: remote branches deleted one at a time by full ref" yes "$(yn grep -qF 'git push origin --delete "refs/heads/<branch>"' "$G")"
+eq "W18: nothing removed before the answer" yes "$(yn grep -qF 'nothing has been removed yet' "$G")"
+eq "W19: SKILL.md dispatches general mode to general.md" yes "$(yn grep -qF 'skills/n1-clean/general.md' "$S")"
 
 # W9 (N1-347): Step 1 discovery snippet. Main checkout excluded, branch name without refs/heads/,
 # detached and missing trees reported. Orca ownership stubbed off.
-STEP1=$(awk '/^## Step 1:/{s=1} s&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$S" | sed '/preamble\.sh/d')
+STEP1=$(awk '/^## Step 1:/{s=1} s&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$G" | sed '/preamble\.sh/d')
 wt "$T/s1" bs1
 git -C "$M" worktree add -q --detach "$T/s2" main
 wt "$T/s3" bs3; rm -rf "$T/s3"
@@ -157,6 +182,71 @@ eq "P1: no awaiting line" no "$(yn grep -q '^awaiting:' "$O77")"
 eq "P1: no ## Pending heading" no "$(yn grep -qx '## Pending' "$O77")"
 eq "P1: pr_url kept" yes "$(yn grep -qx "pr_url: $URL" "$O77")"
 eq "P1: n1-clean URL reader still finds pr_url" "$URL" "$(awk '/^## (Pending|Finish)/{f=1;next} /^## /{f=0} f && /^pr_url:/{sub(/^pr_url:[[:space:]]*/,""); print; exit}' "$O77")"
+
+# N0-N6 (N1-583): merged-nopr trigger (n1-clean general mode after confirmation). A no-PR tree is removed only when
+# clean and its HEAD is an ancestor of origin/<default>; local <default> may lag behind origin.
+git init -q --bare "$T/origin.git"; git -C "$M" remote add origin "$T/origin.git"; git -C "$M" push -q origin main
+nov() { mkdir -p "$N1_HOME/memory/$1"; printf -- '---\nstep: %s\n---\n# %s\n' "${2:-done}" "$1" > "$N1_HOME/memory/$1/overview.md"; }
+nc() { (cd "${2:-$M}" && n1_clean_ticket "$1" merged-nopr) | paste -sd, -; }
+wt "$T/N-1" n1b; git -C "$M" push -q origin n1b:main; nov N-1
+O=$(git -C "$M" rev-parse origin/main)
+git -C "$M" worktree add -q -b n2b "$T/N-2" "$O"; echo x > "$T/N-2/d"; nov N-2
+git -C "$M" worktree add -q -b n3b "$T/N-3" "$O"; git -C "$T/N-3" commit -q --allow-empty -m n3; nov N-3
+git -C "$M" worktree add -q -b spike/N-4 "$T/spike-N-4" "$O"; nov N-4
+sed -i "2i workspace_path: $T/spike-N-4" "$N1_HOME/memory/N-4/overview.md"
+: > "$GH_CALLS"
+eq "N0: general trigger keeps the no-pr skip" "cleanup:skipped (no-pr)" "$( (cd "$M" && n1_clean_ticket N-1 general) | paste -sd, -)"
+eq "N0: gh not called" "" "$(cat "$GH_CALLS")"
+eq "N0: local main is behind origin" no "$(yn git -C "$M" merge-base --is-ancestor n1b main)"
+eq "N1: clean tree merged into origin/main removed" "worktree:removed,branch:deleted" "$(nc N-1)"
+eq "N1: dir gone" no "$(yn test -d "$T/N-1")"
+eq "N1: recorded in ## Finish" "- **Cleanup:** worktree:removed, branch:deleted ($T/N-1)" "$(cl N-1)"
+eq "N2: dirty tree kept" "worktree:kept (dirty),branch:kept (checked out in $T/N-2)" "$(nc N-2)"
+eq "N3: not an ancestor of origin/main -> kept" "worktree:kept (unmerged),branch:kept (checked out in $T/N-3)" "$(nc N-3)"
+eq "N4: spike tree refused" "cleanup:skipped (spike)" "$(nc N-4)"
+eq "N4: spike dir kept" yes "$(yn test -d "$T/spike-N-4")"
+eq "N5: no workspace -> skipped" "cleanup:skipped (no-workspace)" "$(nc N-5)"
+nov N-7 implement; git -C "$M" worktree add -q -b n7b "$T/N-7" "$O"; sed -i "2i workspace_path: $T/N-7" "$N1_HOME/memory/N-7/overview.md"
+eq "N7: ticket not at step done is skipped" "cleanup:skipped (not-done)" "$(nc N-7)"
+eq "N7: tree kept" yes "$(yn test -d "$T/N-7")"
+eq "N6: invalid id" "cleanup:skipped (invalid-id)" "$(n1_clean_ticket '../x' merged-nopr)"
+
+# L1-L8 (N1-583): n1_clean_scan lists leftovers and removes nothing.
+O=$(git -C "$M" rev-parse origin/main)
+git -C "$M" worktree add -q -b l1b "$T/L-1" "$O"; nov L-1                # clean, on origin/main, step done
+git -C "$M" worktree add -q -b l10b "$T/L-10" "$O"                      # fresh tree, no overview: not provably finished (CR-3/SEC-1)
+mkdir -p "$T/wts2/empty-c"; git -C "$M" worktree add -q -b l11b "$T/wts2/L-11" "$O"   # a worktree container
+git -C "$M" worktree add -q -b l2b "$T/L-2" "$O"; nov L-2 implement     # in progress
+git -C "$M" worktree add -q -b l3b "$T/L-3" "$O"; ov L-3                # has a PR: Step 2 classifies it
+mkdir -p "$T/empty-583" "$M/$WR/empty-wr"
+mkdir -p "$N1_HOME/memory/L-7" "$N1_HOME/memory/L-8" "$N1_HOME/memory/L-9"
+printf -- '---\nstep: done\nawaiting: merge\n---\n# L-7\n## Finish\n- **Cleanup:** worktree:none, branch:none\n' > "$N1_HOME/memory/L-7/overview.md"
+printf -- '---\nstep: pr\nawaiting: merge\n---\n# L-8\n## Pending\nawaiting: merge\n' > "$N1_HOME/memory/L-8/overview.md"
+printf -- '---\nstep: done\n---\n# L-9\n## Pending\r\nawaiting: merge\r\n## Finish\r\n' > "$N1_HOME/memory/L-9/overview.md"
+git -C "$M" branch -q rb-1 main; git -C "$M" branch -q rb-3 main; wt "$T/rb4" rb-4
+git -C "$M" push -q origin rb-1 rb-3 rb-4 "$O:refs/heads/rb-2" spike/S-2 main:refs/heads/rb-5 main:refs/heads/develop main:refs/heads/nokey
+MO=$(rev main)
+RB=$(printf 'rb-1\t%s\tU1\nrb-2\t%s\tU2\nrb-3\t%s\tU3\nrb-4\t%s\tU4\nspike/S-2\t%s\tU5\nmain\t%s\tU6\ngone\t%s\tU7\nrb-5\t%s\tU8\ndevelop\t%s\tU9\nnokey\t%s\tU10' \
+    "$MO" "$MO" "$MO" "$(rev rb-4)" "$(rev spike/S-2)" "$O" "$MO" "$MO" "$MO" "$MO")
+SC=$(cd "$M" && GH_TSV="$RB" GH_OPEN=$'rb-3 rb-5' n1_clean_scan)
+row() { printf '%s\t%s\t%s\t%s' "$@"; }
+hr() { yn grep -qxF "$(row "$@")" <<<"$SC"; }
+eq "L1: clean no-PR tree on origin/main listed" yes "$(hr nopr-worktree L-1 "$T/L-1" l1b)"
+eq "L2: in-progress tree not listed" 0 "$(grep -cF "$T/L-2" <<<"$SC")"
+eq "L3: tree with a PR not listed" 0 "$(grep -cF "$T/L-3" <<<"$SC")"
+eq "L4: dirty, unmerged and spike trees not listed" 0 "$(grep -cF -e "$T/N-2	" -e "$T/N-3	" -e "$T/spike-N-4	" <<<"$SC")"
+eq "L1b: fresh tree without overview not listed" 0 "$(grep -cF "$T/L-10" <<<"$SC")"
+eq "L5: empty dir in a worktree container listed" yes "$(hr empty-dir - "$T/wts2/empty-c" -)"
+eq "L5: empty dir beside unrelated entries not listed (CR-1)" 0 "$(grep -cF "$T/empty-583" <<<"$SC")"
+eq "L5: empty dir under the N1 root listed" yes "$(hr empty-dir - "$M/$WR/empty-wr" -)"
+eq "L5: non-empty dir not listed" 0 "$(grep -cF "$T/bin" <<<"$SC")"
+eq "L6: stale marker listed" yes "$(hr stale-marker L-7 "$N1_HOME/memory/L-7/overview.md" -)"
+eq "L6: CRLF stale marker listed" yes "$(hr stale-marker L-9 "$N1_HOME/memory/L-9/overview.md" -)"
+eq "L6: still-pending ticket not listed" 0 "$(grep -c '^stale-marker	L-8	' <<<"$SC")"
+eq "L7: only the merged branch still at its PR head listed" "$(row remote-branch - rb-1 U1)" "$(grep '^remote-branch' <<<"$SC")"
+eq "L7b: base of an open PR excluded (CR-2)" 0 "$(grep -cF rb-5 <<<"$SC")"
+eq "L7b: develop and non-ticket branches excluded" 0 "$(grep -cE 'develop|nokey' <<<"$SC")"
+eq "L8: scan removed nothing" "yes yes yes 1" "$(yn test -d "$T/L-1") $(yn test -d "$T/empty-583") $(yn grep -q '^awaiting: merge' "$N1_HOME/memory/L-7/overview.md") $(git -C "$M" ls-remote origin refs/heads/rb-1 | wc -l | tr -d ' ')"
 
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]

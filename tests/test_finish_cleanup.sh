@@ -164,6 +164,27 @@ git -C "$M" checkout -q main
 new_wt "$T/ext26" f26; git -C "$M" merge -q --no-ff -m m26 f26; rm -rf "$T/ext26"
 assert_eq "C26: missing dir -> pruned + deleted" "worktree:none,branch:deleted" "$(run "$M" f26 "$(tip f26)")"
 
+# C27-C31 (N1-583): optional 5th arg <top> replaces the branch-holder lookup (workspace_path trees).
+run5() { (cd "$M" && n1_finish_cleanup "$1" "$2" main "$3" "$4") | paste -sd, -; }
+# C27: detached merged tree located by path is removed; no branch arg -> branch:none.
+new_wt "$T/ext27" f27; git -C "$M" merge -q --no-ff -m m27 f27; git -C "$T/ext27" checkout -q --detach
+assert_eq "C27: detached tree removed by <top>" "worktree:removed,branch:none" "$(run5 "" "$(tip f27)" "" "$T/ext27")"
+assert_eq "C27: dir gone" no "$(has_dir "$T/ext27")"
+assert_eq "C27: branch untouched without a branch arg" yes "$(has_branch f27)"
+# C28: the main checkout is never a <top>.
+assert_eq "C28: main checkout refused" "worktree:none,branch:none" "$(run5 "" "" "" "$M")"
+assert_eq "C28: main intact" yes "$(has_dir "$M/.git")"
+# C29: the branch arg is still used for the branch check while <top> holds another branch.
+new_wt "$T/ext29" f29; git -C "$M" merge -q --no-ff -m m29 f29; git -C "$T/ext29" checkout -q -b f29x
+assert_eq "C29: re-branched tree removed, PR branch deleted" "worktree:removed,branch:deleted" "$(run5 f29 "$(tip f29)" 1 "$T/ext29")"
+assert_eq "C29: local re-branch kept" yes "$(has_branch f29x)"
+# C30: an unregistered path is not a worktree.
+assert_eq "C30: unregistered path -> none" "worktree:none,branch:none" "$(run5 "" "" "" "$T/nowhere")"
+# C31: the gate still applies to <top>: a commit outside the merged result keeps the tree.
+new_wt "$T/ext31" f31; git -C "$T/ext31" checkout -q --detach
+assert_eq "C31: unmerged <top> kept" "worktree:kept (unmerged),branch:none" "$(run5 "" "$(tip main)" 1 "$T/ext31")"
+assert_eq "C31: dir kept" yes "$(has_dir "$T/ext31")"
+
 # Static: Step 6 delegates to the helper and no longer exempts external worktrees.
 R="$SCRIPT_DIR/.."; STEP6="$R/skills/n1-finish/steps/06-cleanup.md"
 yn() { "$@" && echo yes || echo no; }

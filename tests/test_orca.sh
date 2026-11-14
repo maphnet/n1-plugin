@@ -279,6 +279,29 @@ rm -f "$FAKE/rm-snap"
 has "F8: record written before rm" "- **Cleanup:** worktree:removed, branch:kept (checked out in $F8)" "$(cat "$FAKE/rm-snap" 2>/dev/null)"
 has "F8: surviving session overwrites with real tokens" "- **Cleanup:** worktree:removed, branch:deleted ($F8)" "$(cat "$N1_HOME/memory/F-8/overview.md")"
 
+# N1-583 O1: a detached Orca workspace_path tree is removed through Orca (finish trigger, gated, never forced).
+F9="$T/wts/fin9"; fin "$F9" fb9; git -C "$F9" checkout -q --detach
+mkdir -p "$N1_HOME/memory/F-9"; printf -- '---\nstep: done\nworkspace_path: %s\n---\n' "$F9" > "$N1_HOME/memory/F-9/overview.md"
+orca_list "$WO=X-4" "$F9"
+reset; eq "O1: detached Orca workspace_path tree removed" "worktree:removed,branch:deleted" \
+    "$( (cd "$M" && n1_clean_ticket F-9 finish fb9 "$(git -C "$M" rev-parse fb9)" main) | paste -sd, -)"
+has "O1: removed through the workspace manager" "worktree rm --worktree path:$F9 --json" "$(calls)"
+hasnt "O1: never forced" "--force" "$(calls)"
+
+# N1-583 O2/O3: a no-PR Orca tree on origin/main goes through Orca; an unreachable runtime keeps it.
+F10="$T/wts/fin10"; git -C "$M" worktree add -q -b fb10 "$F10" main; commit "$F10"; git -C "$M" push -q -f origin fb10:main
+mkdir -p "$N1_HOME/memory/F-10"; printf -- '---\nstep: done\nworkspace_path: %s\n---\n' "$F10" > "$N1_HOME/memory/F-10/overview.md"
+F11="$T/wts/fin11"; git -C "$M" worktree add -q -b fb11 "$F11" fb10
+mkdir -p "$N1_HOME/memory/F-11"; printf -- '---\nstep: done\nworkspace_path: %s\n---\n' "$F11" > "$N1_HOME/memory/F-11/overview.md"
+orca_list "$WO=X-4" "$F10" "$F11"
+reset; eq "O2: no-PR Orca tree on origin/main removed" "worktree:removed,branch:deleted" "$( (cd "$M" && n1_clean_ticket F-10 merged-nopr) | paste -sd, -)"
+has "O2: removed through the workspace manager" "worktree rm --worktree path:$F10 --json" "$(calls)"
+hasnt "O2: never forced" "--force" "$(calls)"
+reset; eq "O3: orca-unreachable keeps the no-PR tree" "worktree:kept (orca-unreachable),branch:kept (checked out in $F11)" \
+    "$( (cd "$M" && _N1_ORCA_ACTIVE= FAKE_ORCA_DOWN=1 n1_clean_ticket F-11 merged-nopr 2>/dev/null) | paste -sd, -)"
+hasnt "O3: no removal call" "worktree rm" "$(calls)"
+eq "O3: dir kept" yes "$([ -d "$F11" ] && echo yes || echo no)"
+
 # ---- static wiring ----
 cd "$REPO_ROOT"
 eq "W1b (N1-307): handoff failure rule checks for an existing workspace" "1" "$(grep -c 'handoff:failed.*n1_find_workspace' skills/n1-start/procedures/workspace-ownership.md)"

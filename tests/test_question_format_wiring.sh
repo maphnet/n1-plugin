@@ -73,6 +73,7 @@ lacks "n1-brainstorm: no bare-word recommended approach" 'accept the recommended
 pointer agents/brainstormer.md
 # --- n1-clean
 lacks "n1-clean: prompt moved out of SKILL.md" 'Remove all Stale and Completed \(Recommended' skills/n1-clean/SKILL.md
+lacks "n1-clean: prompt not marked Recommended in general.md" '\(Recommended\)' skills/n1-clean/general.md
 
 # --- n1-release, n1-rules, n1-queue
 pointer skills/n1-release/steps/03b-release-notes.md

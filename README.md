@@ -134,7 +134,7 @@ Removes the git worktree for a ticket after work is done or abandoned. Use when 
 
 ```
 /n1:n1-clean TRID-510   # remove worktree for TRID-510
-/n1:n1-clean            # remove worktree for the current branch's ticket
+/n1:n1-clean            # list worktrees and finished-ticket leftovers, remove after confirmation
 ```
 
 ## Tracker Support

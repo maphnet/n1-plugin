@@ -368,6 +368,8 @@ if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && comm
         # archived by n1_memory_reuse_check (NP-235) — never a live ticket
         [[ "$tid" =~ ^[A-Z][A-Z0-9_]*-[0-9]+-old(-[0-9]+)?$ ]] && continue
         grep -q '^awaiting: merge$' "$ov" 2>/dev/null || continue
+        # N1-583: a finished ticket (## Finish) is not pending: skip it before the cap, the stale line and gh
+        grep -Eq '^## Finish[[:space:]]*$' "$ov" 2>/dev/null && continue
         [ "$checked" -ge 5 ] && { pending_context="${pending_context}
 - (more pending tickets exist — scan capped at 5)"; break; }
         pr_num=$(grep -m1 '^pr: ' "$ov" | sed 's/^pr: //' | tr -d '[:space:]') || true

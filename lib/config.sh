@@ -1098,20 +1098,24 @@ _n1_clean_gate() {
 }
 
 # N1-112/N1-339: worktree + local-branch cleanup for a merged ticket; prints status tokens, one per line, always returns 0.
-# Usage: n1_finish_cleanup <branch> <merged-pr-head-oid|""> <defaultBranch> [<nof>]   (any cwd inside the repository)
+# Usage: n1_finish_cleanup <branch> <merged-pr-head-oid|""> <defaultBranch> [<nof>] [<top>]   (any cwd inside the repository)
+# <top> (N1-583): a registered linked worktree to gate and remove instead of the <branch> holder (detached or re-branched
+# trees located by overview workspace_path); the main checkout or an unregistered path means no worktree.
 # <nof>=1 (every trigger but finish): N1-managed trees are gated (dirty, unmerged) and never removed with --force.
 # The worktree is the linked one holding refs/heads/<branch> (never the main checkout, never chosen by cwd); it goes
 # first because a checked-out branch cannot be deleted. Gates: _n1_clean_gate. Branch: tip must be an ancestor of the
 # merged result (oid, else <defaultBranch>), then -d; -D only when the tip equals the merged PR head oid (squash/rebase).
 # When the cwd's worktree was removed the shell is left in the main checkout.
 n1_finish_cleanup() {
-    local branch="${1:-}" oid="${2:-}" def="${3:-}" nof="${4:-}"
+    local branch="${1:-}" oid="${2:-}" def="${3:-}" nof="${4:-}" want="${5:-}"
     local gcd main top err mode="" keep="" holder
     gcd=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) \
         && main=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p') && [ -n "$main" ] \
         || { echo worktree:none; echo branch:none; return 0; }
     local G=(git --git-dir="$gcd")
-    top=$(_n1_wt_holder "$branch"); [ "$top" = "$main" ] && top=""
+    if [ -n "$want" ]; then top=$(_n1_wt_records | tail -n +2 | P="$want" awk -F'\t' '$1 == ENVIRON["P"] {print $1; exit}')
+    else top=$(_n1_wt_holder "$branch"); fi
+    [ "$top" = "$main" ] && top=""
     # A registered worktree whose directory is gone cannot be gated or removed: drop its stale admin entry (locked ones
     # survive the prune and are then named by the branch check below) so the branch can be deleted.
     if [ -n "$top" ] && [ ! -d "$top" ]; then "${G[@]}" worktree prune 2>/dev/null; top=""; fi
@@ -1182,19 +1186,39 @@ _n1_clean_record() {
     return 0
 }
 
+# N1-583: "<defaultBranch>\t<sha>" for no-PR merge checks: sha of origin/<def>, else local <def>, else empty.
+# <def>: origin/HEAD, else git.defaultBranch, else main. --fetch: best-effort `git fetch origin <def>` first (a failed
+# fetch only leaves a stale origin ref, which under-reports). Usage: _n1_nopr_base [--fetch]
+_n1_nopr_base() {
+    local def sha
+    def=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null); def="${def#origin/}"
+    [ -n "$def" ] || def=$(n1_config_val '.git.defaultBranch' 2>/dev/null); def="${def:-main}"
+    [ "${1:-}" = --fetch ] && { GIT_TERMINAL_PROMPT=0 timeout 20 git fetch -q origin "$def" </dev/null >/dev/null 2>&1 || true; }
+    sha=$(git rev-parse -q --verify "refs/remotes/origin/$def^{commit}" 2>/dev/null) \
+        || sha=$(git rev-parse -q --verify "refs/heads/$def^{commit}" 2>/dev/null) || sha=""
+    printf '%s\t%s\n' "$def" "$sha"
+}
+
 # N1-339: ticket-keyed cleanup, the one entry point for n1-finish (last action), n1-clean --ticket and n1-clean general mode.
-# Usage: n1_clean_ticket <ID> <finish|clean|queue|general> [<headRef> <oid> <defaultBranch>]
+# Usage: n1_clean_ticket <ID> <finish|clean|queue|general|merged-nopr> [<headRef> <oid> <defaultBranch>]
+# merged-nopr (N1-583, n1-clean general mode after the user confirmed): no PR; the workspace_path tree is removed when
+# clean and its HEAD is an ancestor of origin/<default>; extra skips: no-base | spike | no-workspace.
 # finish passes the PR facts it already has (local merge: empty oid). Other triggers read pr_url from overview
 # (## Pending or ## Finish), require gh state MERGED and take headRefName/headRefOid/baseRefName from it; anything else
-# prints one "cleanup:skipped (<why>)" line and touches nothing. Never fuzzy, never cwd: n1_finish_cleanup's exact
-# branch match. Inside an Orca-owned target the predicted outcome is recorded BEFORE the removal, because Orca's rm
+# prints one "cleanup:skipped (<why>)" line and touches nothing. Never cwd: n1_finish_cleanup's exact branch match, else
+# (N1-583) the ticket's workspace_path tree from n1_find_workspace, always gated (dirty/unmerged kept, never forced).
+# Inside an Orca-owned target the predicted outcome is recorded BEFORE the removal, because Orca's rm
 # kills the terminal (and this session) running there; a surviving session overwrites it with the real tokens.
 n1_clean_ticket() {
     local id="${1:-}" trig="${2:-clean}" hr="${3:-}" oid="${4:-}" def="${5:-}"
-    local url="" res="" st="" a main top="" gate="" out toks wp b="" nof=1
+    local url="" res="" st="" a main top="" gate="" out toks b="" nof=1
     [ "$trig" = finish ] && nof=0
     [[ "$id" =~ ^[A-Za-z][A-Za-z0-9]*-[0-9]+$ ]] || id=""
-    if [ "$trig" != finish ]; then
+    if [ "$trig" = merged-nopr ]; then
+        [ -n "$id" ] || { echo "cleanup:skipped (invalid-id)"; return 0; }
+        IFS=$'\t' read -r def oid <<<"$(_n1_nopr_base)"; hr=""
+        [ -n "$oid" ] || { _n1_clean_record "$id" "$trig" "cleanup:skipped (no-base)" "" ""; echo "cleanup:skipped (no-base)"; return 0; }
+    elif [ "$trig" != finish ]; then
         [ -n "$id" ] || { echo "cleanup:skipped (invalid-id)"; return 0; }
         url=$(awk '/^## (Pending|Finish)/{f=1;next} /^## /{f=0} f && /^pr_url:/{sub(/^pr_url:[[:space:]]*/,""); print; exit}' "$(n1_home)/memory/$id/overview.md" 2>/dev/null)
         if ! [[ "$url" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]]; then st=no-pr
@@ -1214,22 +1238,105 @@ n1_clean_ticket() {
     main=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
     [ -n "$main" ] || { _n1_clean_record "$id" "$trig" "cleanup:skipped (no-repo)" "" ""; echo "cleanup:skipped (no-repo)"; return 0; }
     top=$(_n1_wt_holder "$hr"); [ "$top" = "$main" ] && top=""
+    if [ -z "$top" ]; then
+        # N1-583: a detached, re-branched or no-PR tree is located by overview workspace_path first (n1_find_workspace)
+        # and always gated, never forced: its HEAD must be an ancestor of the merged oid.
+        top=$(n1_find_workspace "$id"); [ "$top" = "$main" ] && top=""
+        b=$(_n1_wt_records | P="$top" awk -F'\t' 'ENVIRON["P"] != "" && $1 == ENVIRON["P"] {print substr($2, 12); exit}')
+        case "$b" in spike/*) top="" ;; esac   # N1-577: a spike worktree is never the ticket's workspace
+        [ -n "$top" ] && nof=1
+    fi
+    if [ "$trig" = merged-nopr ]; then
+        st=""; case "$b" in spike/*) st=spike ;; esac
+        [ -n "$st" ] || [ -n "$top" ] || st=no-workspace
+        # N1-583: only a ticket whose overview says step done is a finished leftover; a fresh tree is never one.
+        [ -n "$st" ] || [ "$(sed -n 's/^step: *//p' "$(n1_home)/memory/$id/overview.md" 2>/dev/null | head -1 | tr -d '\r')" = done ] || st=not-done
+        if [ -n "$st" ]; then _n1_clean_record "$id" "$trig" "cleanup:skipped ($st)" "" ""; echo "cleanup:skipped ($st)"; return 0; fi
+        hr="$b"   # the tree's own branch (empty when detached) is the one checked and deleted
+    fi
     [ -n "$top" ] && gate=$(_n1_clean_gate "$top" "$main" "$oid" "$def" "$nof")
     # The surviving-session record below may emit step/queue events a second time.
     if [ "$gate" = $'orca\t' ] && case "$(pwd -P)/" in "$top"/*) true ;; *) false ;; esac; then
         _n1_clean_record "$id" "$trig" "worktree:removed, branch:kept (checked out in $top)" "$top" orca
     fi
-    out=$(n1_finish_cleanup "$hr" "$oid" "$def" "$nof")
+    out=$(n1_finish_cleanup "$hr" "$oid" "$def" "$nof" "$top")
     [ -d "$PWD" ] || cd "$main" 2>/dev/null || true
-    if [ -z "$top" ]; then
-        # A detached (or re-branched) workspace_path worktree cannot be located by branch: report it, never remove it.
-        wp=$(sed -n 's/^workspace_path: *//p' "$(n1_home)/memory/$id/overview.md" 2>/dev/null | head -1)
-        [ -n "$wp" ] && b=$(_n1_wt_records | tail -n +2 | P="$wp" awk -F'\t' '$1 == ENVIRON["P"] {print ($2 == "" ? "detached" : substr($2, 12)); exit}')
-        [ -n "$b" ] && out="worktree:kept (workspace_path $wp holds $b)${out#worktree:none}"
-    fi
     toks="${out//$'\n'/, }"
     _n1_clean_record "$id" "$trig" "$toks" "$top" "${gate%%$'\t'*}"
     printf '%s\n' "$out"
+    return 0
+}
+
+# N1-583: read-only leftover scan for n1-clean general mode; removes nothing, rc 0. One tab-separated line per item:
+#   nopr-worktree <ID> <path> <branch|detached>  linked tree with a ticket id (folder, else branch), no overview pr_url,
+#                                                overview step done, not spike/*, passing _n1_clean_gate against
+#                                                origin/<default> (clean; Orca: ignored files allowed; reachable)
+#   empty-dir - <path> -                         empty dir in a worktree container (only registered worktrees and empty dirs) or <main>/<worktree root>
+#   stale-marker <ID> <overview> -               awaiting / ## Pending marker next to ## Finish (scripts/clean-pending.sh)
+#   remote-branch - <branch> <pr-url>            merged same-repo PR head still on origin at the merged oid; not the
+#                                                default, develop, release/, hotfix/, spike/, queue/ or story/ branch; name carries
+#                                                a ticket id; not the head or base of an open PR; not checked out; max 20 per run
+#   note - - <text>                              a kind that could not be scanned
+# ponytail: empty dirs are searched only beside live linked worktrees; an Orca root with none left is not discovered.
+n1_clean_scan() {
+    local recs main def base p b id ov st mode keep d prs open heads held h o u e ok wts n=0
+    recs=$(_n1_wt_records); main=$(head -n1 <<<"$recs" | cut -f1); wts=$(cut -f1 <<<"$recs")
+    [ -n "$main" ] || { printf 'note\t-\t-\tnot inside a git repository\n'; return 0; }
+    IFS=$'\t' read -r def base <<<"$(_n1_nopr_base --fetch)"
+    if [ -z "$base" ]; then printf 'note\t-\t-\tno-PR worktrees not scanned (no %s branch)\n' "$def"
+    else
+        while IFS=$'\t' read -r p b; do
+            b="${b#refs/heads/}"
+            [ -d "$p" ] || continue
+            case "$b" in spike/*) continue ;; esac
+            id=$(printf '%s' "${p##*/}" | tr '[:lower:]' '[:upper:]')
+            [[ "$id" =~ ^[A-Z][A-Z0-9]*-[0-9]+$ ]] || id=$(grep -oE '[A-Za-z][A-Za-z0-9]*-[0-9]+' <<<"$b" | head -1 | tr '[:lower:]' '[:upper:]')
+            [ -n "$id" ] || continue
+            ov="$(n1_home)/memory/$id/overview.md"
+            [ -n "$(awk '/^## (Pending|Finish)/{f=1;next} /^## /{f=0} f && /^pr_url:/{print; exit}' "$ov" 2>/dev/null)" ] && continue
+            st=$(sed -n 's/^step: *//p' "$ov" 2>/dev/null | head -1 | tr -d '\r')
+            [ "$st" = done ] || continue   # a fresh or foreign tree (no overview/step) is not provably finished
+            IFS=$'\t' read -r mode keep <<<"$(_n1_clean_gate "$p" "$main" "$base" "$def" 1)"
+            if [ -z "$keep" ]; then printf 'nopr-worktree\t%s\t%s\t%s\n' "$id" "$p" "${b:-detached}"; fi
+        done < <(tail -n +2 <<<"$recs")
+    fi
+    # A worktree parent is swept only when it is a worktree container: every entry is a registered worktree or an empty dir.
+    { tail -n +2 <<<"$recs" | cut -f1 | sed 's#/[^/]*$##'; printf '%s\n' "$main/$(n1_worktree_root)"; } | sort -u |
+        while IFS= read -r d; do
+            [ -d "$d" ] && [ "$d" != "$main" ] && [ "$d" != "$HOME" ] && [ "$d" != / ] && [ ! -e "$d/.git" ] || continue
+            ok=1
+            while IFS= read -r e; do
+                [ -z "$e" ] && continue
+                { [ -d "$e" ] && [ -z "$(ls -A "$e" 2>/dev/null)" ]; } || grep -qxF -- "$e" <<<"$wts" || { ok=0; break; }
+            done < <(find "$d" -mindepth 1 -maxdepth 1 2>/dev/null)
+            [ "$ok" = 1 ] && find "$d" -mindepth 1 -maxdepth 1 -type d -empty 2>/dev/null
+        done |
+        while IFS= read -r d; do printf 'empty-dir\t-\t%s\t-\n' "$d"; done
+    for ov in "$(n1_home)"/memory/*/overview.md; do
+        [ -f "$ov" ] || continue
+        awk 'NR == 1 && /^---\r?$/ { fm = 1; next } fm && /^---\r?$/ { fm = 0; next }
+            fm && /^awaiting:/ { b = 1 } /^## Finish\r?$/ { f = 1 } /^## Pending\r?$/ { a = 1 }
+            END { exit !(f && (a || b)) }' "$ov" 2>/dev/null || continue
+        id="${ov%/overview.md}"; printf 'stale-marker\t%s\t%s\t-\n' "${id##*/}" "$ov"
+    done
+    if command -v gh >/dev/null 2>&1 \
+        && prs=$(timeout 60 gh pr list --state merged --limit 1000 --json headRefName,headRefOid,isCrossRepository,url \
+            -q '.[] | select(.isCrossRepository | not) | [.headRefName, .headRefOid, .url] | @tsv' </dev/null 2>/dev/null) \
+        && open=$(timeout 60 gh pr list --state open --limit 1000 --json headRefName,baseRefName -q '.[] | .headRefName, .baseRefName' </dev/null 2>/dev/null) \
+        && heads=$(GIT_TERMINAL_PROMPT=0 timeout 30 git ls-remote --heads origin </dev/null 2>/dev/null); then
+        held=$(cut -f2 <<<"$recs" | sed 's#^refs/heads/##')
+        while IFS=$'\t' read -r h o u; do
+            [[ "$h" =~ ^[A-Za-z0-9._/-]+$ ]] && [[ "$o" =~ ^[0-9a-f]{40,64}$ ]] || continue
+            [ "$h" = "$def" ] && continue
+            case "$h" in spike/*|queue/*|story/*|develop|release/*|hotfix/*) continue ;; esac
+            [[ "$h" =~ [A-Za-z][A-Za-z0-9]*-[0-9]+ ]] || continue   # only ticket-keyed branches are provably N1's
+            [ "$(H="refs/heads/$h" awk '$2 == ENVIRON["H"] {print $1; exit}' <<<"$heads")" = "$o" ] || continue
+            grep -qxF -- "$h" <<<"$open" && continue
+            grep -qxF -- "$h" <<<"$held" && continue
+            [ "$n" -lt 20 ] || { printf 'note\t-\t-\tmore remote branches not listed (20 per run); run n1-clean again after removal\n'; break; }
+            n=$((n + 1)); printf 'remote-branch\t-\t%s\t%s\n' "$h" "$u"
+        done <<<"$prs"
+    else printf 'note\t-\t-\tremote branches not scanned (gh or origin unavailable)\n'; fi
     return 0
 }
 
