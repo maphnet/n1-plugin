@@ -313,17 +313,11 @@ Local testing owns all live-app verification -- starting services, running e2e s
 
 The PR body uses a unified `## Verification` section (not separate `## Test Plan` / `## Local Testing`). The tech-writer merges QA verification steps with local testing results via best-effort semantic matching -- matched items show checked/unchecked with evidence, unmatched items from either source are included as-is.
 
-## Test Coverage Tiers
+## QA Test Scope
 
-The n1-start QA step always passes the `maintain` test-coverage tier to qa-engineer (no config key). QA writes **unit tests only** — testing individual functions, modules, and handlers in isolation. Integration and e2e verification belongs to the local testing step. Three tiers:
+The n1-start QA step has no coverage config key. qa-engineer fixes broken tests and updates existing tests for changed functionality, and writes **unit tests only** — testing individual functions, modules, and handlers in isolation. It adds no new tests for uncovered new functionality. Integration and e2e verification belongs to the local testing step.
 
-| Tier | QA behavior |
-|------|-------------|
-| **maintain** (default) | Run existing unit tests, fix breakage, update for changed functionality. No new tests. |
-| **minimal** | Maintain + 1–3 focused unit tests per feature, acceptance-criteria-only |
-| **standard** | Minimal + edge cases + error paths, capped at 10 per test file / 3 per group. Unit-level only. |
-
-Cross-tier invariants: broken tests are always fixed, tests for removed functionality are always updated. QA never writes tests that require starting the application or making HTTP requests to a running server.
+Invariants: broken tests are always fixed, tests for removed functionality are always updated. QA never writes tests that require starting the application or making HTTP requests to a running server.
 
 The code-reviewer evaluates a **Test Quality (TQ)** dimension with `[TQ-N]` prefix findings (Medium/Low severity, non-blocking). A TQ fix loop (Step 7b in n1-start) spawns the QA agent to fix flagged tests before the review fix loop.
 
@@ -516,7 +510,7 @@ Config keys: `release.enabled` (boolean, default `false`), `release.procedure` (
 | developer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | Fix cycle, CI fix |
 | code-reviewer | opus | medium | Read, Grep, Glob, Write (hook-scoped to the findings file) | Review (parallel) |
 | security-reviewer | opus | medium | Read, Grep, Glob, Write (hook-scoped to the findings file) | Review (parallel) |
-| qa-engineer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | QA (tier-aware: maintain/minimal/standard) |
+| qa-engineer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | QA |
 | local-test-planner | sonnet | medium | Read, Grep, Glob, Bash | Local testing (plan creation) |
 | tech-writer | sonnet | medium | Read, Grep, Edit, Write, Glob, Bash | Doc update, PR content |
 

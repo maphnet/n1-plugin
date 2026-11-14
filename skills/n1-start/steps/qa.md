@@ -10,7 +10,7 @@ Run **Ensure Dependencies(`<ID>`)** before spawning. > **ORCHESTRATOR GUARDRAIL 
 
 Run `procedures/rules-injection.md`: `agent_name=qa-engineer`, `changed_files_source=diff_surface` from `implementation.md`.
 
-**Spawn qa-engineer** (context `qa`; test-coverage tier `maintain`). Inputs: ticket.md, implementation.md, plan/brainstorm.md, `$N1_HOME/memory/$ID/analysis.md`; Key Decisions+Escalations inline; `$RULES_BLOCK`. Output: `qa.md`; return `Verdict: PASS|FAIL`, `Bugs found:`, `TQ-relevant notes:`, summary, `n1:signals`.
+**Spawn qa-engineer** (context `qa`). Inputs: ticket.md, implementation.md, plan/brainstorm.md, `$N1_HOME/memory/$ID/analysis.md`; Key Decisions+Escalations inline; `$RULES_BLOCK`. Output: `qa.md`; return `Verdict: PASS|FAIL`, `Bugs found:`, `TQ-relevant notes:`, summary, `n1:signals`.
 
 qa.md missing/empty: write the returned summary to it. Write the qa-engineer's full returned text to `$N1_HOME/memory/$ID/qa-return.md` with the file-write mechanism (never paste it into a shell command or string), then:
 
