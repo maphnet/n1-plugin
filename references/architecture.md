@@ -317,7 +317,7 @@ The PR body uses a unified `## Verification` section (not separate `## Test Plan
 
 The n1-start QA step has no coverage config key. qa-engineer fixes broken tests and updates existing tests for changed functionality, and writes **unit tests only** — testing individual functions, modules, and handlers in isolation. It adds no new tests for uncovered new functionality. Integration and e2e verification belongs to the local testing step.
 
-Invariants: broken tests are always fixed, tests for removed functionality are always updated. QA never writes tests that require starting the application or making HTTP requests to a running server.
+Invariants: broken tests are always fixed, tests for removed functionality are always updated. Weakening or removing a pre-existing test needs a `ticket.md` citation (recorded in `qa.md` by QA, in `implementation.md` by the developer); without one, code-reviewer raises a `[CR-N]` High finding (N1-606). QA never writes tests that require starting the application or making HTTP requests to a running server.
 
 The code-reviewer evaluates a **Test Quality (TQ)** dimension with `[TQ-N]` prefix findings (Medium/Low severity, non-blocking). A TQ fix loop (Step 7b in n1-start) spawns the QA agent to fix flagged tests before the review fix loop.
 
