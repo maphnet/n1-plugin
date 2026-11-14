@@ -1601,7 +1601,9 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
     all_gates = {did for grp in g.values() for did in ((grp or {}).get("gate_activation_rates") or {})}
     rates = (hg[latest].get("gate_activation_rates") or {}) if latest else {}
     if latest and (all_gates or rates):
-        counts = _gate_counts(hg[latest].get("run_ids") or [], caches)
+        hrun_ids = hg[latest].get("run_ids") or []
+        counts = _gate_counts(hrun_ids, caches)
+        complete = all(r in caches for r in hrun_ids)
         lines += ["## Gate Activation Rates", "", f"Headline partition: {latest}", ""]
         lines += ["| gate | activation_rate |", "|---|---|"]
         for did in sorted(all_gates | set(rates)):
@@ -1611,7 +1613,7 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
                 cell = "n/a"
             else:
                 tr, tot = counts.get(did, (0, 0))
-                ok = tot and round(100 * tr / tot, 1) == rates[did]
+                ok = complete and tot and round(100 * tr / tot, 1) == rates[did]
                 cell = f"{rates[did]}% ({tr}/{tot})" if ok else f"{rates[did]}% (counts unavailable)"
             lines.append(f"| {did} | {cell} |")
         lines.append("")

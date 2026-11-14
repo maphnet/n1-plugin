@@ -1327,6 +1327,12 @@ class ReportTest(unittest.TestCase):
         text = bm.render_report(snap, None, None, "", {})
         self.assertIn("| review-tier | 100.0% (counts unavailable) |", text)
 
+    def test_gate_table_counts_unavailable_with_partial_caches(self):
+        snap = self._gate_snap({"review-tier": 0.0}, {})
+        caches = {"r1": {"run_record": {"decisions": [{"id": "review-tier", "result": False}]}}}
+        text = bm.render_report(snap, None, None, "", caches)
+        self.assertIn("| review-tier | 0.0% (counts unavailable) |", text)
+
     def test_gate_table_omitted_without_sufficient_partition(self):
         snap = self._gate_snap({"review-tier": 100.0}, {"review-tier": 0.0})
         snap["merged"]["claude-code/2.79.0-2.80.0"]["sufficient"] = False
