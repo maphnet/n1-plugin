@@ -76,6 +76,25 @@ assert_eq "default base: finish-pending line unchanged" 1 "$(grep -cF 'T-13: PR 
 rm -rf "$MEM4"
 printf '#!/usr/bin/env bash\necho MERGED\n' > "$T/ghbin/gh"   # restore the stub later blocks expect
 
+# session-start (N1-583): an overview with ## Finish is skipped before the 5-ticket cap, the stale line and gh
+printf '#!/usr/bin/env bash\necho "$*" >> "%s"\necho "MERGED main"\n' "$T/gh583.calls" > "$T/ghbin/gh"; : > "$T/gh583.calls"
+for n in 20 21 22 23 24 25; do
+    mkdir -p "$N1_HOME/memory/T-$n"
+    printf -- '---\nstep: done\nawaiting: merge\npr: %s\ncreated: 2099-01-01T00:00:00Z\nlast_checked: 2026-01-01T00:00:00Z\n---\n# T-%s\n## Finish\n- **Cleanup:** worktree:removed, branch:deleted\n' "$n" "$n" > "$N1_HOME/memory/T-$n/overview.md"
+done
+mkdir -p "$N1_HOME/memory/T-19"   # finished, older than 14 days, CRLF heading
+printf -- '---\nstep: done\nawaiting: merge\npr: 19\ncreated: 2020-01-01T00:00:00Z\n---\n# T-19\r\n## Finish\r\n' > "$N1_HOME/memory/T-19/overview.md"
+mkdir -p "$N1_HOME/memory/T-26"   # really pending, sorted after the finished ones
+printf -- '---\nstep: pr\nawaiting: merge\npr: 26\ncreated: 2099-01-01T00:00:00Z\nlast_checked: 2026-01-01T00:00:00Z\n---\n' > "$N1_HOME/memory/T-26/overview.md"
+CTX5=$(echo '{"session_id":"s-finish-skip","source":"startup"}' | PATH="$T/ghbin:$PATH" bash "$REPO_ROOT/hooks/session-start.sh" 2>/dev/null \
+    | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null) || CTX5=""
+assert_eq "finish skip: real pending ticket still reported" 1 "$(grep -cF 'T-26: PR #26 was MERGED externally' <<< "$CTX5" || true)"
+assert_eq "finish skip: no line for finished tickets" 0 "$(grep -cE 'T-(19|2[0-5]):' <<< "$CTX5" || true)"
+assert_eq "finish skip: finished tickets do not consume the cap" 0 "$(grep -cF 'scan capped at 5' <<< "$CTX5" || true)"
+assert_eq "finish skip: gh not called for finished tickets" 0 "$(grep -cE 'pr view (19|2[0-5]) ' "$T/gh583.calls" || true)"
+rm -rf "$N1_HOME"/memory/T-19 "$N1_HOME"/memory/T-2[0-6]
+printf '#!/usr/bin/env bash\necho MERGED\n' > "$T/ghbin/gh"
+
 # session-start: awaiting-merge overview with missing created/pr/last_checked fields must not crash the hook (NP-232)
 MEM3="$N1_HOME/memory/T-11"; mkdir -p "$MEM3"
 printf -- '---\nstep: pr\nawaiting: merge\n---\n' > "$MEM3/overview.md"
