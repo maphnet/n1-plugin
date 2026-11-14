@@ -66,6 +66,12 @@ line_has "caller mode remaps the \$ID spelling too" '**Caller mode — n1-refine
 line_has "caller mode runs Phases 1-2 only" '**Caller mode — n1-refine:**' 'Run Phase 1 and Phase 2 only' "$I"
 lacks "no dangling Brain-dump variant refs" 'Brain-dump variant' "$I"
 
+# N1-577: spike prototype runs before signals; refine never runs it
+line_has "caller mode skips the spike prototype" '**Caller mode — n1-refine:**' 'Phase 1b' "$I"
+before "spike prototype precedes signals extraction" '**Phase 1b — Spike prototype**' '**Extract and persist signals:**' "$I"
+before "spike verdict parsed after Implementable" 'IMPLEMENTABLE_RAW=' 'VALIDATED|PARTIAL) IMPLEMENTABLE=true' "$I"
+has "variant read in the telemetry block" 'echo "VARIANT=$(n1_read_frontmatter' "$I"
+
 # --- Task 4: product-analyst + queue intake markers
 PA=agents/product-analyst.md
 line_has "PA skip line lists refined marker after pinned sentence" 'already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment' '`Refined by N1`' "$PA"

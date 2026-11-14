@@ -87,6 +87,22 @@ assert_contains "brainstorm investigation: experiments delegated" \
     "skills/n1-start/steps/brainstorm.md" \
     "ORCHESTRATOR GUARDRAIL (experiments)"
 
+# N1-577 — spike variant: prototype on a pushed, never-merged spike/<ID> branch
+SP=skills/n1-start/procedures/spike.md
+assert_contains "spike: fixed branch name" "$SP" 'spike/<ID>'
+assert_contains "spike: worktree path from n1_worktree_root" "$SP" 'WT="$MAIN/$(n1_worktree_root)/spike-$ID"'
+assert_contains "spike: explicit refspec push" "$SP" 'git -C "$WT" push -u origin spike/<ID>:spike/<ID>'
+assert_contains "spike: worktree removed without force" "$SP" 'git -C "$MAIN" worktree remove "$WT"'
+assert_contains "spike: worktree kept on push failure" "$SP" 'push:failed worktree:kept'
+assert_contains "spike: never in refine caller mode" "$SP" 'Never in n1-refine caller mode'
+assert_contains "spike: developer may commit on the spike branch" "$SP" 'Commits on `spike/<ID>` are allowed'
+assert_contains "investigation: step points to spike procedure" \
+    "skills/n1-start/steps/investigation-deliverable.md" \
+    'read `procedures/spike.md` and follow § Prototype'
+assert_contains "investigation: verdict derives implementable" \
+    "skills/n1-start/steps/investigation-deliverable.md" \
+    'VALIDATED|PARTIAL) IMPLEMENTABLE=true'
+
 # NP-144 — blocking dispatch requirement and post-dispatch verification gates
 assert_contains "n1-start: blocking dispatch requirement" \
     "skills/n1-start/SKILL.md" \
