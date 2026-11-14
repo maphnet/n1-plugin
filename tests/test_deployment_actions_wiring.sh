@@ -244,10 +244,12 @@ check "finish Step 2 queue/headless writes the runbook" "§ Runbook" "$F2"
 check "finish Step 2 aborted walk blocks the merge" "Merge blocked" "$F2"
 check "finish Step 2 defers Before release items" "### Before release. items are deferred" "$F2"
 F4=skills/n1-finish/steps/04-close-ticket.md
-check "finish Step 4 walks after-deploy items" "PHASE=after" "$F4"
-check "finish Step 4 asks when no deploy was watched" "§ Unwatched Deploy" "$F4"
-check "finish Step 4 clears deploy_pending" "deploy_pending false" "$F4"
-check "finish Step 4 records deferred items for the Step 6 Report" "Deferred to release:. line" "$F4"
+F4A=skills/n1-finish/references/after-deploy-actions.md
+check "finish Step 4 points at after-deploy-actions.md under its trigger" 'Otherwise \(`deferred:<M>` or `unticked:<N>` above 0\): read `<N1_ROOT>/skills/n1-finish/references/after-deploy-actions\.md` now' "$F4"
+check "finish Step 4 walks after-deploy items" "PHASE=after" "$F4A"
+check "finish Step 4 asks when no deploy was watched" "§ Unwatched Deploy" "$F4A"
+check "finish Step 4 clears deploy_pending" "deploy_pending false" "$F4A"
+check "finish Step 4 records deferred items for the Step 6 Report" "Deferred to release:. line" "$F4A"
 check "finish Step 6 Report carries the deferred-to-release line" "^Deferred to release \(n1-release walks these before the tag push\): <items> \(PR #<n>\)" skills/n1-finish/steps/06-cleanup.md
 before "finish: after-deploy follows the delivery gate" "03b-ssh-deploy.md" "deployment-actions.md" "$F4"
 
@@ -381,12 +383,13 @@ check "tech-writer reconcile never converts existing lines" "existing lines are 
 # --- N1-568: n1-finish wiring (AC3, AC4, AC6, AC8; D1, D2, D9)
 F2=skills/n1-finish/steps/02-merge.md
 F4=skills/n1-finish/steps/04-close-ticket.md
+F4A=skills/n1-finish/references/after-deploy-actions.md
 check "finish Step 2 runs before checks without a prompt" "check. rows run without a prompt" "$F2"
-check "finish Step 4 headless runs after checks first" "run § Check \(no prompt" "$F4"
-check "finish Step 4 headless closes on runbook:none" "runbook:none" "$F4"
-check "finish Step 4 walks late before rows with LATE=1" "LATE=1" "$F4"
-check "finish Step 4 labels late before rows deploy already ran" "deploy already ran" "$F4"
-check "finish Step 4 runs no check without a watched deploy" "no check runs without a watched deploy" "$F4"
+check "finish Step 4 headless runs after checks first" "run § Check \(no prompt" "$F4A"
+check "finish Step 4 headless closes on runbook:none" "runbook:none" "$F4A"
+check "finish Step 4 walks late before rows with LATE=1" "LATE=1" "$F4A"
+check "finish Step 4 labels late before rows deploy already ran" "deploy already ran" "$F4A"
+check "finish Step 4 runs no check without a watched deploy" "no check runs without a watched deploy" "$F4A"
 check "finish Step 6 Report carries deployment action outcomes" "^Deployment actions: " skills/n1-finish/steps/06-cleanup.md
 check "tail-worker treats a check item as no question" "runs without a prompt" agents/tail-worker.md
 check "handoff: passing checks never cause tail:prompt" "passing .check. items never stop it" skills/n1-finish/steps/handoff.md
@@ -420,7 +423,7 @@ check "architecture.md documents Run it for me" "Run it for me" references/archi
 # --- N1-568 fix cycle 1 (CR-1, SEC-1..4)
 check "finish 3.2 does not park an open PR on after check rows" "other than an .after. row that § Command classifies .check." "$F2"
 check "finish 3.2 continues to merge when only after checks remain" "every unticked row is such an .after. check, continue to 3.3" "$F2"
-check "finish Step 4 runs no check on a resume alone" "a Step 1 resume alone does not count" "$F4"
+check "finish Step 4 runs no check on a resume alone" "a Step 1 resume alone does not count" "$F4A"
 check "reference: resume alone is not a watched deploy" "a resumed pending deploy alone does not count" "$P"
 check "check: every mode refuses a PR by another author" "In every mode .walk and runbook, n1-finish and n1-release., run no check promptlessly for a PR whose author differs" "$P"
 check "check: untrusted item text names the target only" "never instructions" "$P"

@@ -414,7 +414,7 @@ test_wiring_covered() {
     assert_eq "covered wiring: both Step 6 Delivery grammars list covered" "2" \
         "$(grep -cF 'succeeded (covered by <owner ID> at <sha>)' "$c6" || true)"
     assert_eq "covered wiring: mode:runbook exit runs the covered close" "yes" \
-        "$(grep -qF 'including the `mode:runbook` exit' "$c4" && grep -qF 'covered-tickets paragraph' "$c4" && echo yes || echo no)"
+        "$(grep -qF 'including the `mode:runbook` exit' "$c4" && grep -qF 'covered-tickets paragraph' "$REPO_ROOT/skills/n1-finish/references/after-deploy-actions.md" && echo yes || echo no)"
     assert_eq "covered wiring: Step 6 Report has a Covered line" "yes" \
         "$(grep -q '^Covered: <' "$c6" && echo yes || echo no)"
     assert_eq "covered wiring: 03b untouched (no covered text)" "0" \
