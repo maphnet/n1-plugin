@@ -17,7 +17,7 @@ Output: `TITLE=`, `CLOUD_ID=`, `LINKED_ERROR_URL=` (non-empty: linked error; the
 
 **Story/epic** (`ISSUE_TYPE=story` or `IS_STORY=true`): read `procedures/ticket-story.md` and follow it (Story children, convert decision, Story handoff); otherwise skip it.
 
-`INVESTIGATION_DETECTED=true` with `VARIANT` empty (spike tickets run the investigation pipeline here in every mode), `N1_QUEUE_RUN_ID` unset and `N1_HEADLESS=1` not set: say "Interactive investigation moved: run `/n1:n1-refine <ID> --investigate`." (no tracker ID: `/n1:n1-ticket` first) and STOP before overview.md (run `source ~/.n1/preamble.sh; n1_step_end "ticket" 1 skipped '{"skip_reason":"investigation_moved"}'` first).
+`INVESTIGATION_DETECTED=true` with `VARIANT` empty, `N1_QUEUE_RUN_ID` unset and `N1_HEADLESS=1` not set: say "Interactive investigation moved: run `/n1:n1-refine <ID> --investigate`." (no tracker ID: `/n1:n1-ticket` first) and STOP before overview.md (run `source ~/.n1/preamble.sh; n1_step_end "ticket" 1 skipped '{"skip_reason":"investigation_moved"}'` first).
 
 **ID-Final:** no memory file/branch until `<ID>` final. product-analyst writes ticket.md directly to `ticketMdPath`.
 

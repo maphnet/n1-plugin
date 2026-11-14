@@ -1288,6 +1288,8 @@ test_story_base_wiring() {
     assert_eq "story-wiring: adopt rebases onto the story tip" "yes" "$(grep -qF 'rebase "origin/$SB"' "$ws" && echo yes || echo no)"
     assert_eq "story-wiring: ensure cuts the branch from BASE" "yes" "$(grep -qF 'git branch <TARGET> "$BASE"' "$ws" && echo yes || echo no)"
     assert_eq "story-wiring: ensure keeps checkout of the default" "yes" "$(grep -qF 'git checkout $DEFAULT' "$ws" && echo yes || echo no)"
+    assert_eq "story-wiring: adopt keeps the story-base STOP rule" "yes" \
+        "$(grep -qF 'Story child: `story-base:` output → STOP and escalate (headless: pause with a recorded escalation).' "$ws" && echo yes || echo no)"
     local f
     for f in lib/review-step.sh skills/n1-start/steps/implementation.md lib/qa-step.sh \
              skills/n1-start/procedures/cross-repo.md skills/n1-review/steps/01-analyze.md; do
