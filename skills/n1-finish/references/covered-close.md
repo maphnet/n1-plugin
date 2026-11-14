@@ -1,5 +1,7 @@
 # Covered Close (N1-528)
 
+A pending, `not needed (repo-only paths)` or n/a delivery never runs it. It never changes this ticket's close.
+
 Read from Step 4 only after this run's delivery gate recorded `- **Delivery:** succeeded (`. That happens only in the interactive Execute branch, after the user confirmed the deploy. `<ID>` is this ticket, `<SHA>` is the delivered merge SHA (03b's `<SHA>`), and `<verified | not verified>` is this run's verify result. The delivery of `<SHA>` shipped the whole tree at `<SHA>`, so every earlier merge that is an ancestor of it is deployed too. This procedure closes those other deploy-pending tickets. It never changes this ticket's own close.
 
 ## 1. Scan

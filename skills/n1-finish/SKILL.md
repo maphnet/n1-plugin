@@ -65,10 +65,7 @@ Defaults:
 | `.finishWork.mergeMethod` | `"squash"` (`"squash"` \| `"merge"` \| `"rebase"`) |
 | `.finishWork.mergeOnFinish` | `false` (only JSON `true` makes Step 2 merge an open PR) |
 | `.finishWork.deployWatch.workflowName` | `null` (watch all runs on the merge commit) |
-| `.delivery.mode` | `null` (`"ssh"` enables the Step 4 delivery deploy; else off) |
-| `.delivery.command` | `null` (see `steps/03b-ssh-deploy.md`) |
-| `.delivery.steps` | `null` (ordered; used only when `.delivery.command` is empty; see `steps/03b-ssh-deploy.md`) |
-| `.delivery.verifyCommand` | `null` (optional post-deploy check) |
+| `.delivery.mode` | `null` (`"ssh"` enables the Step 4 delivery deploy; else off; other `.delivery.*` keys: `steps/03b-ssh-deploy.md` § Config) |
 
 `.finishWork.postDeployVerification.enabled` and `.localTesting.*`: Step 3b `post-deploy-verification.md` § Config (read only after deploy status `succeeded`).
 

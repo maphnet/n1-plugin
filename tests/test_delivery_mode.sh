@@ -319,8 +319,12 @@ test_wiring() {
         "$(grep -qF 'a successful delivery continues with the rest of Step 4' <<<"$head4" && echo yes || echo no)"
     assert_eq "wiring: resume skips merge on recorded sha" "yes" \
         "$(grep -qF 'deploy_merge_sha' "$s/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
-    assert_eq "wiring: SKILL.md documents delivery keys" "yes" \
-        "$(grep -qF '.delivery.verifyCommand' "$s/n1-finish/SKILL.md" && echo yes || echo no)"
+    assert_eq "wiring: 03b documents delivery keys" "yes" \
+        "$(grep -qF '.delivery.verifyCommand' "$s/n1-finish/steps/03b-ssh-deploy.md" && echo yes || echo no)"
+    assert_eq "wiring: SKILL.md points delivery keys at 03b" "yes" \
+        "$(grep -F '`.delivery.mode`' "$s/n1-finish/SKILL.md" | grep -qF '`steps/03b-ssh-deploy.md` § Config' && echo yes || echo no)"
+    assert_eq "wiring: queue final PR skip stays before the delivery gate" "yes" \
+        "$(grep -qF 'starts with `queue/`' <<<"$(sed -n '1,4p' "$s/n1-finish/steps/04-close-ticket.md")" && echo yes || echo no)"
     local init="$s/n1-init/steps/09-finish-release.md"
     assert_eq "init: asks about delivery" "yes" "$(grep -qF '"mode": "ssh"' "$init" && echo yes || echo no)"
     assert_eq "init: warns there is no ssh deny hook" "yes" "$(grep -qF 'no deny hook' "$init" && echo yes || echo no)"
@@ -456,8 +460,8 @@ test_wiring_multi_step() {
         "$(grep -c '<command>' <<<"$ms" || true)"
     assert_eq "multi-step wiring: runbook branch forbids steps too" "yes" \
         "$(grep -qF 'delivery.steps' <<<"$rb" && echo yes || echo no)"
-    assert_eq "multi-step wiring: SKILL.md documents delivery.steps" "yes" \
-        "$(grep -qF '.delivery.steps' "$REPO_ROOT/skills/n1-finish/SKILL.md" && echo yes || echo no)"
+    assert_eq "multi-step wiring: 03b documents delivery.steps" "yes" \
+        "$(grep -qF '.delivery.steps' "$REPO_ROOT/skills/n1-finish/steps/03b-ssh-deploy.md" && echo yes || echo no)"
 }
 
 test_wiring
