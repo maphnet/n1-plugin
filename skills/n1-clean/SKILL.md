@@ -79,10 +79,10 @@ n1_clean_scan
 ```
 
 Removes nothing (it runs a best-effort `git fetch` to compare against origin). Each line is `<kind> <id> <ref> <detail>` (tab-separated, `-` = empty):
-- `nopr-worktree <ID> <path> <branch>`: clean linked worktree whose ticket has no PR, with its HEAD already on origin/<default>.
-- `empty-dir - <path> -`: empty directory beside the linked worktrees or under the N1 worktree root, not registered with git.
+- `nopr-worktree <ID> <path> <branch>`: clean linked worktree whose ticket finished (`step: done`) without a PR, with its HEAD already on origin/<default>.
+- `empty-dir - <path> -`: empty directory inside a worktree container (a directory holding only registered worktrees and empty directories) or under the N1 worktree root.
 - `stale-marker <ID> <overview> -`: overview with `## Finish` that still carries the awaiting-merge marker.
-- `remote-branch - <branch> <pr-url>`: head branch of a merged PR still on origin at the merged commit; not checked out, no open PR.
+- `remote-branch - <branch> <pr-url>`: head branch of a merged PR still on origin at the merged commit; ticket-keyed name, not checked out, not the head or base of an open PR, at most 20 per run.
 - `note - - <text>`: a kind that could not be scanned; print the text in the summary.
 
 ## Step 3: Present Summary and Confirm
@@ -156,7 +156,7 @@ Only the groups selected in Step 3. Process the worktree that contains the curre
    source ~/.n1/preamble.sh
    n1_clean_ticket "<ID>" merged-nopr
    ```
-   Extra tokens: `cleanup:skipped (<spike|no-workspace|no-base>)`. Workspace-manager worktrees are removed through the workspace manager inside the helper (`n1_orca_owns`); never remove a worktree with plain git yourself.
+   Extra tokens: `cleanup:skipped (<spike|no-workspace|no-base|not-done>)`. Workspace-manager worktrees are removed through the workspace manager inside the helper (`n1_orca_owns`); never remove a worktree with plain git yourself.
 4. **Empty directories** (interactive only): `rmdir -- "<path>"` per entry (never `rm -r`); a directory that is no longer empty stays.
 5. **Stale markers** (interactive only): one call per entry:
    ```bash
