@@ -42,8 +42,9 @@ INTAKE_RESULT=$(echo "$AGENT_OUTPUT" | grep -m1 '^intake-result: ' | sed 's/^int
 TITLE=$(echo "$AGENT_OUTPUT" | grep -m1 '^title: ' | sed 's/^title: //')
 TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags" *: *\[//;s/\].*//' | tr -d '"' | tr -d ' ')
 TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*[,{] *"type": *"\([^"]*\)".*/\1/')
-n1_resolve_type "$TITLE" "$TAGS_CSV" "$TYPE_FIELD" "" 2>/dev/null
 ISSUE_TYPE=$(echo "$INTAKE_RESULT" | sed -n 's/.*"issue_type": *"\([^"]*\)".*/\1/p' | tr '[:upper:]' '[:lower:]')
+[ "$ISSUE_TYPE" = spike ] && TYPE_FIELD=spike
+n1_resolve_type "$TITLE" "$TAGS_CSV" "$TYPE_FIELD" "" 2>/dev/null
 SUBTASK_COUNT=$(echo "$INTAKE_RESULT" | sed -n 's/.*"subtask_count": *\([0-9]*\).*/\1/p')
 echo "issue_type=$ISSUE_TYPE subtask_count=${SUBTASK_COUNT:-0}"
 ```

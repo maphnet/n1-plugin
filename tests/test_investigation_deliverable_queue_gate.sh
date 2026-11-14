@@ -137,5 +137,17 @@ else
     fail "case4: no moveStatus op -> ledger does not claim restore"
 fi
 
+# --- N1-577: spike queue follow-up; non-spike stays restore-only ---
+SPIKE="$REPO_ROOT/skills/n1-start/procedures/spike.md"
+chk() { if grep -qF -- "$2" "$3"; then pass "$1"; else fail "$1"; fi; }
+chk "queue gate points spikes to the follow-up" 'first follow `procedures/spike.md` § Follow-up (queue)' "$SKILL"
+chk "non-spike queue routing stays restore-only" 'Non-spike: no follow-up ticket creation, no ticket-type conversion, no close — restore-only.' "$SKILL"
+chk "follow-up names the spike branch" 'Prototype branch: spike/<ID>' "$SPIKE"
+chk "follow-up says rewrite from scratch" 'Implementation rewrites the solution from scratch on its own ticket branch; do not merge or cherry-pick spike/<ID>.' "$SPIKE"
+chk "INVALIDATED creates nothing" 'INVALIDATED or no Verdict: create nothing.' "$SPIKE"
+chk "spike follow-up ledger row" 'Spike follow-up under queue run' "$SPIKE"
+chk "spike ledger row guards the header" "grep -q '^## Decision Ledger'" "$SPIKE"
+chk "interactive follow-up adds the spike block" 'add the block from `procedures/spike.md` § Follow-up description' "$SKILL"
+
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

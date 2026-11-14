@@ -115,4 +115,34 @@ has "wiring: intake fence resolves the type" "$( eval "$(fence "$STEP" 1)" 2>&1 
 has "wiring: persist fence prints the session name" "$( eval "$(fence "$STEP" 2)" 2>&1 )" "SESSION_NAME=TK-1"
 has "wiring: close fence ends the step" "$(fence "$STEP" 3)" 'n1_step_end "ticket" 1 success'
 
+# --- N1-577: spike variant ---
+SPIKE_IT='{"title":"S","tags":[],"type":"task","issue_type":"Spike","subtask_count":0,"original_status":""}'
+: > "$MEM/ticket.md"; ret "$SPIKE_IT"; OUT=$(n1_ticket_intake '' 2>&1)
+has "intake: Jira Spike issue type routes to investigation" "$OUT" "RESOLVED_TYPE=investigation"
+has "intake: Spike issue type matched by type field" "$OUT" "TYPE_MATCHED_BY=type_field"
+has "intake: Spike issue type marks the variant" "$OUT" $'VARIANT=spike\nQUEUE_RUN_ID='
+ret '{"title":"S","tags":["spike"],"type":"task","issue_type":"Task","subtask_count":0,"original_status":""}'
+OUT=$(n1_ticket_intake '' 2>&1)
+has "intake: spike tag routes to investigation" "$OUT" "RESOLVED_TYPE=investigation"
+has "intake: spike tag matched by tags" "$OUT" "TYPE_MATCHED_BY=tags"
+has "intake: spike tag marks the variant" "$OUT" "VARIANT=spike"
+ret '{"title":"I","tags":["investigation"],"type":"task","issue_type":"Task","subtask_count":0,"original_status":""}'
+has "intake: plain investigation has no variant" "$(n1_ticket_intake '' 2>&1)" $'VARIANT=\nQUEUE_RUN_ID='
+ret "$BUG"
+has "intake: --type investigation on a non-spike keeps no variant" "$(n1_ticket_intake investigation 2>&1)" $'VARIANT=\nQUEUE_RUN_ID='
+ret '{"title":"C","tags":[],"type":"task","linked_error":{"provider":"sentry","issueId":"1","issueUrl":"https://s.example/issues/1"},"issue_type":"Spike","subtask_count":0,"original_status":""}'
+OUT=$(n1_ticket_intake '' 2>&1)
+has "intake: linked error still wins over Spike" "$OUT" "RESOLVED_TYPE=bug"
+has "intake: linked error bug has no variant" "$OUT" $'VARIANT=\nQUEUE_RUN_ID='
+printf -- '---\n---\n' > "$MEM/overview.md"; printf 'x\n' > "$MEM/ticket.md"; ret "$SPIKE_IT"
+n1_ticket_persist '' >/dev/null 2>&1
+eq "persist: spike variant frontmatter" "spike" "$(n1_read_frontmatter "$MEM/overview.md" variant)"
+eq "persist: spike type frontmatter" "investigation" "$(n1_read_frontmatter "$MEM/overview.md" type)"
+printf -- '---\n---\n' > "$MEM/overview.md"; ret "$BUG"
+n1_ticket_persist '' >/dev/null 2>&1
+eq "persist: no variant for a non-spike ticket" "" "$(n1_read_frontmatter "$MEM/overview.md" variant)"
+printf -- '---\nvariant: spike\n---\n' > "$MEM/overview.md"; ret "$BUG"
+n1_ticket_persist '' >/dev/null 2>&1
+eq "persist: stale spike variant is cleared" "" "$(n1_read_frontmatter "$MEM/overview.md" variant)"
+
 exit $FAIL

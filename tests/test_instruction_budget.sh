@@ -40,6 +40,7 @@ MAX_STANDARD_BYTES=95926  #80 KB + 692 bytes for n1-start assign-to-creator guar
 INVESTIGATION_PATH_FILES=(
   "${STANDARD_PATH_FILES[@]}"
   "$SKILL_DIR/steps/investigation-deliverable.md"
+  "$SKILL_DIR/procedures/spike.md"
 )
 MAX_INVESTIGATION_BYTES=122880  # 120 KB
 

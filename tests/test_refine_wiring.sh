@@ -28,8 +28,16 @@ has "input-parsing rejects --investigate" '`--investigate` moved: run `/n1:n1-re
 line_has "ticket step redirects only interactive investigation" 'Interactive investigation moved: run `/n1:n1-refine <ID> --investigate`' 'N1_HEADLESS=1' skills/n1-start/steps/ticket.md
 lacks "brain-dump investigation variant removed" "**Brain-dump variant**" skills/n1-start/steps/investigation-deliverable.md
 has "architecture points investigation to n1-refine" '/n1:n1-refine <ID> --investigate' references/architecture.md
+has "architecture registry lists the spike tag" 'tags: `investigation`, `spike`' references/architecture.md
+has "architecture documents the spike variant" '**Spike variant.**' references/architecture.md
+has "CLAUDE.md documents the spike push exception" '**Spike push exception:**' CLAUDE.md
 
 before "redirect precedes overview creation" 'Interactive investigation moved' '**Create overview.md**' skills/n1-start/steps/ticket.md
+# N1-577: spike tickets run in n1-start; refine routes the Jira Spike issue type
+line_has "spike tickets skip the refine redirect" 'Interactive investigation moved' '`VARIANT` empty' skills/n1-start/steps/ticket.md
+has "ticket step documents the VARIANT output" '`VARIANT=`' skills/n1-start/steps/ticket.md
+before "refine parses issue type before resolving" 'ISSUE_TYPE=$(echo "$INTAKE_RESULT"' 'n1_resolve_type "$TITLE"' skills/n1-refine/steps/01-fetch.md
+has "refine routes the Jira Spike issue type" '[ "$ISSUE_TYPE" = spike ] && TYPE_FIELD=spike' skills/n1-refine/steps/01-fetch.md
 has "write closes block with end line" '*End of Refined by N1*' skills/n1-refine/steps/03-write.md
 has "write replaces through end line" 'through the next `End of Refined by N1` line' skills/n1-refine/steps/03-write.md
 line_has "handoff investigation form keys on resolved type" 'resolved type is `investigation`' '`--investigate` on a Task-typed ticket does not count' skills/n1-refine/steps/03-write.md
@@ -60,6 +68,12 @@ line_has "caller mode remaps memory to refine/" '**Caller mode — n1-refine:**'
 line_has "caller mode remaps the \$ID spelling too" '**Caller mode — n1-refine:**' '$N1_HOME/memory/$ID/' "$I"
 line_has "caller mode runs Phases 1-2 only" '**Caller mode — n1-refine:**' 'Run Phase 1 and Phase 2 only' "$I"
 lacks "no dangling Brain-dump variant refs" 'Brain-dump variant' "$I"
+
+# N1-577: spike prototype runs before signals; refine never runs it
+line_has "caller mode skips the spike prototype" '**Caller mode — n1-refine:**' 'Phase 1b' "$I"
+before "spike prototype precedes signals extraction" '**Phase 1b — Spike prototype**' '**Extract and persist signals:**' "$I"
+before "spike verdict parsed after Implementable" 'IMPLEMENTABLE_RAW=' 'VALIDATED|PARTIAL) IMPLEMENTABLE=true' "$I"
+has "variant read in the telemetry block" 'echo "VARIANT=$(n1_read_frontmatter' "$I"
 
 # --- Task 4: product-analyst + queue intake markers
 PA=agents/product-analyst.md

@@ -75,3 +75,4 @@ Headless runs (`N1_HEADLESS=1`) never auto-resolve unconditional gates — they 
 - No Co-Authored-By trailers
 - **Version bump mandatory on every task branch:** run `scripts/bump-version.sh <new>` (updates the two manifests: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`; `tests/test_manifests.sh` asserts they match). Commit as `chore: bump version to <new> (<ID>)`.
 - **Workspace isolation:** worktree at `<main-checkout>/.claude/worktrees/<ID>/` (default). `n1-pr` performs `git push -u origin <branch>`; `n1-finish` removes the worktree (external ones only when clean and merged), then the local branch, after a successful finish.
+- **Spike push exception:** the investigation spike variant pushes `spike/<ID>` (`git push -u origin spike/<ID>:spike/<ID>`) from `investigation-deliverable` in interactive, headless and queue runs; no PR is created and the branch is never merged.

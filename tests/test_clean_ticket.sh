@@ -57,6 +57,18 @@ eq "K4: closed PR skipped" "cleanup:skipped (pr-not-merged)" "$(ct K-3 "$(printf
 ov K-5 ""; : > "$GH_CALLS"
 eq "K5: no pr skipped" "cleanup:skipped (no-pr)" "$(ct K-5 x)"
 eq "K5: gh not called" "" "$(cat "$GH_CALLS")"
+# S1-S6 (N1-577): a spike ticket is never pending merge work; a kept spike worktree is never the ticket's workspace.
+mkdir -p "$N1_HOME/memory/S-1"; printf -- '---\nstep: done\ntype: investigation\nvariant: spike\n---\n# S-1\n' > "$N1_HOME/memory/S-1/overview.md"; : > "$GH_CALLS"
+eq "S1: spike ticket without pr_url skipped" "cleanup:skipped (no-pr)" "$(ct S-1 x)"
+eq "S1: gh not called for a spike ticket" "" "$(cat "$GH_CALLS")"
+git -C "$M" worktree add -q -b spike/S-2 "$T/spike-S-2" main; git -C "$T/spike-S-2" commit -q --allow-empty -m s2
+eq "S2: kept spike worktree not found for its ticket" "" "$(cd "$M" && n1_find_workspace S-2)"
+eq "S3: kept spike worktree not owned by its ticket" "1" "$(cd "$T/spike-S-2" && { n1_worktree_owned S-2; echo $?; })"
+wt "$T/S-4" b-s4
+eq "S4: normal <ID> worktree still found by folder" "$T/S-4" "$(cd "$M" && n1_find_workspace S-4)"
+wt "$T/x5" feature/S-5
+eq "S5: normal worktree still found by branch" "$T/x5" "$(cd "$M" && n1_find_workspace S-5)"
+eq "S6: n1-finish stops on spike branches" "1" "$(grep -c 'starts with `spike/`' "$R/skills/n1-finish/steps/01-resolve-target.md")"
 # K6: run from inside the target worktree (plain git).
 wt "$T/k6" b6; git -C "$M" merge -q --no-ff -m m6 b6; ov K-6
 eq "K6: from inside target" "worktree:removed,branch:deleted" "$(ct K-6 "$(printf 'MERGED\tb6\t%s\tmain' "$(rev b6)")" "$T/k6")"

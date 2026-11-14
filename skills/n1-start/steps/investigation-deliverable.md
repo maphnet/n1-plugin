@@ -2,9 +2,9 @@
 
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
 
-> **Caller mode — n1-refine:** when n1-refine runs this step, every `$N1_HOME/memory/<ID>/` or `$N1_HOME/memory/$ID/` path below (including `INV_FILE` and the analysis.md reads) means `.../refine/`. Run Phase 1 and Phase 2 only. Skip all overview.md reads and writes (checklist, `step`, frontmatter), Decision Ledger rows, `ORIGINAL_STATUS`, telemetry events, Phase 3, Phase 4 and Phase 5. Then return to n1-refine with the `implementable` signal from investigation.md; the continue banner above does not apply.
+> **Caller mode — n1-refine:** when n1-refine runs this step, every `$N1_HOME/memory/<ID>/` or `$N1_HOME/memory/$ID/` path below (including `INV_FILE` and the analysis.md reads) means `.../refine/`. Run Phase 1 and Phase 2 only. Skip all overview.md reads and writes (checklist, `step`, frontmatter), Decision Ledger rows, `ORIGINAL_STATUS`, telemetry events, Phase 1b (no spike worktree, commit or push), Phase 3, Phase 4 and Phase 5. Then return to n1-refine with the `implementable` signal from investigation.md; the continue banner above does not apply.
 
-> **ORCHESTRATOR GUARDRAIL (experiments):** user requests to run/test/benchmark/curl are handled by spawning **developer** in experiment mode: pass the exact question + worktree path + "Experiment mode: build/run/benchmark in `$N1_HOME/memory/<ID>/scratch/`; no production code changes; no commits; write `experiment-<N>.md` with ## Question, ## Setup, ## Runs, ## Result, ## Cleanup; run cleanup; return ≤15-line summary + file path." Orchestrator reads summary and continues.
+> **ORCHESTRATOR GUARDRAIL (experiments):** user requests to run/test/benchmark/curl are handled by spawning **developer** in experiment mode: pass the exact question + worktree path + "Experiment mode: build/run/benchmark in `$N1_HOME/memory/<ID>/scratch/`; no production code changes; no commits; write `experiment-<N>.md` with ## Question, ## Setup, ## Runs, ## Result, ## Cleanup; run cleanup; return ≤15-line summary + file path." Orchestrator reads summary and continues. Spike variant: `procedures/spike.md`; the no-commit rule covers experiments, not the spike prototype.
 
 **Spawn agent:** solution-architect. Resolve model for `solution-architect`.
 
@@ -12,6 +12,7 @@
 ```bash
 source ~/.n1/preamble.sh
 n1_step_begin "investigation-deliverable" 16
+echo "VARIANT=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" variant)"
 ```
 
 **Phase 1 — Produce Findings**
@@ -66,6 +67,7 @@ Validation confidence: <high|medium|low> (<N>/<M> recommendations corroborated)
 - "Ground every finding in collected evidence (file:line, command output, query result, or URL). Note uncertainty explicitly. Mark findings without collected evidence as `(unverified)`."
 - "After completing Recommendations, add a ### Validation section (before ### Next Steps). For each recommendation: run web search using the research-standards.md rubric (corroborate ≥2 sources from trusted tiers; cite URLs; fitness gate — skip if no relevant standards exist). For each recommendation report: status (✓ Supported / ⚠ Mixed / ✗ Contradicted), 1-line evidence summary, source URLs. End Validation with one line: 'Validation confidence: <high|medium|low> (<N>/<M> recommendations corroborated)'. If web tools unavailable, write 'Validation: skipped — web tools unavailable'."
 - "Scratch policy: write throwaway tests/benchmarks to `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/`."
+- Spike variant only (`VARIANT=spike` printed above): add to Metrics after `**Implementable:**`: "`- **Question type:** <feasibility|performance|other>` — feasibility or performance when a prototype or measurement can answer the question" and "`- **Verdict:** <VALIDATED|PARTIAL|INVALIDATED>` — on desk evidence; the orchestrator updates it after the prototype".
 
 > **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the solution-architect agent has written its output.
 
@@ -76,6 +78,8 @@ n1_verify_dependencies "$N1_HOME/memory/$ID" investigation.md || { n1_step_end "
 n1_step_end "investigation-deliverable" 16 success
 ```
 
+**Phase 1b — Spike prototype** (only when `VARIANT=spike`; never in n1-refine caller mode): read `procedures/spike.md` and follow § Prototype, then continue here.
+
 **Extract and persist signals:**
 ```bash
 source ~/.n1/preamble.sh
@@ -85,6 +89,8 @@ INV_FILE="$N1_HOME/memory/$ID/investigation.md"
 CONFIDENCE=$(grep -oE '\*\*Confidence:\*\* [a-z]+' "$INV_FILE" | head -1 | sed 's/.*\*\* //')
 IMPLEMENTABLE_RAW=$(grep -oE '\*\*Implementable:\*\* [a-z]+' "$INV_FILE" | head -1 | sed 's/.*\*\* //')
 IMPLEMENTABLE=$([ "$IMPLEMENTABLE_RAW" = "yes" ] && echo "true" || echo "false")
+VERDICT=$(grep -oE '\*\*Verdict:\*\* [A-Z]+' "$INV_FILE" | head -1 | sed 's/.*\*\* //')
+case "$VERDICT" in VALIDATED|PARTIAL) IMPLEMENTABLE=true ;; INVALIDATED) IMPLEMENTABLE=false ;; esac  # spike: the Verdict decides
 FINDINGS_COUNT=$(sed -n '/^### Findings$/,/^### /p' "$INV_FILE" | grep -c '^- ' 2>/dev/null || true)
 RECOMMENDATIONS_COUNT=$(sed -n '/^### Recommendations$/,/^### /p' "$INV_FILE" | grep -c '^- ' 2>/dev/null || true)
 
@@ -202,7 +208,7 @@ echo "ENRICHMENT_ENABLED=$ENRICHMENT_ENABLED HAS_EDIT=$HAS_EDIT HAS_COMMENT=$HAS
 
 **3-iii. Comment** (when `HAS_COMMENT` non-empty):
 
-Post comment: `**Investigation Results (N1)**\n**Question:** ...\n**Summary:** ...\n**Findings:** ...\n**Metrics:** ...\n**Recommendations:** ...\n**Next Steps:** ...`. On failure: log warning, non-blocking.
+Post comment: `**Investigation Results (N1)**\n**Question:** ...\n**Summary:** ...\n**Findings:** ...\n**Metrics:** ...\n**Recommendations:** ...\n**Next Steps:** ...`. On failure: log warning, non-blocking. Spike variant: add `**Verdict:** <verdict>` and `**Branch:** <the **Prototype:** value from investigation.md>` after **Summary**.
 
 **Phase 4 — Discussion**
 
@@ -223,7 +229,7 @@ Post comment: `**Investigation Results (N1)**\n**Question:** ...\n**Summary:** .
 - If `ORIGINAL_STATUS` is non-empty: apply **Restore logic** below, posting the same "Investigation completed. Ticket restored to original status." comment on success.
 - If `ORIGINAL_STATUS` is empty: apply **Leave-as-is** — no status change.
 
-No follow-up ticket creation, no ticket-type conversion, no close — restore-only. Read `ORIGINAL_STATUS` and log a Decision Ledger row:
+Non-spike: no follow-up ticket creation, no ticket-type conversion, no close — restore-only. Spike variant (`VARIANT=spike`): first follow `procedures/spike.md` § Follow-up (queue) (a follow-up only for VALIDATED or PARTIAL), then continue here. Read `ORIGINAL_STATUS` and log a Decision Ledger row:
 
 ```bash
 source ~/.n1/preamble.sh
@@ -263,7 +269,7 @@ When `IMPLEMENTABLE!=true`: "What next? 1 — Close ticket [/ 2 — Restore to o
 
 **If: Create new implementation ticket:**
 1. Derive title from first recommendation (~80 chars) or ask user.
-2. Construct description: `"Follows investigation <ID>\n\n## Summary\n...\n## Acceptance Criteria\n...\n## Scope\n...\n## Context\n..."` (Jira: plain bullets; YouTrack: checkboxes). Tag `summary` and the description per `<N1_ROOT>/references/ticket-tagging.md` § Resolve.
+2. Construct description: `"Follows investigation <ID>\n\n## Summary\n...\n## Acceptance Criteria\n...\n## Scope\n...\n## Context\n..."` (Jira: plain bullets; YouTrack: checkboxes). Tag `summary` and the description per `<N1_ROOT>/references/ticket-tagging.md` § Resolve. Spike variant: add the block from `procedures/spike.md` § Follow-up description.
 3. Call createIssue via tracker MCP with the type per `<N1_ROOT>/references/ticket-scope.md` § Free-form creation (parameters per § Create-call parameters). Then apply `<N1_ROOT>/references/ticket-tagging.md` § Label after create with `<newID>`.
 4. **Link:** if `tracker.operations.linkIssues` is configured (`LINK_OP=$(n1_config_val ".tracker.operations.linkIssues")`), call `mcp__<tracker.mcp>__<LINK_OP>`:
    - **Jira:** call with `cloudId`, `inwardIssue: { key: "<ID>" }`, `outwardIssue: { key: "<newID>" }`, `type: { name: "Relates" }`.

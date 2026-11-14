@@ -981,11 +981,11 @@ n1_story_base() {
 
 # N1-224 Gap 1 (applies with or without Orca): does this linked worktree belong to <ID>?
 # Usage: n1_worktree_owned <ID> — rc 0 owned, 1 not owned, 2 not a linked worktree (main checkout / no repo).
-# Owned when ANY: folder basename or Orca display name equals <ID>; branch contains <ID>; no commits ahead of
+# Owned when ANY: folder basename or Orca display name equals <ID>; branch contains <ID> (never a spike/* branch); no commits ahead of
 # origin/<default> and a clean working tree (fallback: local <default>; neither = unknown = not owned); overview workspace_path or this
 # session's active-run worktreePath is this toplevel.
 n1_worktree_owned() {
-    local id="${1:-}" gd gcd top lid def base="" wp ar st
+    local id="${1:-}" gd gcd top lid def base="" wp ar st br
     gd=$(cd "$(git rev-parse --git-dir 2>/dev/null)" 2>/dev/null && pwd -P) || return 2
     gcd=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) || return 2
     [ "$gd" != "$gcd" ] || return 2
@@ -994,7 +994,9 @@ n1_worktree_owned() {
     lid=$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')
     [ "$(printf '%s' "${top##*/}" | tr '[:upper:]' '[:lower:]')" = "$lid" ] && return 0
     [ "$(n1_orca_display_name "$top" | tr '[:upper:]' '[:lower:]')" = "$lid" ] && return 0
-    _n1_id_in "$id" "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" && return 0
+    # N1-577: a kept spike/<ID> worktree (push failed) is never the ticket's implementation workspace.
+    br=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+    case "$br" in spike/*) ;; *) _n1_id_in "$id" "$br" && return 0 ;; esac
     def=$(n1_config_val '.git.defaultBranch' 2>/dev/null); def="${def:-main}"
     if git rev-parse -q --verify "refs/remotes/origin/$def" >/dev/null 2>&1; then base="origin/$def"
     elif git rev-parse -q --verify "refs/heads/$def" >/dev/null 2>&1; then base="$def"; fi
@@ -1030,6 +1032,7 @@ n1_find_workspace() {
     fi
     while IFS=$'\t' read -r p b; do
         [ -d "$p" ] || continue
+        case "$b" in spike/*) continue ;; esac  # N1-577: spike worktrees are never ticket work
         if [ "$(printf '%s' "${p##*/}" | tr '[:upper:]' '[:lower:]')" = "$lid" ] || _n1_id_in "$id" "$b"; then printf '%s\n' "$p"; return 0; fi
     done < <(awk '/^worktree /{p=substr($0,10)} /^branch /{b=substr($0,19)} /^$/{print p "\t" b; p=""; b=""} END{if(p!="")print p "\t" b}' <<<"$list" | tail -n +2)
     return 0
