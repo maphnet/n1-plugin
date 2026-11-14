@@ -1297,6 +1297,50 @@ class ReportTest(unittest.TestCase):
         self.assertIn("ran 1", text)
         self.assertIn("missing 1", text)
 
+    def _gate_snap(self, headline_rates, old_rates, run_ids=("r1", "r2")):
+        snap = snap_with({"claude-code/2.79.0": {**group(2, 1, 3, n=1, sufficient=False),
+                                                 "gate_activation_rates": old_rates},
+                          "claude-code/2.80.0": group(2, 1, 3)})
+        snap["merged"] = {"claude-code/2.79.0-2.80.0": {
+            **group(2, 1, 3), "versions": ["claude-code/2.79.0", "claude-code/2.80.0"],
+            "run_ids": list(run_ids), "gate_activation_rates": headline_rates}}
+        return snap
+
+    @staticmethod
+    def _gate_caches():
+        rec = lambda res: {"run_record": {"decisions": [{"id": "review-tier", "result": res}]}}
+        return {"r1": rec(True), "r2": rec(True)}
+
+    def test_gate_table_uses_headline_partition_not_oldest_group(self):
+        snap = self._gate_snap({"review-tier": 100.0}, {"review-tier": 0.0})
+        text = bm.render_report(snap, None, None, "", self._gate_caches())
+        self.assertIn("| review-tier | 100.0% (2/2) |", text)
+        self.assertNotIn("0.0%", text.replace("100.0%", ""))
+
+    def test_gate_table_annotates_gate_without_headline_events(self):
+        snap = self._gate_snap({"review-tier": 100.0}, {"old-gate": 0.0})
+        text = bm.render_report(snap, None, None, "", self._gate_caches())
+        self.assertIn("| old-gate | n/a (no events in headline) |", text)
+
+    def test_gate_table_counts_unavailable_without_caches(self):
+        snap = self._gate_snap({"review-tier": 100.0}, {})
+        text = bm.render_report(snap, None, None, "", {})
+        self.assertIn("| review-tier | 100.0% (counts unavailable) |", text)
+
+    def test_gate_table_counts_unavailable_with_partial_caches(self):
+        snap = self._gate_snap({"review-tier": 0.0}, {})
+        caches = {"r1": {"run_record": {"decisions": [{"id": "review-tier", "result": False}]}}}
+        text = bm.render_report(snap, None, None, "", caches)
+        self.assertIn("| review-tier | 0.0% (counts unavailable) |", text)
+
+    def test_gate_table_omitted_without_sufficient_partition(self):
+        snap = self._gate_snap({"review-tier": 100.0}, {"review-tier": 0.0})
+        snap["merged"]["claude-code/2.79.0-2.80.0"]["sufficient"] = False
+        snap["groups"]["claude-code/2.80.0"]["sufficient"] = False
+        text = bm.render_report(snap, None, None, "", self._gate_caches())
+        self.assertIn("No sufficient headline partition; gate rates not reported.", text)
+        self.assertNotIn("| review-tier |", text)
+
     def test_render_cross_host_no_delta(self):
         # claude-code and codex partitions must not produce cross-host deltas.
         # Without per-host isolation, codex/2.80.0 would inherit claude-code/2.80.0 as

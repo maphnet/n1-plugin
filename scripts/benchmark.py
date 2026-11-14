@@ -1448,6 +1448,20 @@ def _judge_reasons(turns):
     return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:3]
 
 
+def _gate_counts(run_ids, caches) -> dict:
+    """{gate id: (true, total)} over the given runs; same counting rule as aggregate()."""
+    out: dict = {}
+    for rid in run_ids:
+        c = caches.get(rid) or {}
+        for dec in ((c.get("run_record") or {}).get("decisions") or []):
+            did = dec.get("id", "")
+            if not did:
+                continue
+            tr, tot = out.get(did, (0, 0))
+            out[did] = (tr + (1 if dec.get("result", False) else 0), tot + 1)
+    return out
+
+
 def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> str:
     g = snapshot["groups"]
     hg = headline_groups(snapshot) or g
@@ -1583,21 +1597,28 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
     lines.append("Cells: mean [95% bootstrap CI] (n). Lower is better.")
     lines.append("")
 
-    # Gate activation rates
-    # Collect from snapshot groups
-    gate_rates = {}
-    for key in snapshot.get("groups", {}):
-        gr = (snapshot["groups"][key] or {}).get("gate_activation_rates") or {}
-        for did, rate in gr.items():
-            if did not in gate_rates:
-                gate_rates[did] = rate
-    if gate_rates:
-        lines += ["## Gate Activation Rates", ""]
+    # Gate activation rates: headline partition only
+    all_gates = {did for grp in g.values() for did in ((grp or {}).get("gate_activation_rates") or {})}
+    rates = (hg[latest].get("gate_activation_rates") or {}) if latest else {}
+    if latest and (all_gates or rates):
+        hrun_ids = hg[latest].get("run_ids") or []
+        counts = _gate_counts(hrun_ids, caches)
+        complete = all(r in caches for r in hrun_ids)
+        lines += ["## Gate Activation Rates", "", f"Headline partition: {latest}", ""]
         lines += ["| gate | activation_rate |", "|---|---|"]
-        for did, rate in sorted(gate_rates.items()):
-            rate_str = f"{rate}%" if rate is not None else "n/a"
-            lines.append(f"| {did} | {rate_str} |")
+        for did in sorted(all_gates | set(rates)):
+            if did not in rates:
+                cell = "n/a (no events in headline)"
+            elif rates[did] is None:
+                cell = "n/a"
+            else:
+                tr, tot = counts.get(did, (0, 0))
+                ok = complete and tot and round(100 * tr / tot, 1) == rates[did]
+                cell = f"{rates[did]}% ({tr}/{tot})" if ok else f"{rates[did]}% (counts unavailable)"
+            lines.append(f"| {did} | {cell} |")
         lines.append("")
+    elif all_gates or rates:
+        lines += ["## Gate Activation Rates", "", "No sufficient headline partition; gate rates not reported.", ""]
 
     lines.append(f"Snapshot {snapshot['snapshot_id']}, plugin {snapshot.get('plugin_version') or 'unknown'}, "
                  f"rubric v{snapshot['rubric_version']}, judge {snapshot.get('judge_model') or 'none (no turns judged)'}, "
