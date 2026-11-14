@@ -103,8 +103,7 @@ n1_wait_release_runs() {
     done
 }
 
-# N1-301: (poll:)/(monitor:) steps in n1-release custom procedures. Names keep the n1_wait_ prefix so the
-# stuck-detector never records these calls (references/architecture.md, stuck detection).
+# N1-301: (poll:)/(monitor:) steps in n1-release custom procedures. Names keep the n1_wait_ prefix.
 
 _n1_wait_secs() { # <N><s|m|h> (already grammar-checked) -> seconds; rc 1 when zero
     local n=$((10#${1%[smh]}))

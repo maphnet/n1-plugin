@@ -126,7 +126,7 @@ assert_contains "T23: lite scope directive exists" "$SKILL" \
 # T24: lite escape-hatch in compressed spawn SA prose
 assert_contains "T24: lite escape-hatch directive exists" "$SKILL" \
     '`LITE_ESCALATED:<reason>` if'
-# T25: non-lite path gates research-standards access
+# T25: non-lite path gates standards-research access
 assert_contains "T25: standards research gated off in lite" "$SKILL" \
     "Cold/stale+cache+non-lite"
 # T26: LITE_MODE guard present in bash project-map one-liner

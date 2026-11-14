@@ -20,7 +20,7 @@ Log the class as an `[auto]` row in `## Decision Ledger` (format: `procedures/au
 
 | Class | Interactive | Headless (`N1_HEADLESS=1`) |
 |---|---|---|
-| `info` | Print `Ticket <ID>: external update by <author>: <summary>`; continue | Emit `ticket_comment` (snippet below), `n1_notify info`; continue |
+| `info` | Print `Ticket <ID>: external update by <author>: <summary>`; continue | Emit `ticket_comment` (snippet below); continue |
 | `replan` | § Replan | § Replan |
 | `escalate` | Ask the user (see Options below) | `procedures/autonomy-headless.md` escalation (stop-list path), STEP=`ticket-watch`, category = the matched stop-list category, else `ticket-watch` (never `none`), QUESTION=`External change may alter <category or reason> scope: <reason>`, OPTIONS=`Re-plan / Continue unchanged / Stop this ticket` (omit Re-plan when the cap is reached) |
 
@@ -32,7 +32,6 @@ Event snippet. `EVENT` is `ticket_comment` or `ticket_replan`. It emits only in 
 source ~/.n1/preamble.sh; source "$N1_ROOT/lib/queue.sh"
 REASON=$(head -c 300 "$N1_HOME/memory/$ID/.tw-reason.txt" 2>/dev/null)
 [ -n "${N1_QUEUE_DIR:-}" ] && n1_queue_event "$N1_QUEUE_DIR/events.jsonl" "$(n1_read_frontmatter "$N1_QUEUE_DIR/queue.md" queue_id)" "${N1_QUEUE_RUN_ID:-}" "$EVENT" ticket="$ID" reason="$REASON"
-n1_notify info "$ID: $REASON"
 rm -f "$N1_HOME/memory/$ID/.tw-reason.txt"
 ```
 

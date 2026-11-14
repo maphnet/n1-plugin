@@ -4,15 +4,11 @@
   "pollSeconds": 30,
   "subtaskTimeoutMinutes": 180,
   "stallMinutes": 30,
-  "notify": "none",
-  "ntfyTopic": "",
-  "notifyCommand": "",
   "opusFromSize": "M",
   "designPath": "docs/design/",
   "staleAfterHours": 24,
   "backend": "auto",
   "maxConcurrent": 1,
-  "unattendedAutoStart": false,
   "taskSizing": {
     "maxSize": "L",
     "warnOnLargeTask": true

@@ -109,37 +109,6 @@ n1_bg_cmd() {
     esac
 }
 
-n1_powershell_path() {
-    # powershell.exe on PATH, else the WSL default (wsl.conf appendWindowsPath=false hides it from PATH).
-    command -v powershell.exe 2>/dev/null && return 0
-    local p="${N1_WSL_POWERSHELL:-/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe}"
-    [ -x "$p" ] && printf '%s\n' "$p"
-}
-
-n1_desktop_notify() {
-    # Usage: n1_desktop_notify <title> <body> — first desktop notifier that actually runs wins
-    # (on PATH is not enough: WSL interop can be present but disabled). Returns 1 if none works.
-    local t="$1" b="$2"
-    # N1-265: every backend gets </dev/null. powershell.exe reads and discards inherited stdin, which
-    # drained the queue runner's row loops; no notifier has any use for the caller's stdin.
-    if command -v notify-send >/dev/null 2>&1 && timeout 10 notify-send "$t" "$b" </dev/null >/dev/null 2>&1; then return 0; fi
-    if command -v osascript >/dev/null 2>&1 && timeout 10 osascript \
-        -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' -e 'end run' \
-        "$t" "$b" </dev/null >/dev/null 2>&1; then return 0; fi
-    local ps; ps=$(n1_powershell_path)
-    if [ -n "$ps" ] && N1_NT="$t" N1_NB="$b" WSLENV="N1_NT:N1_NB${WSLENV:+:$WSLENV}" \
-        timeout 10 "$ps" -NoProfile -NonInteractive -Command '
-            [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
-            $x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
-            $n = $x.GetElementsByTagName("text")
-            $n.Item(0).AppendChild($x.CreateTextNode($env:N1_NT)) > $null
-            $n.Item(1).AppendChild($x.CreateTextNode($env:N1_NB)) > $null
-            $app = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe"
-            [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show([Windows.UI.Notifications.ToastNotification]::new($x))
-        ' </dev/null >/dev/null 2>&1; then return 0; fi
-    return 1
-}
-
 n1_hook_field() {
     # Usage: printf '%s' "$PAYLOAD" | n1_hook_field <name> — top-level string field or empty.
     local name="$1" input; input=$(cat)
@@ -256,20 +225,6 @@ n1_mcp_http_url() {
     fi
     [ -n "$e" ] || e=$(jq -c --arg n "$name" '.mcpServers[$n]? // empty' "$cj" 2>/dev/null)
     jq -re 'select(.type == "http") | .url | strings | select(test("\\Ahttps?://(127\\.0\\.0\\.1|localhost|\\[::1\\])(:[0-9]+)?(/[^[:space:][:cntrl:]]*)?\\z"))' <<<"$e" 2>/dev/null || return 1
-}
-
-n1_orca_unread_main() {
-    # Usage: n1_orca_unread_main <text> — N1-226: mark this project's main-checkout Orca card unread with a comment,
-    # so a paused scheduled queue run shows in Orca. n1_orca_sync skips main checkouts on purpose. The project is
-    # the session root (CLAUDE_PROJECT_DIR, inherited by the runner), else the cwd. Always returns 0.
-    [ -n "${ORCA_CLI_COMMAND:-}" ] || return 0
-    n1_orca_active || return 0
-    local c m
-    c=$(printf '%s' "${1:-}" | tr -d '\000-\037\177'); c="${c:0:120}"
-    case "$c" in [A-Za-z0-9]*) ;; *) c="n1-queue: needs you" ;; esac   # never looks like an option
-    m=$(n1_main_checkout "${CLAUDE_PROJECT_DIR:-.}") || return 0
-    n1_orca worktree set --worktree "path:$m" --unread --comment "$c" >/dev/null 2>&1 || true
-    return 0
 }
 
 n1_orca_link() {

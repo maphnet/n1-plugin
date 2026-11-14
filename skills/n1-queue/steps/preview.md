@@ -16,7 +16,7 @@ Excluded:
 | ... | blocked by X-123 |
 ```
 
-**Selector header (N1-440).** `Mode` is input.md's `MODE`, `Source` its `SRC` (the ticket keys, the tag or the story ID), `Candidates` the number of plan rows. Print the header and the table before the `--dry-run` stop and before § Plan-Resolve writes anything to the tracker, also under `--unattended` (it has no prompt, so this print is its only record). This is not a new gate: the explicit input, or the reply to input.md item 3, is the user's selection. In goal mode `Mode` is `list` and the selection is the list the user approved in `steps/goal.md`. Then advance the planning state:
+**Selector header (N1-440).** `Mode` is input.md's `MODE`, `Source` its `SRC` (the ticket keys, the tag or the story ID), `Candidates` the number of plan rows. Print the header and the table before the `--dry-run` stop and before § Plan-Resolve writes anything to the tracker. This is not a new gate: the explicit input, or the reply to input.md item 3, is the user's selection. In goal mode `Mode` is `list` and the selection is the list the user approved in `steps/goal.md`. Then advance the planning state:
 
 ```bash
 source ~/.n1/preamble.sh
@@ -111,7 +111,7 @@ Record the printed sha256 as Desc Checksum (NP-203 SEC-3: a checksum that a head
 
 ### 2. Duplicates
 
-For each candidate whose Reason intake annotated with `possible duplicate:` or `related:`, follow `<N1_ROOT>/references/duplicate-check.md` § 4 Act with `CONTEXT=queue-plan`, `SELF_ID=<KEY>`, that candidate's `MATCHES` and `LINK_OP` from intake (no new search). Record Notes `dup:<HIT_IDs, comma-separated>:<DUP_CHOICE>`. On `exclude`, move the candidate to Excluded with reason `duplicate: <HIT_IDs> (plan)` and drop its `DECISIONS` row. On `close`, do the same with reason `duplicate: <HIT_IDs> closed (plan)`. `--unattended`: do not ask; take **Continue** for duplicate rows (the unattended default in duplicate-check.md), never Close.
+For each candidate whose Reason intake annotated with `possible duplicate:` or `related:`, follow `<N1_ROOT>/references/duplicate-check.md` § 4 Act with `CONTEXT=queue-plan`, `SELF_ID=<KEY>`, that candidate's `MATCHES` and `LINK_OP` from intake (no new search). Record Notes `dup:<HIT_IDs, comma-separated>:<DUP_CHOICE>`. On `exclude`, move the candidate to Excluded with reason `duplicate: <HIT_IDs> (plan)` and drop its `DECISIONS` row. On `close`, do the same with reason `duplicate: <HIT_IDs> closed (plan)`.
 
 ### 3. Overlap order
 
@@ -141,8 +141,6 @@ Keep the first printed line as `SCHEDULE` and the number as `MAX_CONCURRENT` for
 
 ### 4. Stop-list pre-scan
 
-`--unattended`: skip this section. No candidate gets a Pre-Decision, so every child asks at runtime.
-
 ```bash
 source ~/.n1/preamble.sh
 n1_escalation_val 'alwaysAskOn'
@@ -160,13 +158,7 @@ Record Pre-Decision as `<category>: <ask-at-runtime|pre-authorize|narrow>`, seve
 
 ## Prompt
 
-```bash
-source ~/.n1/preamble.sh
-source "$N1_ROOT/lib/queue.sh"
-n1_queue_notify_check
-```
-
-Print any warning line verbatim (out-of-session alerts will be silently skipped otherwise). Print the plan table again (Reason now carries Order notes) and the Hierarchy block when it applies, then `Schedule: <SCHEDULE>` and `Concurrency: <MAX_CONCURRENT> (queue.maxConcurrent; the bg backend runs one at a time).`, and when `MAX_CONCURRENT` is above 1 append ` Parallel workers share your usage limits.`, plus `## Decisions` rows that have a Pre-Decision or Notes, plus, for each candidate whose Reason carries `briefed`, its brief under `Brief <KEY>:` so the user sees what the child will plan from. Then ask the user (`--unattended`: do not ask; proceed as **Start**):
+Print the plan table again (Reason now carries Order notes) and the Hierarchy block when it applies, then `Schedule: <SCHEDULE>` and `Concurrency: <MAX_CONCURRENT> (queue.maxConcurrent; the bg backend runs one at a time).`, and when `MAX_CONCURRENT` is above 1 append ` Parallel workers share your usage limits.`, plus `## Decisions` rows that have a Pre-Decision or Notes, plus, for each candidate whose Reason carries `briefed`, its brief under `Brief <KEY>:` so the user sees what the child will plan from. Then ask the user:
 - **Start** (bare) or **Save plan** (`--plan`) -> proceed to the run step.
 - **Edit** -> free text: remove tickets, reorder, change model (`KEY=opus|sonnet`). Apply changes (a removed ticket also loses its `DECISIONS` row), re-run § 3's Schedule and concurrency block in the edited order, re-print the table and schedule, ask again. Log each edit as `| preview | edit | <text> |` in a pending Decision Ledger list.
 - **Cancel** -> run § Discard, then **STOP.** Cancel and Edit's ticket removal do not revert briefs already written to the tracker in § 1.

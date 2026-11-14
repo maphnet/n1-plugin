@@ -563,14 +563,13 @@ n1_write_frontmatter "$Q/queue.md" orca_queue_run R1
 printf '| T-1 | 2026-10-31T01:00:00Z | | | | orca:task-2/d-2 |\n' >> "$Q/queue.md"
 eq "pending: question of an older task than the ticket's latest attempt skipped" "" "$(n1_orca_pending_questions "$Q")"
 sed -i '$d' "$Q/queue.md"
-printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$T" > "$N1_HOME/config.json"
 OUT=$(n1_queue_interrupted_note "$Q/queue.md")
 has "runner-down: resume line still printed" "resume: /n1:n1-queue --run q1" "$OUT"
 eq "runner-down: .ask marker for --answer" m-10 "$(cat "$Q/.ask-T-1" 2>/dev/null)"
 eq "runner-down: row parked, hint points at --answer" "T-1: /n1:n1-queue --answer T-1 <answer>" "$(n1_queue_awaiting_hints "$Q/queue.md")"
 esc() { jq -R 'fromjson? | select(.event == "escalated" and .ticket == "T-1") | .event' "$Q/events.jsonl" | wc -l | tr -d ' '; }
 eq "runner-down: one escalated event" 1 "$(esc)"
-has "runner-down: needs-you carries the answer command" "T-1 needs you: worker question pending, runner down (answer: /n1:n1-queue --answer T-1 <text>)" "$(cat "$T/notes" 2>/dev/null)"
+has "runner-down: needs-you carries the answer command" "worker question pending, runner down" "$(jq -r 'select(.event=="escalated" and .ticket=="T-1") | .reason' "$Q/events.jsonl" 2>/dev/null)"
 n1_queue_interrupted_note "$Q/queue.md" >/dev/null
 eq "runner-down: second status call adds no event" 1 "$(esc)"
 printf 'Use A' > "$N1_HOME/queue/.answer-T-1.txt"; reset
@@ -596,11 +595,12 @@ eq "finished: running queue not scanned" no "$([ -e "$Q/.ask-T-1" ] && echo yes 
 S309="$N1_HOME/queue/sentinels/T-1.env"; [ -e "$S309" ] && mv "$S309" "$T/s309.bak"
 mkdir -p "$N1_HOME/queue/sentinels"; printf 'N1_ORCA_TASK=task-1\n' > "$S309"
 n1_queue_row_status "$Q/queue.md" 1 failed
-export FAKE_INBOX="$(QM m-30 task-1 d-1)"; rm -f "$Q/.ask-T-1"; : > "$T/notes"
+export FAKE_INBOX="$(QM m-30 task-1 d-1)"; rm -f "$Q/.ask-T-1"; E309=$(esc)
 n1_queue_orca_scan "$Q/queue.md"
 eq "final row: .ask marker for --answer" m-30 "$(cat "$Q/.ask-T-1" 2>/dev/null)"
 eq "final row: status kept" "failed" "$(n1_queue_pending_rows "$Q/queue.md" 'failed' | cut -f6)"
-has "final row: needs-you carries the answer command" "T-1 needs you: worker question pending, runner down (answer: /n1:n1-queue --answer T-1 <text>)" "$(cat "$T/notes" 2>/dev/null)"
+eq "final row: one new escalated event" "$((E309 + 1))" "$(esc)"
+has "final row: needs-you carries the answer command" "worker question pending, runner down" "$(jq -r 'select(.event=="escalated" and .ticket=="T-1") | .reason' "$Q/events.jsonl" 2>/dev/null | tail -n1)"
 eq "final row: hint lists it" "T-1: /n1:n1-queue --answer T-1 <answer>" "$(n1_queue_awaiting_hints "$Q/queue.md")"
 rm -f "$S309"
 eq "final row: leftover .ask of a settled worker, no hint" "" "$(n1_queue_awaiting_hints "$Q/queue.md")"

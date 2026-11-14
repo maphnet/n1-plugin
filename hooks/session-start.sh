@@ -116,11 +116,6 @@ if [ "${TRIGGER:-}" = startup ] && [ -n "$n1_memory_dir" ]; then
     find "$n1_memory_dir" -maxdepth 1 -type f -name 'queue-plan.*.json' -mtime +2 -delete 2>/dev/null || true   # N1-440: plans abandoned mid-way
 fi
 
-# N1-342: stuck-detector state of ended or stuck sessions; a live session deletes it on any success or edit.
-if [ -n "$n1_memory_dir" ] && [ ! -L "$n1_memory_dir/scratch" ] && [ ! -L "$n1_memory_dir/scratch/stuck" ]; then
-    find "$n1_memory_dir/scratch/stuck" -maxdepth 1 -type f -mtime +1 -delete 2>/dev/null || true
-fi
-
 # --- Orchestrator state recovery on compaction ---
 N1_COMPACT_STATE=""
 if [ "${TRIGGER:-}" = "compact" ] && [ -z "$AGENT_ID" ]; then

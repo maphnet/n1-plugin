@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for lib/queue.sh and scripts/n1-queue-run.sh: parsing, plan/status/report, decisions, desc-hash chain, wiring greps, notify, held helpers.
+# Tests for lib/queue.sh and scripts/n1-queue-run.sh: parsing, plan/status/report, decisions, desc-hash chain, wiring greps, held helpers.
 # Shared setup and fixtures: tests/queue_runner_lib.sh (N1-304 split).
 set -euo pipefail
 source "$(dirname "$0")/queue_runner_lib.sh"
@@ -686,76 +686,6 @@ test_escalation_text() {
     printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- real one\n  wrapped\n- real two\n' > "$tmp/last.md"
     assert_eq "esc-text: last mode prints newest entry" "real two" "$(n1_queue_escalation_text "$tmp/last.md" last)"
     assert_eq "esc-text: headless step still resolves" "plan" "$(_n1_queue_escalated_step "$tmp/hl.md")"
-}
-
-# --- n1_desktop_notify / n1_notify -------------------------------------------
-test_desktop_notify() {
-    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-    mkdir -p "$tmp/bin"; ln -s "$(command -v timeout)" "$tmp/bin/timeout"
-    printf '#!/bin/sh\nexit 1\n' > "$tmp/bin/notify-send"            # present but broken
-    printf '#!/bin/sh\necho "$@" > "%s/osa"\n' "$tmp" > "$tmp/bin/osascript"
-    chmod +x "$tmp/bin/notify-send" "$tmp/bin/osascript"
-    local rc=0; ( export PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
-    assert_eq "desktop: falls through broken backend" "0" "$rc"
-    assert_eq "desktop: osascript used" "yes" "$([ -f "$tmp/osa" ] && echo yes || echo no)"
-    rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"
-    rc=0; ( export PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
-    assert_eq "desktop: none available -> 1" "1" "$rc"
-    printf '#!/bin/sh\necho "$N1_NT|$N1_NB" > "%s/ps"\n' "$tmp" > "$tmp/ps.exe"; chmod +x "$tmp/ps.exe"
-    rc=0; ( export PATH="$tmp/bin"; N1_WSL_POWERSHELL="$tmp/ps.exe" n1_desktop_notify "Title" "Body" ) || rc=$?
-    assert_eq "desktop: WSL powershell off PATH used" "0|Title|Body" "$rc|$(cat "$tmp/ps" 2>/dev/null)"
-}
-
-test_desktop_notify_stdin() {   # N1-265: no desktop backend may consume the caller's stdin (WSL powershell.exe drains it)
-    local tmp b out; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-    mkdir -p "$tmp/bin"; ln -s "$(command -v timeout)" "$tmp/bin/timeout"
-    printf '#!/bin/sh\nwhile read -r _; do :; done\nexit 0\n' > "$tmp/drain"; chmod +x "$tmp/drain"
-    for b in notify-send osascript; do
-        rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"; cp "$tmp/drain" "$tmp/bin/$b"
-        out=$(printf 'a\nb\nc\n' | { read -r _; ( export PATH="$tmp/bin"; n1_desktop_notify T B ); cat; } | paste -sd, -)
-        assert_eq "desktop-stdin: $b leaves caller stdin alone" "b,c" "$out"
-    done
-    rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"
-    out=$(printf 'a\nb\nc\n' | { read -r _; ( export PATH="$tmp/bin"; N1_WSL_POWERSHELL="$tmp/drain" n1_desktop_notify T B ); cat; } | paste -sd, -)
-    assert_eq "desktop-stdin: powershell leaves caller stdin alone" "b,c" "$out"
-}
-
-test_notify_backends() {
-    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-    local TEST_CONFIG="$tmp/config.json"
-    n1_config_file() { echo "$TEST_CONFIG"; }
-
-    assert_eq "notify: default backend none" "none" "$(n1_queue_val notify)"
-
-    printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}' "$tmp" > "$TEST_CONFIG"
-    n1_notify needs-you "T-1 needs you"
-    n1_notify done "Queue q: 1 PR / 0 awaiting / 0 failed"
-    assert_eq "notify: command gets JSON on stdin" "needs-you|T-1 needs you" "$(head -1 "$tmp/notes" | jq -r '.kind + "|" + .text')"
-    assert_eq "notify: one line per call" "2" "$(wc -l < "$tmp/notes" | tr -d ' ')"
-
-    printf '{"queue":{"notify":"command","notifyCommand":"exit 7"}}' > "$TEST_CONFIG"
-    local rc=0; n1_notify info "x" || rc=$?
-    assert_eq "notify: failing command is fail-open" "0" "$rc"
-
-    printf '{"queue":{"notify":"command","notifyCommand":"sleep 30"}}' > "$TEST_CONFIG"
-    local start end elapsed
-    start=$(date +%s); rc=0; n1_notify info "x" || rc=$?; end=$(date +%s)
-    elapsed=$((end - start))
-    assert_eq "notify: hanging command is fail-open" "0" "$rc"
-    assert_eq "notify: hanging command bounded by timeout" "yes" "$([ "$elapsed" -lt 20 ] && echo yes || echo no)"
-
-    printf '{"queue":{"notify":"none","notifyCommand":"cat >> %s/none"}}' "$tmp" > "$TEST_CONFIG"
-    n1_notify info "x"
-    assert_eq "notify: none is a no-op" "no" "$([ -f "$tmp/none" ] && echo yes || echo no)"
-
-    # desktop with no notifier on PATH: skip line on stderr, rc 0
-    mkdir -p "$tmp/bin"; local c
-    for c in jq timeout date; do ln -s "$(command -v "$c")" "$tmp/bin/$c"; done
-    printf '{"queue":{"notify":"desktop"}}' > "$TEST_CONFIG"
-    rc=0; ( export PATH="$tmp/bin"; n1_notify needs-you "T-2 needs you" ) 2> "$tmp/err" || rc=$?
-    assert_eq "notify: desktop skip rc 0" "0" "$rc"
-    assert_eq "notify: desktop skip logged" "yes" "$(grep -q 'no desktop notifier available; skipped (needs-you: T-2 needs you)' "$tmp/err" && echo yes || echo no)"
-    unset -f n1_config_file
 }
 
 # --- n1_queue_decision_counts ------------------------------------------------
@@ -2333,15 +2263,13 @@ test_list_input_wiring() {
         "$(sed -n '3p' "$s/SKILL.md" | grep -qF '[<ticket|url>...]' && echo yes || echo no)"
     assert_eq "list-input: argument-hint lists the ticket operand" "yes" \
         "$(sed -n '4p' "$s/SKILL.md" | grep -qF '[<ticket|url>...]' && echo yes || echo no)"
-    assert_eq "list-input: step 2 routes to input.md before the unattended entry" "yes" \
-        "$(grep -E '^2\. \*\*Saved plan' "$s/SKILL.md" | grep -qE 'steps/input\.md.*If `--unattended`' && echo yes || echo no)"
+    assert_eq "list-input: step 2 routes to input.md" "yes" \
+        "$(grep -E '^2\. \*\*Saved plan' "$s/SKILL.md" | grep -qE 'steps/input\.md' && echo yes || echo no)"
     assert_eq "list-input: SKILL.md no longer reads the default tag" "no" "$(hasF 'n1_queue_val tag' "$s/SKILL.md")"
     assert_eq "list-input: input.md never reads the default tag" "no" "$(hasF 'n1_queue_val tag' "$in")"
     assert_eq "list-input: URLs go through n1_extract_ticket_from_url" "yes" "$(hasF 'n1_extract_ticket_from_url' "$in")"
     assert_eq "list-input: list keys are validated" "yes" "$(hasF '^[A-Z][A-Z0-9_]*-[0-9]+$' "$in")"
     assert_eq "list-input: tag/story ids are validated" "yes" "$(hasF '^[A-Za-z0-9][A-Za-z0-9._-]*$' "$in")"
-    assert_eq "list-input: unattended with no input stops" "yes" \
-        "$(hasF 'No input: pass ticket IDs, --tag <tag> or --story <ID>.' "$in")"
     assert_eq "list-input: mixed input stops (names --goal, N1-441)" "yes" "$(hasF 'Pass one input: a ticket list, --tag, --story or --goal.' "$in")"
     assert_eq "list-input: --tag with --story is mixed input" "yes" "$(hasF 'includes `--tag` with `--story`' "$in")"
     assert_eq "list-input: no valid key stops" "yes" "$(hasF 'No valid ticket keys in the list.' "$in")"
@@ -2388,10 +2316,9 @@ test_list_input_wiring() {
     assert_eq "list-input: no-valid-key needs BAD items (N1-440)" "yes" "$(hasF '`KEYS` is empty and `BAD` is not' "$in")"
     assert_eq "list-input: interactive plans get a unique id (N1-440)" "yes" "$(hasF 'QUEUE_ID=$(n1_queue_new_id "$QUEUE_ID")' "$in")"
     assert_eq "list-input: planning pointer written at intake (N1-440)" "yes" "$(hasF 'n1_queue_plan_state write "$QUEUE_ID" intake "$MODE" "$SRC"' "$in")"
-    assert_eq "list-input: no bare mkdir -p for interactive ids (N1-440)" "1" "$(grep -c 'mkdir -p "$N1_HOME/queue/$QUEUE_ID"' "$in")"
+    assert_eq "list-input: no bare mkdir -p for interactive ids (N1-440)" "0" "$(grep -c 'mkdir -p "$N1_HOME/queue/$QUEUE_ID"' "$in")"
     # N1-441: --goal input (input.md)
     assert_eq "goal-input: --goal is a flag operand, never a token" "yes" "$(hasF '`--goal "<text>"` (the quoted value, or the words up to the next flag; it is never a token and never reaches bash)' "$in")"
-    assert_eq "goal-input: unattended goal stops" "yes" "$(hasF 'Goal mode needs approval; pass ticket IDs, --tag or --story.' "$in")"
     assert_eq "goal-input: empty goal stops" "yes" "$(hasF 'Goal text is empty.' "$in")"
     assert_eq "goal-input: a flag right after --goal counts as empty (N1-441)" "yes" "$(hasF 'or a flag right after it (for example `--goal --dry-run`)' "$in")"
     assert_eq "goal-input: apostrophe in goal stops" "yes" "$(hasF "Invalid goal: remove the apostrophe (')." "$in")"
@@ -2399,11 +2326,11 @@ test_list_input_wiring() {
     assert_eq "goal-input: MODE has no goal value" "yes" "$(hasF "MODE='<list|tag|story>'" "$in")"
     assert_eq "goal-input: goal mode is saved as mode list" "yes" "$(hasF 'goal mode is `goal-` plus the same checksum of the approved keys and is saved as `mode: list`' "$in")"
     lno() { grep -nF -- "$1" "$in" | head -1 | cut -d: -f1; }
-    local u q d x
-    u=$(lno 'Goal mode needs approval'); q=$(lno 'Invalid goal: remove the apostrophe')
+    local q d x
+    q=$(lno 'Invalid goal: remove the apostrophe')
     d=$(lno 'read and follow `<N1_ROOT>/skills/n1-queue/steps/goal.md`'); x=$(lno '5. **Queue id and dir.**')
     assert_eq "goal-input: goal stops and goal.md precede item 5, so nothing is written first" "yes" \
-        "$([ -n "$u" ] && [ -n "$q" ] && [ -n "$d" ] && [ -n "$x" ] && [ "$u" -lt "$d" ] && [ "$q" -lt "$d" ] && [ "$d" -lt "$x" ] && echo yes || echo no)"
+        "$([ -n "$q" ] && [ -n "$d" ] && [ -n "$x" ] && [ "$q" -lt "$d" ] && [ "$d" -lt "$x" ] && echo yes || echo no)"
     # N1-441: steps/goal.md
     local gm="$s/steps/goal.md"
     assert_eq "goal-input: goal.md exists" "yes" "$([ -f "$gm" ] && echo yes || echo no)"
@@ -2520,11 +2447,6 @@ EOF
     assert_eq "discard-saved: existing claim kept" "1|yes" "$rc|$(_kept sc)"
     _mksaved sf planned bogus; qdis sf saved && rc=0 || rc=$?
     assert_eq "discard-saved: refused discard releases its own claim" "1|no" "$rc|$([ -e "$h/queue/sf/.unattended-claim" ] && echo yes || echo no)"
-    _mksaved sr planned held;
-    # claim taken before removal: a launch trigger cannot win after validation
-    ( export N1_HOME="$h"; rm() { [ "$1" = -rf ] && { n1_queue_claim "$h/queue/sr" && echo LAUNCHED || echo BLOCKED; } > "$h/race.out"; command rm "$@"; }
-      n1_queue_plan_discard sr saved )
-    assert_eq "discard-saved: launch claim blocked during removal" "BLOCKED" "$(cat "$h/race.out")"
     _mksaved s2 planned held 'run_id: R1'; qdis s2 saved && rc=0 || rc=$?
     assert_eq "discard-saved: run_id kept" "1|yes" "$rc|$(_kept s2)"
     _mksaved s3 run held; qdis s3 saved && rc=0 || rc=$?
@@ -2905,9 +2827,6 @@ test_queue_answer
 test_escalated_step_fallback
 test_queue_event
 test_escalation_text
-test_desktop_notify
-test_desktop_notify_stdin
-test_notify_backends
 test_answer_wiring
 test_headless_plan_wiring
 test_status_reconcile_merged

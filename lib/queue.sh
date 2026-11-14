@@ -1803,26 +1803,6 @@ n1_queue_close() {
     printf 'closed queue %s: removed %s\nidentity files: %s\nworktrees: %s\n' "$id" "$dir" "${ids:-none}" "${wts:-none}"
 }
 
-n1_queue_claim() {
-    # Usage: n1_queue_claim <queue-dir> — N1-226: take the unattended-run claim <queue-dir>/.unattended-claim
-    # (mkdir is atomic). Non-zero while another trigger holds a claim under 15 minutes old; an older claim is
-    # retaken by creating the marker <claim>/retake.<claim mtime> (one winner per generation; the claim dir is
-    # never removed or renamed). Never released: it expires, so a trigger closer than 15 minutes after a start
-    # is skipped. scripts/n1-queue-precheck.sh reads the same path and age.
-    local c="$1/.unattended-claim" m
-    mkdir -p "$1" 2>/dev/null || return 1
-    mkdir "$c" 2>/dev/null && return 0
-    # One stat feeds both the age test and the generation name; a separate find then stat would let a late
-    # contender win twice. The marker mkdir also refreshes the claim mtime.
-    m=$(stat -c %Y "$c" 2>/dev/null || stat -f %m "$c" 2>/dev/null) || return 1
-    [ $(( $(date +%s) - m )) -ge 900 ] || return 1
-    # Ceiling: a contender stalled more than 30 minutes between its stat and this mkdir could re-win a
-    # generation whose marker was already cleaned.
-    mkdir "$c/retake.$m" 2>/dev/null || return 1
-    find "$c" -mindepth 1 -maxdepth 1 -name 'retake.*' -mmin +30 -exec rmdir {} + 2>/dev/null
-    return 0
-}
-
 n1_queue_orca_scan() {
     # Usage: n1_queue_orca_scan <queue.md> — N1-270: park each Orca row whose worker asked a question the
     # runner never saw (see n1_queue_interrupted_note). No-op without orca_run_id.
@@ -1840,7 +1820,6 @@ n1_queue_orca_scan() {
             fi
             n1_queue_event "$ev" "$qid" "$run" escalated ticket="$t" session="$(n1_queue_session_id "$q" "$t")" \
                 reason="worker question pending, runner down"
-            n1_notify needs-you "$t needs you: worker question pending, runner down (answer: /n1:n1-queue --answer $t <text>)"
         done 3< <(n1_orca_pending_questions "$d")
     fi
 }
@@ -2306,55 +2285,6 @@ n1_queue_session_started() {
         END { print ts }' "$1"
 }
 
-n1_queue_notify_check() {
-    # Usage: n1_queue_notify_check — prints a warning line when the configured
-    # queue.notify backend cannot deliver (NP-216: silent notification gaps).
-    # Prints nothing when the backend is usable. Mirrors n1_notify's backend logic.
-    local backend val
-    backend=$(n1_queue_val notify)
-    case "${backend:-none}" in
-        none) ;;
-        command)
-            val=$(n1_queue_val notifyCommand)
-            [ -n "$val" ] || echo "Warning: queue.notify=command but queue.notifyCommand is not set; notifications will be skipped." ;;
-        ntfy)
-            val=$(n1_queue_val ntfyTopic)
-            [ -n "$val" ] || echo "Warning: queue.notify=ntfy but queue.ntfyTopic is not set; notifications will be skipped." ;;
-        *)
-            if ! command -v notify-send >/dev/null 2>&1 && ! command -v osascript >/dev/null 2>&1 && [ -z "$(n1_powershell_path)" ]; then
-                echo "Warning: queue.notify=desktop but no desktop notifier (notify-send/osascript/powershell.exe) was found; notifications will be skipped."
-            fi
-            ;;
-    esac
-    return 0
-}
-
-n1_notify() {
-    # Usage: n1_notify <needs-you|done|info> <text> — best-effort out-of-session alert.
-    # Backend from queue.notify: none (default) | desktop | ntfy (queue.ntfyTopic) | command
-    # (queue.notifyCommand gets {"ts","kind","text"} on stdin). Never fails the caller.
-    local kind="$1" text="$2" title="N1 queue: $1" backend val
-    [ "$kind" != needs-you ] || n1_orca_unread_main "$text"   # N1-226: also mark the main-checkout Orca card
-    backend=$(n1_queue_val notify)
-    case "${backend:-none}" in
-        none) ;;
-        command)
-            val=$(n1_queue_val notifyCommand)
-            [ -z "$val" ] || jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg kind "$kind" --arg text "$text" \
-                '{ts:$ts,kind:$kind,text:$text}' 2>/dev/null | timeout 10 bash -c "$val" >/dev/null 2>&1 ;;
-        ntfy)
-            val=$(n1_queue_val ntfyTopic)
-            case "$val" in ""|*://*) ;; *) val="https://ntfy.sh/$val" ;; esac
-            [ -z "$val" ] || timeout 10 curl -fsS -H "Title: $title" \
-                -H "Priority: $([ "$kind" = needs-you ] && echo high || echo default)" \
-                -d "$text" "$val" </dev/null >/dev/null 2>&1 ;;
-        *)
-            n1_desktop_notify "$title" "$text" \
-                || echo "n1_notify: no desktop notifier available; skipped ($kind: $text)" >&2 ;;
-    esac
-    return 0
-}
-
 n1_story_convert_decision() {
     # Usage: n1_story_convert_decision <tracker_type> <children: has|none|unknown> <convert_mcp>
     # N1-119: action for a Story at n1-start intake. Prints story | convert | single:<reason>.
@@ -2462,7 +2392,7 @@ n1_queue_plan_discard() {
     dir="$home/queue/$id"
     [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
     if [ "$mode" = saved ]; then
-        # N1-524: hold the unattended claim (atomic mkdir, the one n1_queue_claim and the precheck honor) from check
+        # N1-524: hold the unattended claim (atomic mkdir) from check
         # to removal, so a trigger cannot start the plan in between. A pre-existing claim means refuse (fail closed).
         mkdir "$dir/.unattended-claim" 2>/dev/null || return 1
         n1_queue_plan_unstarted "$dir" claimed || { rmdir "$dir/.unattended-claim" 2>/dev/null; return 1; }

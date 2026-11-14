@@ -19,7 +19,7 @@ Review categories (find issues, fix in-place):
 3. **Missing edge cases** — Failure modes, error paths, data states not addressed.
 4. **Ordering/dependency risks** — Correct sequence? Hidden inter-task dependencies?
 5. **Blast radius** — Minimal changes? Same result with fewer files?
-6. **Standards validation** — Aligns with `analysis.md § Industry Standards`? Single targeted lookup per `agents/research-standards.md` only for uncovered standards; fitness gate; cite URLs. Skip lookup if web unavailable.
+6. **Standards validation** — Aligns with `analysis.md § Industry Standards`? Single targeted lookup per `<N1_ROOT>/references/research-standards.md` only for uncovered standards; fitness gate; cite URLs. Skip lookup if web unavailable.
 
 If issues: fix in-place, state changes. If clean: "Plan validated, no issues found."
 

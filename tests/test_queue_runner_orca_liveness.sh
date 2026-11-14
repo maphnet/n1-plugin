@@ -52,23 +52,23 @@ test_orca_worker_list_dispatch_bound() {   # N1-281: a worker-list row for the t
 # N1-315 AC4: a live worker whose last beacon (else launch) is older than queue.stallMinutes is flagged once (event +
 # info notice) and never touched. Bugs caught: no flag; a flag every tick; a flag that changes or releases the row;
 # a flag for a fresh beacon, a non-live verdict, a parked row, or a row with no baseline at all.
-stall_fixture() {   # <tmp> — orca_resumed_row on a live worker, stallMinutes 1, notices appended to $tmp/notes
+stall_fixture() {   # <tmp> — orca_resumed_row on a live worker, stallMinutes 1, notices in $tmp/output.txt
     orca_resumed_row "$1"
     wl_set "$1" "$(wl_row T-A running)"
-    cfg_set "$1" '.queue.subtaskTimeoutMinutes = 600 | .queue.stallMinutes = 1 | .queue.notify = "command" | .queue.notifyCommand = "cat >> '"$1"'/notes"'
+    cfg_set "$1" '.queue.subtaskTimeoutMinutes = 600 | .queue.stallMinutes = 1'
     age_memory "$1"
 }
 # age_memory <tmp> — N1-478: T-A's memory files read as 2 hours old, so only the signal a case adds counts as activity.
 age_memory() { find "$1/n1home/memory/T-A" -type f -exec touch -d '2 hours ago' {} +; }
 stalls() { grep -c '"stalled"' "$1/events.jsonl" 2>/dev/null || true; }
-stall_notes() { grep -c 'may be stalled' "$1/notes" 2>/dev/null || true; }
+stall_notes() { grep -c 'may be stalled' "$1/output.txt" 2>/dev/null || true; }
 test_orca_stall_flag() {
     local tmp
     # (a) live, beacon from 1970: one event + one notice over 3 ticks; row stays in-progress, worker not released.
     tmp=$(mktemp -d); stall_fixture "$tmp"; printf '1\timplement/developer\n' > "$tmp/.hb-T-A"
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
     assert_eq "stall: flagged exactly once" "1|1" "$(stalls "$tmp")|$(stall_notes "$tmp")"
-    assert_eq "stall: notice names the last phase" "yes" "$(grep -q 'last phase implement/developer' "$tmp/notes" && echo yes || echo no)"
+    assert_eq "stall: notice names the last phase" "yes" "$(grep -q 'last phase implement/developer' "$tmp/output.txt" && echo yes || echo no)"
     assert_eq "stall: row unchanged, worker not released" "in-progress|0" \
         "$(plan_cell "$tmp/queue.md" 1 8)|$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
     assert_eq "stall: marker written" "yes" "$([ -e "$tmp/.stall-T-A" ] && echo yes || echo no)"
@@ -96,7 +96,7 @@ test_orca_stall_flag() {
     tmp=$(mktemp -d); stall_fixture "$tmp"; echo "R1 task-T-A" > "$tmp/.launch-1"; touch -d '2 hours ago' "$tmp/.launch-1"
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
     assert_eq "stall: never-beaconed row flagged from launch" "1|yes" \
-        "$(stalls "$tmp")|$(grep -q 'last phase -' "$tmp/notes" && echo yes || echo no)"
+        "$(stalls "$tmp")|$(grep -q 'last phase -' "$tmp/output.txt" && echo yes || echo no)"
     rm -rf "$tmp"
     # (f) no beacon and no launch marker: no baseline, not flagged.
     tmp=$(mktemp -d); stall_fixture "$tmp"

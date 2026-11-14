@@ -17,7 +17,7 @@ Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 
 **Spawn SA** with the printed `SA_MODEL` and `SA_EFFORT` (context `analysis`): scratch `$N1_HOME/memory/<ID>/tests/`; unknowns: A=tag, B=codebase→web→cmd, C=silent; lite→touched files+callers ≤300w, `LITE_ESCALATED:<reason>` if ≥3/cross-module/security/API. Write analysis.md; return `n1:signals tier: [SNAPSHOT_DRIFT:]`+summary. Cold/stale+cache+non-lite: write project map `<PROJECT_MAP_PATH>` (## Modules, ## API Surface, ## Exports & Shared Types, ## Integration Points, ## Key Files; 300-500 tokens). Append `$RULES_BLOCK`.
 
-**Cold/stale:** use `research-standards.md`. Cache: `## [PROJECT]`+`## [TICKET]`; persist [PROJECT] via `n1_snapshot_write`.
+**Cold/stale:** use `<N1_ROOT>/references/research-standards.md`. Cache: `## [PROJECT]`+`## [TICKET]`; persist [PROJECT] via `n1_snapshot_write`.
 
 **Fresh:**
 ```bash
