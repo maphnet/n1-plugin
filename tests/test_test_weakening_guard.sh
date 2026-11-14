@@ -19,6 +19,7 @@ check "developer requires a ticket.md citation" 'Cite the justifying ticket\.md 
 check "developer fix cycle names CI, review and simple-path fixes" 'Test-weakening guard\.\*\* Applies to CI, review and simple-path fixes' "$DEV"
 check "code-reviewer has the guard" '\*\*Test-weakening guard\.\*\*' "$CR"
 check "code-reviewer reports [CR-N] High, not TQ" 'Report as `\[CR-N\]` High, not `\[TQ-N\]`' "$CR"
+check "code-reviewer may Read result files only for the citation lookup" 'solely to look up a citation; use them for nothing else' "$CR"
 
 n=$(grep -c 'Test-weakening guard\.\*\*' "$DEV")
 if [ "$n" -eq 2 ]; then echo "PASS: developer has the guard in both Constraints lists"; else echo "FAIL: developer guard count $n != 2"; FAIL=1; fi
