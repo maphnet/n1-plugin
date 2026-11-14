@@ -1,6 +1,6 @@
 ---
 name: n1-clean
-description: "Clean up N1 worktrees. With --ticket <ID>, removes that ticket's worktree once its PR is merged; without it, lists worktrees, classifies them and offers to remove merged ones. Usage: /n1:n1-clean [--ticket <ID>]"
+description: "Clean up N1 worktrees. With --ticket <ID>, removes that ticket's worktree once its PR is merged; without it, scans for leftovers (merged worktrees, merged no-PR worktrees, empty directories, stale markers, merged remote branches), lists them and removes only after confirmation. Usage: /n1:n1-clean [--ticket <ID>]"
 model: sonnet
 effort: low
 ---
@@ -9,9 +9,9 @@ effort: low
 
 ## Overview
 
-Removes worktrees of finished tickets. Two modes:
+Removes worktrees and other leftovers of finished tickets. Two modes:
 - **Ticket mode** (`--ticket <ID>`): one ticket, no prompt. Used by n1-queue for merged rows and safe to run by hand from any cwd inside the repository, including the target worktree.
-- **General mode** (no argument): lists every linked worktree (plain git and workspace-manager ones), classifies them and offers to remove the merged ones.
+- **General mode** (no argument): lists every linked worktree (plain git and workspace-manager ones) plus other leftovers, classifies them, shows the list and asks before removing anything. Unattended runs (headless or queue) do not ask and remove only Stale and Completed worktrees.
 
 Memory in `$N1_HOME` is always preserved. No worktree is ever removed with force: dirty or unmerged ones are kept, and locked ones too. Without a bound run the `- **Cleanup:**` overview line is the only record of a kept tree.
 
@@ -36,7 +36,7 @@ ID="<ID>"; [[ "$ID" =~ ^[A-Za-z][A-Za-z0-9]*-[0-9]+$ ]] || { echo id:invalid; ex
 n1_clean_ticket "$ID" "$([ -n "${N1_QUEUE_RUN_ID:-}" ] && echo queue || echo clean)"
 ```
 
-Print the output lines verbatim as the final message and **STOP**. Never ask the user and write no Decision Ledger row. The helper requires the ticket's PR (overview `pr_url`) to be MERGED, removes only the worktree holding that PR's head branch, and records the result in overview `## Finish` (`- **Cleanup:**`). A workspace-manager removal from inside the target may end this session; the record is written before it. Re-running is safe.
+Print the output lines verbatim as the final message and **STOP**. Never ask the user and write no Decision Ledger row. The helper requires the ticket's PR (overview `pr_url`) to be MERGED, removes the worktree holding that PR's head branch (else the overview `workspace_path` worktree, gated the same way), and records the result in overview `## Finish` (`- **Cleanup:**`). A workspace-manager removal from inside the target may end this session; the record is written before it. Re-running is safe.
 
 Tokens: `cleanup:skipped (<invalid-id|no-pr|pr-not-merged|pr-unreadable>)` (nothing touched), else `worktree:removed | none | kept (<reason>) | remove-failed (<error>)` and `branch:deleted | none | kept (<not merged|checked out in <path>>)`.
 
@@ -53,7 +53,7 @@ done
 
 Each line is `<path> <branch> <owner> <present|missing>`; the main checkout is excluded. `<ID>`: the last path component when it looks like a ticket id (`ABC-123`), else the first ticket id in the branch name; no id → listed as **Unknown** and never removed.
 
-If no linked worktrees are found: "No worktrees found. Nothing to clean up." **STOP.**
+If no linked worktrees are found, note "No linked worktrees." and continue with Step 2b.
 
 ## Step 2: Classify Each Worktree
 
@@ -69,9 +69,23 @@ If no linked worktrees are found: "No worktrees found. Nothing to clean up." **S
   LAST_COMMIT=$(git log -1 --format=%ct <branch> 2>/dev/null || echo 0)
   DAYS_AGO=$(( ($(date +%s) - LAST_COMMIT) / 86400 ))
   ```
-- **Active:** everything else (including Unknown). Never removed.
+- **Active:** everything else (including Unknown). Never removed. A worktree that Step 2b lists as `nopr-worktree` is shown under Leftovers instead.
 
-## Step 3: Present Summary
+## Step 2b: Scan for Other Leftovers
+
+```bash
+source ~/.n1/preamble.sh
+n1_clean_scan
+```
+
+Removes nothing (it runs a best-effort `git fetch` to compare against origin). Each line is `<kind> <id> <ref> <detail>` (tab-separated, `-` = empty):
+- `nopr-worktree <ID> <path> <branch>`: clean linked worktree whose ticket has no PR, with its HEAD already on origin/<default>.
+- `empty-dir - <path> -`: empty directory beside the linked worktrees or under the N1 worktree root, not registered with git.
+- `stale-marker <ID> <overview> -`: overview with `## Finish` that still carries the awaiting-merge marker.
+- `remote-branch - <branch> <pr-url>`: head branch of a merged PR still on origin at the merged commit; not checked out, no open PR.
+- `note - - <text>`: a kind that could not be scanned; print the text in the summary.
+
+## Step 3: Present Summary and Confirm
 
 ```
 N1 Worktree Status:
@@ -80,21 +94,56 @@ N1 Worktree Status:
     - <ID> (branch: <branch>)
   Completed (PR merged):
     - <ID> (branch: <branch>, <owner>)
+  Leftovers (merged, safe to remove):
+    - <ID> (no-PR worktree: <path>, branch: <branch>)
+    - empty directory: <full path>
+    - <ID> (stale awaiting-merge marker)
+  Remote branches of merged PRs:
+    - <branch> (<pr-url>)
   Abandoned (no activity for 7+ days):
     - <ID> (branch: <branch>, step: <step>, last commit: <N> days ago, <owner>)
   Active (in progress or open PR):
     - <ID> (branch: <branch>, step: <step>)
 
-Removable: <N> (stale + completed); Abandoned listed only, never removed by n1-clean
+Removable: <N> (stale + completed + leftovers); remote branches: <M>; Abandoned listed only, never removed by n1-clean
 ```
 
-If nothing is Stale, Completed or Abandoned: "All worktrees are active. Nothing to clean up." **STOP.**
+List the current worktree too, marked `(current)`. If nothing is Stale, Completed, Abandoned, a Leftover or a remote branch: "Nothing to clean up." **STOP.**
 
-**Autonomy gate:** select option 1 without asking; this never removes Abandoned worktrees. Write a Decision Ledger row to the relevant overview.md when one exists:
-`| n1-clean | mechanical | C | [auto] | Remove merged worktrees? | Remove Stale and Completed | Select or Cancel | auto | --- |`
-Continue to Step 4 with Stale and Completed.
+Run mode:
 
-## Step 4: Remove Worktrees
+```bash
+source ~/.n1/preamble.sh
+{ [ "${N1_HEADLESS:-}" = 1 ] || [ -n "${N1_QUEUE_RUN_ID:-}" ]; } && echo mode:unattended || echo mode:interactive
+```
+
+- `mode:unattended` → **Autonomy gate:** select Stale and Completed without asking; this never removes Abandoned worktrees, and unattended runs never remove Leftovers or remote branches. Write a Decision Ledger row to the relevant overview.md when one exists:
+  `| n1-clean | mechanical | C | [auto] | Remove merged worktrees? | Remove Stale and Completed | Select or Cancel | auto | --- |`
+  Continue to Step 4 with Stale and Completed.
+- `mode:interactive` → nothing has been removed yet. When Stale, Completed or Leftovers exist, ask the user:
+
+  Remove the listed items?
+
+  No recommendation. The options are equivalent given the available evidence; select based on team preference.
+  1 — Remove the listed local items: Stale and Completed worktrees and Leftovers; works when every listed path is expected
+  2 — Cancel: nothing is removed; works when a listed path is unexpected
+
+  When remote branches are listed, ask the user separately:
+
+  Delete the listed remote branches of merged PRs?
+
+  No recommendation. The options are equivalent given the available evidence; select based on team preference.
+  1 — Delete the listed remote branches: one `git push origin --delete` per branch; works when the merged PRs no longer need their branches
+  2 — Skip: keep every remote branch; works when a listed branch is still in use
+
+  Abandoned worktrees are never offered. Write one Decision Ledger row per answer to the relevant overview.md when one exists:
+  `| n1-clean | mechanical | C | [asked] | Remove listed leftovers? | <answer> | Remove or Cancel | user | --- |`
+  `| n1-clean | mechanical | C | [asked] | Delete merged remote branches? | <answer> | Delete or Skip | user | --- |`
+  If every answer declines: "Nothing removed." **STOP.** Otherwise continue to Step 4 with the confirmed groups only.
+
+## Step 4: Remove
+
+Only the groups selected in Step 3. Process the worktree that contains the current directory last: a workspace-manager removal there ends this session (its record is written first).
 
 1. **Stale:** `git worktree prune`.
 2. **Completed:** one call per entry; record its tokens:
@@ -102,7 +151,23 @@ Continue to Step 4 with Stale and Completed.
    source ~/.n1/preamble.sh
    n1_clean_ticket "<ID>" general
    ```
-3. Final `git worktree prune`.
+3. **No-PR worktrees** (interactive only): one call per entry; record its tokens:
+   ```bash
+   source ~/.n1/preamble.sh
+   n1_clean_ticket "<ID>" merged-nopr
+   ```
+   Extra tokens: `cleanup:skipped (<spike|no-workspace|no-base>)`. Workspace-manager worktrees are removed through the workspace manager inside the helper (`n1_orca_owns`); never remove a worktree with plain git yourself.
+4. **Empty directories** (interactive only): `rmdir -- "<path>"` per entry (never `rm -r`); a directory that is no longer empty stays.
+5. **Stale markers** (interactive only): one call per entry:
+   ```bash
+   source ~/.n1/preamble.sh
+   n1_pending_clear "<overview>" && echo marker:cleared || echo marker:failed
+   ```
+6. **Remote branches** (interactive, only after "Delete the listed remote branches"): one call per branch; report each result and continue after a failure:
+   ```bash
+   git push origin --delete "refs/heads/<branch>" && echo "remote:deleted <branch>" || echo "remote:failed <branch>"
+   ```
+7. Final `git worktree prune`.
 
 ## Step 5: Report
 
@@ -110,6 +175,9 @@ Continue to Step 4 with Stale and Completed.
 Cleanup complete.
 
   - <ID>: <tokens, e.g. worktree:removed, branch:deleted | worktree:kept (dirty), branch:kept (checked out in <path>)>
+  - empty directory <path>: <removed | kept>
+  - <ID> marker: <cleared | failed>
+  - remote <branch>: <deleted | failed>
 
 Preserved: memory at $N1_HOME
 Active worktrees: <N>

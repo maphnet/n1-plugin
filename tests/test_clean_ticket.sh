@@ -146,6 +146,16 @@ eq "W5: general mode removes through n1_clean_ticket" yes "$(yn grep -qF 'n1_cle
 eq "W6: auto mode never removes Abandoned" yes "$(yn grep -qF 'never removes Abandoned' "$S")"
 eq "W7: Orca worktrees tagged" yes "$(yn grep -qF 'n1_orca_owns' "$S")"
 eq "W8: Completed requires a merged PR" yes "$(yn grep -qF 'MERGED' "$S")"
+# W10-W18 (N1-583): general mode scans, asks before removing (interactive), keeps the autonomy gate when unattended.
+eq "W10: general mode runs the leftover scan" yes "$(yn grep -qF 'n1_clean_scan' "$S")"
+eq "W11: no-PR trees removed through merged-nopr" yes "$(yn grep -qF 'n1_clean_ticket "<ID>" merged-nopr' "$S")"
+eq "W12: run-mode detection" yes "$(yn grep -qF 'echo mode:unattended || echo mode:interactive' "$S")"
+eq "W13: both prompts carry the no-recommendation sentence" 2 "$(grep -cF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$S")"
+eq "W14: no option marked Recommended" 0 "$(grep -cF '(Recommended)' "$S")"
+eq "W15: skill never removes worktrees with plain git" 0 "$(grep -c 'git worktree remove' "$S")"
+eq "W16: unattended runs never remove leftovers" yes "$(yn grep -qF 'unattended runs never remove Leftovers or remote branches' "$S")"
+eq "W17: remote branches deleted one at a time by full ref" yes "$(yn grep -qF 'git push origin --delete "refs/heads/<branch>"' "$S")"
+eq "W18: nothing removed before the answer" yes "$(yn grep -qF 'nothing has been removed yet' "$S")"
 
 # W9 (N1-347): Step 1 discovery snippet. Main checkout excluded, branch name without refs/heads/,
 # detached and missing trees reported. Orca ownership stubbed off.
