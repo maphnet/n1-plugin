@@ -43,10 +43,12 @@ class TelemetryConsumersTest(unittest.TestCase):
             {"step": "qa", "step_number": 8, "duration_s": 60, "metadata": {"loop_iteration": 3}}]}
         report = analyzer.extract_run_report(run)
         self.assertEqual([s["name"] for s in report["steps"]],
-                         ["fix", "fix (cycle 2+)", "fix (cycle 2+)", "qa"])
+                         ["fix", "fix (cycle 2+)", "qa"])
         agg = analyzer.aggregate_runs([report])
         self.assertEqual(agg["by_step"]["fix"]["duration"], analyzer._stat_block([240]))
-        self.assertEqual(agg["by_step"]["fix (cycle 2+)"]["duration"], analyzer._stat_block([120, 420]))
+        self.assertEqual(agg["by_step"]["fix (cycle 2+)"]["duration"], analyzer._stat_block([540]))
+        diff = analyzer._diff_reports(report, report)
+        self.assertEqual(len([s for s in report["steps"] if s["name"] == "fix (cycle 2+)"]), 1)
         self.assertEqual(agg["by_step"]["qa"]["duration"], analyzer._stat_block([60]))
 
     def test_null_agent_fields_surface_as_unknown(self):
