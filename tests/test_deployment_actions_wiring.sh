@@ -3,7 +3,9 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
-P=references/deployment-actions.md
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+source "$(dirname "$0")/persona_split_lib.sh"
+P=$(split_cat "$T/da.md" DA)
 unset N1_QUEUE_RUN_ID N1_HEADLESS
 
 check() { # <label> <extended-regex> <file>
@@ -35,7 +37,6 @@ check "tick writes via gh pr edit --body-file" "gh pr edit .*--body-file -" "$P"
 check "architecture.md documents the procedure" "references/deployment-actions\.md" references/architecture.md
 
 # --- behavior: § Parse and § Tick against a stubbed gh (CRLF body, ticked item, items outside the section)
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin"
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash

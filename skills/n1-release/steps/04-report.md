@@ -80,9 +80,9 @@ Record the outcome as `DEPLOY` for the Step 9 `Deployment:` line.
 
 Runs only when `$N1_HOME/scratch/release-actions.tsv` has `after` rows, after a successful release, and when Step 8 did not skip it (a deploy failure, timeout or unverified watch skips this step).
 
-- `mode:runbook` (§ Parse output; queue or headless run) → never walk. When Step 8 reported "Deployment succeeded.", run § Check on each `after` row that § Command classifies `check` (no prompt; a passing row is ticked). When no deploy was watched, run no check. Then report the unticked `after` rows (failed or inconclusive checks and every non-check row) and leave them unticked.
-- Step 8 reported "Deployment succeeded." → follow `<N1_ROOT>/references/deployment-actions.md` § Walk with `PHASE=after` and `OUT=$N1_HOME/scratch/release-actions.tsv`.
-- No deploy was watched (`release.deploymentCheck` is `false`, no workflow triggered, no Release published, or Categories 1–4) → § Unwatched Deploy.
+- `mode:runbook` (§ Parse output; queue or headless run) → never walk. When Step 8 reported "Deployment succeeded.", run § Check on each `after` row that § Command classifies `check` (both in `<N1_ROOT>/references/deployment-actions-rows.md`) (no prompt; a passing row is ticked). When no deploy was watched, run no check. Then report the unticked `after` rows (failed or inconclusive checks and every non-check row) and leave them unticked.
+- Step 8 reported "Deployment succeeded." → follow `<N1_ROOT>/references/deployment-actions-rows.md` § Walk with `PHASE=after` and `OUT=$N1_HOME/scratch/release-actions.tsv`.
+- No deploy was watched (`release.deploymentCheck` is `false`, no workflow triggered, no Release published, or Categories 1–4) → `<N1_ROOT>/references/deployment-actions-rows.md` § Unwatched Deploy.
 
 An aborted walk or skipped items never undo the release. Report any unticked rows: "After-deploy actions left unticked: <rows>. Run them by hand and tick them in the PR bodies. The next release only scans PRs merged after <TAG>."
 
@@ -158,5 +158,5 @@ Release notes are idempotent: the notes file is overwritten, the Confluence page
 - **Standalone** -- `/n1:n1-release`
 
 **Invokes:**
-- Inline: `gh` CLI (release view/create, auth status, PR body read/edit, run list/view), git (tag, push), tracker MCP operations (comment, transitions, version create/release, fix version edit and read-back search, Confluence article search/get/create/update and space lookup for release notes), `lib/poll.sh` (`n1_wait_release_runs` deploy watch; `n1_wait_parse_marker`, `n1_wait_step` for custom-procedure poll/monitor steps), `lib/config.sh` (`n1_release_autorun_enabled`), `lib/validation.sh` (`n1_release_vars_valid`), `references/ci-detection.md` (deployment pipeline detection), `references/deployment-actions.md` (deployment actions)
+- Inline: `gh` CLI (release view/create, auth status, PR body read/edit, run list/view), git (tag, push), tracker MCP operations (comment, transitions, version create/release, fix version edit and read-back search, Confluence article search/get/create/update and space lookup for release notes), `lib/poll.sh` (`n1_wait_release_runs` deploy watch; `n1_wait_parse_marker`, `n1_wait_step` for custom-procedure poll/monitor steps), `lib/config.sh` (`n1_release_autorun_enabled`), `lib/validation.sh` (`n1_release_vars_valid`), `references/ci-detection.md` (deployment pipeline detection), `references/deployment-actions.md` and `references/deployment-actions-rows.md` (deployment actions)
 - No agent spawns -- thin controller, orchestration only
