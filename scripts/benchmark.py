@@ -175,6 +175,7 @@ def read_answers(path: Path, started=None, completed=None):
 
 
 HUMAN_WAIT_S = 120
+STALL_S = 3600
 
 
 def read_wait_seconds(path: Path, started, completed):
@@ -182,9 +183,15 @@ def read_wait_seconds(path: Path, started, completed):
     HUMAN_WAIT_S between consecutive non-sidechain user/assistant records where an assistant record is
     followed by a human turn or an AskUserQuestion answer, or the earlier record is a rate-limit API
     error. Each gap is clipped to [started, completed]. A long tool_result wait is work, not waiting."""
+    return _scan_gaps(path, started, completed)[0]
+
+
+def _scan_gaps(path: Path, started, completed):
+    """(wait_s, stall_s) for one transcript pass (N1-592). A gap not counted as wait is a stall when it is at
+    least STALL_S and the ending record is not a human turn (host suspend, task-notification wake-up)."""
     if started is None or completed is None:
-        return None
-    ask_ids, prev, wait = set(), None, 0.0
+        return None, None
+    ask_ids, prev, wait, stall = set(), None, 0.0, 0.0
     for rec, _ in read_jsonl(path):
         if not rec or rec.get("isSidechain") or rec.get("type") not in ("user", "assistant"):
             continue
@@ -203,8 +210,10 @@ def read_wait_seconds(path: Path, started, completed):
             limited = p.get("isApiErrorMessage") and p.get("error") == "rate_limit"
             if (p.get("type") == "assistant" and (is_human_turn(rec) or answer)) or limited:
                 wait += max(0.0, min(ts, completed) - max(prev[0], started))
+            elif ts - prev[0] >= STALL_S and not is_human_turn(rec):
+                stall += max(0.0, min(ts, completed) - max(prev[0], started))
         prev = (ts, rec)
-    return wait
+    return wait, stall
 
 
 def load_runs(n1_root: Path):
@@ -752,7 +761,18 @@ class WorkMinMetric(DurationMetric):
         w = run_record.get("_wait_s")
         if d is None or not isinstance(w, (int, float)):
             return None
-        return round(max(0.0, d - w / 60.0), 1)
+        st = run_record.get("_stall_s")
+        st = st if isinstance(st, (int, float)) else 0.0
+        return round(max(0.0, d - (w + st) / 60.0), 1)
+
+
+class StallMinMetric(DurationMetric):
+    """Minutes in gaps of STALL_S or more that end without a human turn (N1-592)."""
+    name = "stall_min"
+
+    def compute(self, run_record, turns):
+        st = run_record.get("_stall_s")
+        return round(st / 60.0, 1) if isinstance(st, (int, float)) else None
 
 
 class OrchestratorTokensMetric(Metric):
@@ -913,6 +933,7 @@ METRICS = [
     OutcomeMetric("review_pass_first_try_hard", "review_pass_first_try_hard", "ratio", "higher", boolean=True),
     DurationMetric(),
     WorkMinMetric(),
+    StallMinMetric(),
     OrchestratorTokensMetric(),
     CompactionsMetric(),
     CacheCreationTokensMetric(),
@@ -945,7 +966,7 @@ def compute_run_metrics(cache: dict) -> None:
         run_record["_api_calls"] = api_c
         started, completed = parse_ts(run_record.get("started_at")), parse_ts(run_record.get("completed_at"))
         run_record["_answers"] = read_answers(tp, started, completed)
-        run_record["_wait_s"] = read_wait_seconds(tp, started, completed)
+        run_record["_wait_s"], run_record["_stall_s"] = _scan_gaps(tp, started, completed)
     # Orchestrator metrics from merged run record
     orch = run_record.get("orchestrator") or {}
     totals = orch.get("totals") or {}

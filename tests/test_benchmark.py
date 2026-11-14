@@ -226,6 +226,11 @@ def tool_result(ts):
         {"type": "tool_result", "tool_use_id": "x", "content": "ok"}]}}
 
 
+def task_notification(ts):
+    return {"type": "user", "timestamp": ts, "origin": {"kind": "task-notification"},
+            "message": {"role": "user", "content": "<task-notification>done</task-notification>"}}
+
+
 def assistant(ts, text=None, ask=False):
     content = []
     if text is not None:
@@ -612,7 +617,7 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(names, ["interventions", "answers", "corrections",
                                  "brainstorm_interactions", "autonomous_interventions",
                                  "fix_cycles", "review_pass_first_try", "review_pass_first_try_hard",
-                                 "duration_min", "work_min", "orchestrator_output_tokens", "compactions",
+                                 "duration_min", "work_min", "stall_min", "orchestrator_output_tokens", "compactions",
                                  "session_cache_creation_tokens", "orchestrator_cache_creation_tokens",
                                  "questions_per_run", "brainstorm_questions",
                                  "answer_matches_recommendation", "decide_for_me_share",
@@ -758,6 +763,35 @@ class ReadWaitSecondsTest(unittest.TestCase):
     def test_missing_window_is_none(self):
         self.assertIsNone(self.wait([assistant("2026-09-01T10:00:00Z", "q")], s=None))
 
+    def gaps(self, records):
+        p = self.d.tmp / "transcript.jsonl"
+        write_jsonl(p, records)
+        return bm._scan_gaps(p, self.S, self.E)
+
+    def test_stall_is_long_gap_not_ending_in_human_turn(self):
+        self.assertEqual(self.gaps([assistant("2026-09-01T10:00:00Z", "w"),
+                                    task_notification("2026-09-01T10:59:00Z")]), (0.0, 0.0))
+        self.assertEqual(self.gaps([assistant("2026-09-01T09:00:00Z", "w"),
+                                    task_notification("2026-09-01T10:30:00Z")]), (0.0, 1800.0))
+
+    def test_stall_threshold_is_3600_seconds(self):
+        s, e = bm.parse_ts("2026-09-01T09:00:00Z"), bm.parse_ts("2026-09-01T12:00:00Z")
+        p = self.d.tmp / "transcript.jsonl"
+        write_jsonl(p, [assistant("2026-09-01T09:00:00Z", "w"), task_notification("2026-09-01T09:59:59Z"),
+                        assistant("2026-09-01T09:59:59Z", "w"), task_notification("2026-09-01T10:59:59Z")])
+        self.assertEqual(bm._scan_gaps(p, s, e), (0.0, 3600.0))
+
+    def test_human_and_rate_limit_gaps_are_wait_not_stall(self):
+        self.assertEqual(self.gaps([assistant("2026-09-01T09:00:00Z", "q"),
+                                    human("2026-09-01T10:30:00Z", "a")]), (1800.0, 0.0))
+        limit = assistant("2026-09-01T09:00:00Z", "usage limit")
+        limit.update({"isApiErrorMessage": True, "error": "rate_limit"})
+        self.assertEqual(self.gaps([limit, tool_result("2026-09-01T10:30:00Z")]), (1800.0, 0.0))
+
+    def test_long_gap_into_human_after_non_assistant_is_neither(self):
+        self.assertEqual(self.gaps([tool_result("2026-09-01T09:00:00Z"),
+                                    human("2026-09-01T10:30:00Z", "a")]), (0.0, 0.0))
+
     def test_work_min_metric(self):
         p = self.d.tmp / "transcript.jsonl"
         write_jsonl(p, [assistant("2026-09-01T10:00:00Z", "q"), human("2026-09-01T10:30:00Z", "a")])
@@ -767,6 +801,14 @@ class ReadWaitSecondsTest(unittest.TestCase):
         cache = {"run_record": make_run(), "turns": [], "transcript_path": None}
         bm.compute_run_metrics(cache)
         self.assertIsNone(cache["metrics"]["work_min"])
+
+    def test_work_min_excludes_stall_and_stall_min_reports_it(self):
+        p = self.d.tmp / "transcript.jsonl"
+        write_jsonl(p, [assistant("2026-09-01T10:00:00Z", "w"), task_notification("2026-09-01T11:00:00Z")])
+        cache = {"run_record": make_run(), "turns": [], "transcript_path": str(p)}
+        bm.compute_run_metrics(cache)
+        self.assertEqual((cache["metrics"]["work_min"], cache["metrics"]["stall_min"]), (0.0, 60.0))
+        self.assertEqual(bm.WorkMinMetric().compute({**make_run(), "_wait_s": 600.0}, []), 50.0)  # no _stall_s
 
 
 class CountToolCallsTest(unittest.TestCase):
@@ -1155,17 +1197,17 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(bm._stat([7])["p90"], 7)
 
     def test_duration_metrics_are_robust_and_never_flag_significance(self):
-        self.assertEqual({m.name for m in bm.METRICS if m.robust}, {"duration_min", "work_min"})
+        self.assertEqual({m.name for m in bm.METRICS if m.robust}, {"duration_min", "work_min", "stall_min"})
         old, new = group(5, 4, 6), group(2, 1, 3)
-        for name in ("duration_min", "work_min"):
+        for name in ("duration_min", "work_min", "stall_min"):
             old["metrics"][name] = {"n": 5, "mean": 10.0, "median": 9.0, "p90": 20.0, "ci": [8.0, 12.0]}
             new["metrics"][name] = {"n": 5, "mean": 100.0, "median": 90.0, "p90": 200.0, "ci": [95.0, 105.0]}
         snap = snap_with({"claude-code/2.70.0": old, "claude-code/2.80.0": new})
         out = bm.render_report(snap, None, "claude-code/2.70.0", "pinned", {})
         main = next(ln for ln in out.splitlines() if ln.startswith("| claude-code/2.80.0 | 5/5"))
-        self.assertEqual(main.count("median 90 / p90 200 (n=5) |"), 2)  # no delta appended in the main table
-        rows = [ln for ln in out.splitlines() if ln.startswith(("| duration_min |", "| work_min |"))]
-        self.assertEqual(len(rows), 2)
+        self.assertEqual(main.count("median 90 / p90 200 (n=5) |"), 3)  # no delta appended in the main table
+        rows = [ln for ln in out.splitlines() if ln.startswith(("| duration_min |", "| work_min |", "| stall_min |"))]
+        self.assertEqual(len(rows), 3)
         for ln in rows:
             self.assertIn("median 9 / p90 20 (n=5)", ln)
             self.assertNotIn("significant", ln)
