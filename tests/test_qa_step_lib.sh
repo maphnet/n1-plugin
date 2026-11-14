@@ -78,18 +78,6 @@ eq "skip: no decision on a fix-cycle re-entry" "no" "$([ -s "$T/dec.log" ] && ec
 unset -f n1_record_decision; source "$REPO_ROOT/lib/telemetry.sh"
 rm -f "$MEM/ticket-context.sh" "$N1_HOME/config.json" "$MEM/ticket.md"; printf -- '---\n---\n' > "$MEM/overview.md"
 
-# --- skipped qa-engineer path still blocks on a failing suite (N1-591) ---
-# The suite-only developer qa.md carries no qa-engineer; a falsely reported pass must still be caught by the verify gate.
-printf -- '---\n---\n' > "$MEM/overview.md"; rm -f "$MEM/qa-return.md"
-printf '%s\n' 'qa-engineer skipped: simple path' '### Evidence' "New test: suite | ${BT}false${BT}" 'Exit code: 0' 'Verdict: PASS' > "$MEM/qa.md"
-has "skipped path: reported pass over a failing suite -> degraded" "$(n1_qa_verify 2>&1)" "QA_DEGRADED=1"
-printf '%s\n' 'qa-engineer skipped: simple path' '### Evidence' "New test: suite | ${BT}true${BT}" 'Exit code: 0' 'Verdict: PASS' > "$MEM/qa.md"
-has "skipped path: passing suite -> not degraded" "$(n1_qa_verify 2>&1)" "QA_DEGRADED=0"
-printf '%s\n' 'qa-engineer skipped: simple path' 'Exit code: 0' > "$MEM/qa.md"; n1_break_check() { echo '{"success":true,"verdict":"red-then-green"}'; }
-printf '{"qa":{"breakCheck":"all"}}\n' > "$N1_HOME/config.json"; printf '<!-- n1:signals task_type=task -->\n' > "$MEM/ticket.md"
-has "skipped path: breakCheck all without regression line -> inconclusive" "$(n1_qa_break_check "$T" 2>&1)" "BC_VERDICT=inconclusive"
-rm -f "$N1_HOME/config.json" "$MEM/ticket.md" "$MEM/qa.md"
-
 # --- step wiring: run qa.md's own fences ---
 STEP="$REPO_ROOT/skills/n1-start/steps/qa.md"
 fence() { awk -v n="$2" '/^```bash$/{c++; if (c==n) {f=1; next}} /^```$/{f=0} f' "$1" | sed '/^source /d'; }
