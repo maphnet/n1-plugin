@@ -158,6 +158,7 @@ eq "W15: skill never removes worktrees with plain git" 0 "$(cat "$S" "$G" | grep
 eq "W16: unattended runs never remove leftovers" yes "$(yn grep -qF 'unattended runs never remove Leftovers or remote branches' "$G")"
 eq "W17: remote branches deleted one at a time by full ref" yes "$(yn grep -qF 'git push origin --delete "refs/heads/<branch>"' "$G")"
 eq "W18: nothing removed before the answer" yes "$(yn grep -qF 'nothing has been removed yet' "$G")"
+eq "W19: SKILL.md dispatches general mode to general.md" yes "$(yn grep -qF 'skills/n1-clean/general.md' "$S")"
 
 # W9 (N1-347): Step 1 discovery snippet. Main checkout excluded, branch name without refs/heads/,
 # detached and missing trees reported. Orca ownership stubbed off.
