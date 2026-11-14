@@ -28,6 +28,9 @@ has "input-parsing rejects --investigate" '`--investigate` moved: run `/n1:n1-re
 line_has "ticket step redirects only interactive investigation" 'Interactive investigation moved: run `/n1:n1-refine <ID> --investigate`' 'N1_HEADLESS=1' skills/n1-start/steps/ticket.md
 lacks "brain-dump investigation variant removed" "**Brain-dump variant**" skills/n1-start/steps/investigation-deliverable.md
 has "architecture points investigation to n1-refine" '/n1:n1-refine <ID> --investigate' references/architecture.md
+has "architecture registry lists the spike tag" 'tags: `investigation`, `spike`' references/architecture.md
+has "architecture documents the spike variant" '**Spike variant.**' references/architecture.md
+has "CLAUDE.md documents the spike push exception" '**Spike push exception:**' CLAUDE.md
 
 before "redirect precedes overview creation" 'Interactive investigation moved' '**Create overview.md**' skills/n1-start/steps/ticket.md
 # N1-577: spike tickets run in n1-start; refine routes the Jira Spike issue type
