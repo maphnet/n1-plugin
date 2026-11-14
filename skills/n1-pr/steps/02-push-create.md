@@ -8,7 +8,7 @@ When the user starts or requests an N1 run (/n1:n1-start, /n1:n1-pr, n1-queue), 
 
 ### Conflict check and rebase
 
-Before pushing, verify the branch is compatible with `${DEFAULT_BRANCH}` (the value prepare printed; for a story child it is `story/<STORY_ID>`, so the rebase and the PR target the story branch, never the default branch). Shell variables do not persist between snippets, so every snippet below sets `DEFAULT_BRANCH` from the prepare output and then re-derives it from the validated story base, which overrides the transcribed value for a story child:
+Before pushing, verify the branch is compatible with `${DEFAULT_BRANCH}` (the value prepare printed; a story child follows `procedures/story-child.md`). Shell variables do not persist between snippets, so every snippet below sets `DEFAULT_BRANCH` from the prepare output and then re-derives it from the validated story base, which overrides the transcribed value for a story child:
 
 ```bash
 source ~/.n1/preamble.sh
