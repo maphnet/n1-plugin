@@ -81,7 +81,7 @@ n1_orca_worker_start() {
     # N1-291: with N1_STORY_BRANCH set, a new worktree gets --base-branch origin/$N1_STORY_BRANCH.
     local model="${5:-}" out id why rc
     local a=(orchestration worker-start --run "$1" --task "$2" --worktree new-top-level --name "$3" --repo "path:$4" --agent claude)
-    [ -z "${6:-}" ] || a=(orchestration worker-start --run "$1" --task "$2" --worktree "path:$6" --repo "path:$4" --agent claude)
+    [ -z "${6:-}" ] || a=(orchestration worker-start --run "$1" --task "$2" --worktree "path:$6" --agent claude)
     # N1-291: a story-mode new worktree starts from the story tip (caller env N1_STORY_BRANCH, runner-validated);
     # --base-branch is creation-only, so the path: resume never gets it. The child's Adopt Checkout re-syncs anyway.
     [ -n "${6:-}" ] || [ -z "${N1_STORY_BRANCH:-}" ] || a+=(--base-branch "origin/$N1_STORY_BRANCH")
