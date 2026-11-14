@@ -88,6 +88,7 @@ ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 REDIR_RE = re.compile(r"(?<![\d&])(?:\d*|&)(?:>>?|<)(?!\()\|?[ \t]*&?(?:[^\s;&|()<>`$]|\$(?!\())*")
 DURATION_RE = re.compile(r"[0-9.]+[smhd]?$")
 REVIEWERS = {"code-reviewer", "security-reviewer"}
+HARNESS_TOOLS = {"SubagentHandback"}  # harness-owned tools, exempt from the persona tools: allowlist (N1-585)
 PROGRAMS = {"gh", "git", "curl", "wget"}
 WRAPPERS = {"env", "eval", "command", "exec", "sudo", "doas", "time", "nohup", "xargs", "timeout", "sh", "bash",
             "nice", "ionice", "stdbuf", "setsid", "chroot",
@@ -226,7 +227,7 @@ def restriction(payload: dict, plugin_root: str, config_file: str = "") -> int:
             sys.stderr.write(f"N1: persona {persona} may dispatch only {', '.join('n1:' + a for a in sorted(spawn_allow)) or 'nothing'} (got {target or 'no target'})\n")
             return 2
     allowed = persona_tools(plugin_root, persona)
-    if tool.startswith("mcp__"):
+    if tool.startswith("mcp__") or tool in HARNESS_TOOLS:
         return 0
     if tool == "Write" and persona in REVIEWERS and (allowed is None or tool in allowed) \
             and not _findings_path_ok(payload, persona, config_file):
