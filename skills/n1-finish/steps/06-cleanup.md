@@ -12,7 +12,7 @@
    - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | unverified, user approved merge | n/a (already merged) | n/a (local merge)>
    - **Deploy:** <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <evidence>) | none triggered | skipped (local merge) | not watched; delivery not run (queue final PR)>
    - **Verification:** <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
-   - **Verification details:** when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, this invocation's validated per-criterion table from `memory/<ID>/post-deploy-verification.md` (include status, concise evidence, and reason; exclude dev-access contents, credentials, raw commands, and raw command output); otherwise omit this line.
+   - **Verification details:** only when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`: the table per Step 3b's `post-deploy-verification.md` § Steps 4 and 6; otherwise omit this line.
    - **Delivery:** <pending (runbook: memory/<ID>/runbook.md) | succeeded (<verified | not verified>) | succeeded (covered by <owner ID> at <sha>) | not needed (repo-only paths) | n/a (delivery.mode is not ssh)>
    - **Ticket:** <moved to <done status> | left open (<reason>) | tracker not configured>
    pr_url: <PR URL from the `## Pending` section being removed below; omit this line on the local-merge path, which has no PR>

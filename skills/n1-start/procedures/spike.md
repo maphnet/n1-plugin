@@ -1,5 +1,7 @@
 # Spike Variant (investigation-deliverable)
 
+Spike tickets run the investigation pipeline in every mode: `steps/ticket.md` stops interactive investigations only when `VARIANT` is empty.
+
 Read only when the step's telemetry block printed `VARIANT=spike`. Never in n1-refine caller mode: refine creates no worktree, commit or push.
 
 A spike answers a feasibility or performance question with a throwaway prototype on branch `spike/<ID>` (fixed name; `git.branchPattern` does not apply). The branch is pushed in interactive, headless and queue runs. No PR is created and the branch is never merged.

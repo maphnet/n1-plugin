@@ -227,3 +227,11 @@ rm -f "$N1_HOME/memory/<ID>/deploy-step.cmd"
    - Run Runbook branch steps 1–3, calling `n1_delivery_runbook "<ID>" "<SHA>" <K>` in step 1. This lists step `<K+1>` onward and records `deploy_next_step`. Step 2's comment carries no step text, and any failed step's output stays in `memory/<ID>/deploy-output.log`, kept locally in N1 memory.
    - Report which steps ran, which were skipped (they are not offered again on resume, so do them by hand if needed), and which remain.
    - Report "Run `n1-finish <ID>` to continue from step <K+1>." Do not close the ticket. **STOP.**
+
+## Config
+
+| Key | Default |
+|-----|---------|
+| `.delivery.command` | `null` |
+| `.delivery.steps` | `null` (ordered; used only when `.delivery.command` is empty) |
+| `.delivery.verifyCommand` | `null` (optional post-deploy check) |

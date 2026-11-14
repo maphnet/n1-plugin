@@ -33,7 +33,7 @@ if [ "$FRESH" = 1 ] || [ "$(n1_read_frontmatter "$OV" step)" = ticket ]; then (c
 n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "$WORKTREE_PATH" "$BRANCH"
 echo "WORKTREE_PATH=$WORKTREE_PATH BRANCH=$BRANCH"
 ```
-Story child (the queue runner set its story branch): the checkout is synced to `origin/<story branch>` before any work, so `branch-point` is re-written to the story tip on every adopt (a resumed child is re-anchored). `story-base:` output → STOP and escalate (headless: pause with a recorded escalation).
+Story child: `story-base:` output → STOP and escalate (headless: pause with a recorded escalation).
 
 ## Ensure Worktree (`<ID>`)
 

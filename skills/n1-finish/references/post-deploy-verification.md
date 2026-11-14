@@ -65,3 +65,21 @@ n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "post_deploy_verification" 1
 ```
 
 **Memory:** Step 6 persists the validated `post-deploy-verification.md` criterion table in `overview.md` `## Finish`; do not record a smoke-only status.
+
+## Steps 4 and 6: Tracker Comment and Finish Block
+
+Applies only when `POST_DEPLOY_VERIFICATION_ARTIFACT=true` (set by this section's Step 3b in this invocation).
+
+- **Step 4 tracker comment:** append `\n\nPost-deploy verification:\n` and this invocation's validated per-criterion table from `$N1_HOME/memory/<ID>/post-deploy-verification.md` (criterion, `PASS`/`FAIL`/`SKIPPED`, concise evidence, and reason). Otherwise omit verification details. Do not include dev-access contents, credentials, raw commands, or raw command output. This table is informational: `FAIL` and `SKIPPED` still close the ticket normally.
+- **Step 6 `## Finish` block, `Verification details:` line:** this invocation's validated per-criterion table from `memory/<ID>/post-deploy-verification.md` (include status, concise evidence, and reason; exclude dev-access contents, credentials, raw commands, and raw command output).
+
+## Config
+
+| Key | Default |
+|-----|---------|
+| `.finishWork.postDeployVerification.enabled` | `false`; absent → explicit `localTesting.mode: "smoke"` (legacy smoke); explicit `false` wins |
+| `.localTesting.mode` | `null` (infer from startCommand) |
+| `.localTesting.smokeEndpoint` | `null` |
+| `.localTesting.smokeTests` | `[]` |
+
+Post-deploy verification dispatches only after a successful deployment (`ticket.md` → `post-deploy-verification.md`; `steps/03-deploy.md`); never blocks closure.

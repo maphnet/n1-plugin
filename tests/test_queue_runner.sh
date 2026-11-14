@@ -1288,6 +1288,8 @@ test_story_base_wiring() {
     assert_eq "story-wiring: adopt rebases onto the story tip" "yes" "$(grep -qF 'rebase "origin/$SB"' "$ws" && echo yes || echo no)"
     assert_eq "story-wiring: ensure cuts the branch from BASE" "yes" "$(grep -qF 'git branch <TARGET> "$BASE"' "$ws" && echo yes || echo no)"
     assert_eq "story-wiring: ensure keeps checkout of the default" "yes" "$(grep -qF 'git checkout $DEFAULT' "$ws" && echo yes || echo no)"
+    assert_eq "story-wiring: adopt keeps the story-base STOP rule" "yes" \
+        "$(grep -qF 'Story child: `story-base:` output → STOP and escalate (headless: pause with a recorded escalation).' "$ws" && echo yes || echo no)"
     local f
     for f in lib/review-step.sh skills/n1-start/steps/implementation.md lib/qa-step.sh \
              skills/n1-start/procedures/cross-repo.md skills/n1-review/steps/01-analyze.md; do
@@ -1305,7 +1307,13 @@ test_story_base_wiring() {
     assert_eq "story-wiring: every push-create snippet re-derives the base from n1_story_base (SEC-1)" "4" "$(grep -c 'DEFAULT_BRANCH="\$SB"' "$pc")"
     assert_eq "story-wiring: adopt checkout re-anchors branch-point (CR-2)" "yes" \
         "$(grep -qF 'rev-parse "origin/$SB" > "$BP"' "$REPO_ROOT/skills/n1-start/procedures/workspace-isolation.md" && echo yes || echo no)"
-    assert_eq "story-wiring: push-create names the story branch" "yes" "$(grep -q 'never the default branch' "$pc" && echo yes || echo no)"
+    local sc="$REPO_ROOT/skills/n1-pr/procedures/story-child.md"
+    assert_eq "story-wiring: story-child names the story branch" "yes" "$(grep -q 'never the default branch' "$sc" 2>/dev/null && echo yes || echo no)"
+    assert_eq "story-wiring: prepare points story children at story-child.md under its trigger" "yes" \
+        "$(grep -F 'skills/n1-pr/procedures/story-child.md' "$pp" | grep -qF '`STORY` not `none`' && echo yes || echo no)"
+    assert_eq "story-wiring: push-create names story-child.md" "yes" "$(grep -qF 'procedures/story-child.md' "$pc" && echo yes || echo no)"
+    assert_eq "story-wiring: story-child.md is not read at entry" "no" \
+        "$(grep -qF 'story-child.md' "$REPO_ROOT/skills/n1-pr/SKILL.md" && echo yes || echo no)"
 }
 
 # N1-290: run.md documents the runner's story-branch step; its halt text matches the runner's.

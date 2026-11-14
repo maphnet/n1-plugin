@@ -65,16 +65,9 @@ Defaults:
 | `.finishWork.mergeMethod` | `"squash"` (`"squash"` \| `"merge"` \| `"rebase"`) |
 | `.finishWork.mergeOnFinish` | `false` (only JSON `true` makes Step 2 merge an open PR) |
 | `.finishWork.deployWatch.workflowName` | `null` (watch all runs on the merge commit) |
-| `.finishWork.postDeployVerification.enabled` | `false`; absent → explicit `localTesting.mode: "smoke"` (legacy smoke); explicit `false` wins |
-| `.delivery.mode` | `null` (`"ssh"` enables the Step 4 delivery deploy; else off) |
-| `.delivery.command` | `null` (see `steps/03b-ssh-deploy.md`) |
-| `.delivery.steps` | `null` (ordered; used only when `.delivery.command` is empty; see `steps/03b-ssh-deploy.md`) |
-| `.delivery.verifyCommand` | `null` (optional post-deploy check) |
-| `.localTesting.mode` | `null` (infer from startCommand) |
-| `.localTesting.smokeEndpoint` | `null` |
-| `.localTesting.smokeTests` | `[]` |
+| `.delivery.mode` | `null` (`"ssh"` enables the Step 4 delivery deploy; else off; other `.delivery.*` keys: `steps/03b-ssh-deploy.md` § Config) |
 
-Post-deploy verification dispatches only after a successful deployment (`ticket.md` → `post-deploy-verification.md`; `steps/03-deploy.md`); never blocks closure.
+`.finishWork.postDeployVerification.enabled` and `.localTesting.*`: Step 3b `post-deploy-verification.md` § Config (read only after deploy status `succeeded`).
 
 N1 merges an open PR only when the entry prints `merge-on-finish:yes` (`mergeOnFinish` `true`; queue and headless runs also need `autonomy.fullAuto`), only at the head n1-pr pinned as reviewed; otherwise the human merges, then runs n1-finish. prMode skip merges locally (Step 2b; a chained run only with `merge-on-finish:yes`).
 

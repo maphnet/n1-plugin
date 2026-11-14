@@ -18,6 +18,8 @@ done <<'EOT'
 02-merge.md|merge-on-finish.md|only with `merge-on-finish:yes`
 02-merge.md|local-merge.md|## Step 2b: Local Merge (no-PR path, `prMode == "skip"` only)
 03-deploy.md|post-deploy-verification.md|deploy status `succeeded`
+04-close-ticket.md|post-deploy-verification.md|Only when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`
+04-close-ticket.md|after-deploy-actions.md|Otherwise (`deferred:<M>` or `unticked:<N>` above 0)
 06-cleanup.md|release-routing.md|only when the entry printed `release.enabled=true`
 EOT
 # Every n1-finish reference path named anywhere in skill/agent/reference text exists.

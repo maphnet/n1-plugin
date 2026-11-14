@@ -96,6 +96,7 @@ assert_contains "spike: worktree removed without force" "$SP" 'git -C "$MAIN" wo
 assert_contains "spike: worktree kept on push failure" "$SP" 'push:failed worktree:kept'
 assert_contains "spike: never in refine caller mode" "$SP" 'Never in n1-refine caller mode'
 assert_contains "spike: developer may commit on the spike branch" "$SP" 'Commits on `spike/<ID>` are allowed'
+assert_contains "spike: runs the investigation pipeline in every mode" "$SP" 'Spike tickets run the investigation pipeline in every mode'
 assert_contains "investigation: step points to spike procedure" \
     "skills/n1-start/steps/investigation-deliverable.md" \
     'read `procedures/spike.md` and follow § Prototype'
