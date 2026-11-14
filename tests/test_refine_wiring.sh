@@ -237,7 +237,7 @@ line_has "N1-296: architecture row describes decomposition" '| n1-refine |' 'Epi
 has "N1-296: duplicate-check lists n1-refine as caller" 'n1-ticket and n1-refine (before creation)' references/duplicate-check.md
 
 # --- N1-33: premise check for bug tickets
-SA=agents/solution-architect.md
+SA=$(split_cat "$PT/sa.md" SA)
 before "N1-33: premise check sits inside step 6 (bug only)" 'Bug investigation (when type is `bug`)' '**Premise check:**' "$SA"
 before "N1-33: premise check precedes the defect trace" '**Premise check:**' 'Identify the code path where the bug manifests' "$SA"
 line_has "N1-33: falsified premise counts in ticket_contradictions" '**Premise check:**' 'count it in `ticket_contradictions`' "$SA"
