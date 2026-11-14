@@ -162,7 +162,7 @@ Helpers in `lib/signals.sh`: `n1_read_signal`, `n1_write_signals`, `n1_eval_sign
 
 ## Model Tiering
 
-`n1_resolve_model` accepts an optional context parameter for signal-driven model selection, while dispatchers use `n1_resolve_agent` to receive the coherent model/effort pair. Rules are host-neutral: resolution is override > escalation > downgrade > task type > baseline. Tier keywords remain `frontier` (opus), `standard` (agent default), `downgrade` (one tier below), and `minimal` (haiku). Triggers defined in `pipeline.json` under `escalation_triggers` and `downgrade_triggers` are condition-gated through `n1_eval_signal_gate`; when the same key appears in both sections, escalation is checked first. The `developer:implementation` step can promote to frontier when `analysis.blast_radius` is `high` or `analysis.security_relevant` is `true`.
+`n1_resolve_model` accepts an optional context parameter for signal-driven model selection, while dispatchers use `n1_resolve_agent` to receive the coherent model/effort pair. Rules are host-neutral: resolution is override > escalation > downgrade > task type > baseline. Tier keywords remain `frontier` (opus), `standard` (agent default), `downgrade` (one tier below), and `minimal` (haiku). Triggers defined in `pipeline.json` under `escalation_triggers` and `downgrade_triggers` are condition-gated through `n1_eval_signal_gate`; when the same key appears in both sections, escalation is checked first. The `developer:implementation` step can promote to frontier when `analysis.blast_radius` is `high` or `analysis.security_relevant` is `true`. `code-reviewer:review` has no escalation trigger (N1-590); on security-relevant tickets the security-reviewer already runs on opus.
 
 Claude output is unchanged (`opus`/`sonnet`/`haiku`). The only permitted runtime differences are a declared escalation, downgrade, or task-type override. Telemetry repair and empirical validation are not part of this routing policy; NP-132 owns telemetry repair and empirical validation.
 
@@ -497,8 +497,8 @@ Config keys: `release.enabled` (boolean, default `false`), `release.procedure` (
 | planner | opus | medium | Read, Grep, Glob, Write, Edit, Skill, WebSearch, WebFetch | Plan writing |
 | implementer | sonnet | medium | inherits (needs Skill for n1-implement, Agent for developer subagents) | Implementation (wraps n1-implement) |
 | developer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | Fix cycle, CI fix |
-| code-reviewer | opus | medium | Read, Grep, Glob, Write (hook-scoped to the findings file) | Review (parallel) |
-| security-reviewer | opus | medium | Read, Grep, Glob, Write (hook-scoped to the findings file) | Review (parallel) |
+| code-reviewer | sonnet | high | Read, Grep, Glob, Write (hook-scoped to the findings file) | Review (parallel) |
+| security-reviewer | opus | high | Read, Grep, Glob, Write (hook-scoped to the findings file) | Review (parallel) |
 | qa-engineer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | QA |
 | local-test-planner | sonnet | medium | Read, Grep, Glob, Bash | Local testing (plan creation) |
 | tech-writer | sonnet | medium | Read, Grep, Edit, Write, Glob, Bash | Doc update, PR content |

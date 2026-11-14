@@ -11,10 +11,6 @@
       ]},
       "tier": "frontier"
     },
-    "code-reviewer:review": {
-      "condition": { "signal": "analysis.security_relevant", "eq": "true" },
-      "tier": "frontier"
-    },
     "developer:implementation": {
       "condition": { "any": [
         { "signal": "analysis.blast_radius", "eq": "high" },
