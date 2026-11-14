@@ -933,7 +933,7 @@ EOF
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
     rid=$(n1_read_frontmatter "$tmp/queue.md" run_id)
     assert_eq "orca-resume: worker started in the existing worktree" "yes" \
-        "$(grep -qF -- "--task task-T-A --worktree path:$wt --repo path:$tmp --agent claude --model sonnet" "$tmp/fake/orca-calls" && echo yes || echo no)"
+        "$(grep -qF -- "--task task-T-A --worktree path:$wt --agent claude --model sonnet" "$tmp/fake/orca-calls" && echo yes || echo no)"
     assert_eq "orca-resume: no new worktree requested" "0" "$(grep -c -- '--name T-A' "$tmp/fake/orca-calls" || true)"
     assert_eq "orca-resume: identity carries this run id and the resume flag" "2" \
         "$(grep -c -e "^N1_QUEUE_RUN_ID=$rid$" -e '^N1_ORCA_RESUME=1$' "$tmp/fake/sentinel.T-A")"

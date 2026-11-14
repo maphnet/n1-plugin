@@ -259,8 +259,9 @@ eq "resumable: foreign same-named worktree in both list and overview, row repo A
 printf -- '---\nstep: escalated\n---\n' > "$RV"
 eq "resumable: empty workspace_path" 1 "$(rc res)"
 reset; n1_orca_worker_start run-1 task-1 T-1 /r sonnet /w/T-1 >/dev/null
-has "worker-start: existing worktree selector" "orchestration worker-start --run run-1 --task task-1 --worktree path:/w/T-1 --repo path:/r --agent claude --model sonnet" "$(calls)"
+has "worker-start: existing worktree selector" "orchestration worker-start --run run-1 --task task-1 --worktree path:/w/T-1 --agent claude --model sonnet" "$(calls)"
 hasnt "worker-start: existing worktree requests no new name" "--name" "$(calls)"
+hasnt "worker-start: existing worktree passes no --repo" "--repo" "$(calls)"
 reset; n1_orca_worker_start run-1 task-1 T-1 /r sonnet >/dev/null
 has "worker-start: fresh launch argv unchanged" "orchestration worker-start --run run-1 --task task-1 --worktree new-top-level --name T-1 --repo path:/r --agent claude --model sonnet" "$(calls)"
 # N1-267: usage-limit stall from the newest transcript of the ticket's worktree (FAKE_WT=hit lists /w/T-1).

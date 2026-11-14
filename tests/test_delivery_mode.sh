@@ -133,12 +133,14 @@ test_runbook_never_executes() {
 
 # --- N1-528: covered deploy_pending tickets ---------------------------------------
 test_covered() {
-    local repo="$TMP/cov-repo" home="$TMP/cov-home" a b x side out exp before after nf_before nf_after
+    local repo="$TMP/cov-repo" home="$TMP/cov-home" a b c14 c15 x side out exp before after nf_before nf_after
     export GIT_CEILING_DIRECTORIES="$TMP"
     g() { git -C "$repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
     git init -q -b main "$repo"
     g commit -q --allow-empty -m 'A [T-1] [T-8] [T-9] [T-7-old] bad.id T-130 [T-6]'; a=$(g rev-parse HEAD)
     g commit -q --allow-empty -m 'B (OWN) T-2 [T-4]'; b=$(g rev-parse HEAD)
+    g commit -q --allow-empty -m 'T-14 id at the start of the message'; c14=$(g rev-parse HEAD)
+    g commit -q --allow-empty -m 'subject' -m 'T-15 id on a later line'; c15=$(g rev-parse HEAD)
     g commit -q --allow-empty -m 'X [T-10]'; x=$(g rev-parse HEAD)
     g checkout -q -b side "$a"
     g commit -q --allow-empty -m 'S [T-3]'; side=$(g rev-parse HEAD)
@@ -161,6 +163,8 @@ test_covered() {
     mk T-9 true "$a"                 # all actions ticked -> ok
     printf '# R\n\n## Deployment Actions\n\n### After deploy\n\n- [x] #1 restart worker\n\n## Notes\n\n- [ ] unrelated todo\n' > "$home/memory/T-9/runbook.md"
     mk T-10 true "$x"                # equal to X -> ok
+    mk T-14 true "$c14"              # id at the very start of the message -> ok
+    mk T-15 true "$c15"              # id on a later line of the body -> ok
     mk T-12 true "$a"                # commit does not name T-12 -> skipped (identity binding)
     mk T-13 true "$a"                # only T-130 is named -> skipped (boundary)
     mkdir -p "$home/memory/T-11"     # no overview.md -> skipped
@@ -168,7 +172,7 @@ test_covered() {
     before=$(cat "$home"/memory/*/overview.md "$home"/memory/*/runbook.md | cksum)
     nf_before=$(find "$home" | wc -l)
     out=$(cd "$repo" && N1_HOME="$home" n1_delivery_covered "$x" OWN | LC_ALL=C sort)
-    exp=$(printf '%s\n' "T-1 $a ok" "T-10 $x ok" "T-2 ${b:0:7} ok" "T-8 $a actions" "T-9 $a ok" | LC_ALL=C sort)
+    exp=$(printf '%s\n' "T-1 $a ok" "T-10 $x ok" "T-14 $c14 ok" "T-15 $c15 ok" "T-2 ${b:0:7} ok" "T-8 $a actions" "T-9 $a ok" | LC_ALL=C sort)
     assert_eq "covered: exact candidate set" "$exp" "$out"
     after=$(cat "$home"/memory/*/overview.md "$home"/memory/*/runbook.md | cksum)
     nf_after=$(find "$home" | wc -l)

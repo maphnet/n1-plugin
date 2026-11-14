@@ -79,8 +79,9 @@ eq "W16 tracker tickets file is not fenced" "0" "$(grep -cE 'n1_fence_untrusted.
 eq "W18 refine fetch states the nonce rule" "1" "$(has skills/n1-refine/steps/01-fetch.md "$RULE")"
 WANT=$(printf '%s\n' lib/validation.sh scripts/codex-pr-review.sh skills/n1-ci/steps/02-fix.md \
     skills/n1-pr/procedures/codex-triage-worker.md skills/n1-release/steps/03b-release-notes.md \
-    skills/n1-review-response/steps/02-resolve.md skills/n1-refine/steps/01-fetch.md | sort)
-eq "W17 helper users are exactly the helper and the six call sites (refine fences related-ticket text, N1-515)" "$WANT" \
+    skills/n1-review-response/steps/02-resolve.md skills/n1-refine/steps/01-fetch.md \
+    references/followup-filing.md | sort)
+eq "W17 helper users are exactly the helper and the seven call sites (refine fences related-ticket text, N1-515; follow-up detail, N1-535)" "$WANT" \
     "$(grep -rlF n1_fence_untrusted lib skills references hooks scripts agents 2>/dev/null | sort)"
 
 echo "fence_untrusted: $PASS passed, $FAIL failed"
