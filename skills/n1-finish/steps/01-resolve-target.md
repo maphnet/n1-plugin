@@ -35,5 +35,6 @@ source ~/.n1/preamble.sh; n1_finish_mark "<ID>"
 - **PR number argument** → `gh pr view <n> --json number,state,mergedAt,mergeCommit,url,headRefName,baseRefName`.
 - **No argument / ticket ID** → the entry's lookup (several head-branch matches: a single OPEN PR wins, else a single MERGED one). On `pr:ambiguous <numbers>`, ask the user which PR to finish (list the numbers), then continue with `gh pr view <n>`; never guess. Only on `pr:none` retry manually with `gh pr list --head <branch> --state all --json ...`.
 - **No PR found:**
+  - Current branch (the entry's `branch=` line) starts with `spike/` → "Spike branches are never merged; nothing to finish." **STOP.**
   - `prMode` is `"skip"` → go to Step 2b (local merge) in `02-merge.md`.
   - Otherwise → "No PR found for this branch — run /n1:n1-pr first." **STOP.**
