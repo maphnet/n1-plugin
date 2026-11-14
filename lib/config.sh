@@ -1098,20 +1098,24 @@ _n1_clean_gate() {
 }
 
 # N1-112/N1-339: worktree + local-branch cleanup for a merged ticket; prints status tokens, one per line, always returns 0.
-# Usage: n1_finish_cleanup <branch> <merged-pr-head-oid|""> <defaultBranch> [<nof>]   (any cwd inside the repository)
+# Usage: n1_finish_cleanup <branch> <merged-pr-head-oid|""> <defaultBranch> [<nof>] [<top>]   (any cwd inside the repository)
+# <top> (N1-583): a registered linked worktree to gate and remove instead of the <branch> holder (detached or re-branched
+# trees located by overview workspace_path); the main checkout or an unregistered path means no worktree.
 # <nof>=1 (every trigger but finish): N1-managed trees are gated (dirty, unmerged) and never removed with --force.
 # The worktree is the linked one holding refs/heads/<branch> (never the main checkout, never chosen by cwd); it goes
 # first because a checked-out branch cannot be deleted. Gates: _n1_clean_gate. Branch: tip must be an ancestor of the
 # merged result (oid, else <defaultBranch>), then -d; -D only when the tip equals the merged PR head oid (squash/rebase).
 # When the cwd's worktree was removed the shell is left in the main checkout.
 n1_finish_cleanup() {
-    local branch="${1:-}" oid="${2:-}" def="${3:-}" nof="${4:-}"
+    local branch="${1:-}" oid="${2:-}" def="${3:-}" nof="${4:-}" want="${5:-}"
     local gcd main top err mode="" keep="" holder
     gcd=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) \
         && main=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p') && [ -n "$main" ] \
         || { echo worktree:none; echo branch:none; return 0; }
     local G=(git --git-dir="$gcd")
-    top=$(_n1_wt_holder "$branch"); [ "$top" = "$main" ] && top=""
+    if [ -n "$want" ]; then top=$(_n1_wt_records | tail -n +2 | P="$want" awk -F'\t' '$1 == ENVIRON["P"] {print $1; exit}')
+    else top=$(_n1_wt_holder "$branch"); fi
+    [ "$top" = "$main" ] && top=""
     # A registered worktree whose directory is gone cannot be gated or removed: drop its stale admin entry (locked ones
     # survive the prune and are then named by the branch check below) so the branch can be deleted.
     if [ -n "$top" ] && [ ! -d "$top" ]; then "${G[@]}" worktree prune 2>/dev/null; top=""; fi
