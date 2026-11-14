@@ -116,6 +116,45 @@ MD
 }
 
 # ---------------------------------------------------------------------------
+# Test (b2): security_relevant=true escalates security-reviewer, not code-reviewer (N1-590)
+# ---------------------------------------------------------------------------
+test_b_security_reviewers() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' RETURN
+
+    echo '{ "models": {} }' > "${tmpdir}/config.json"
+    local mem_dir="${tmpdir}/memory/TEST-1"
+    mkdir -p "$mem_dir"
+    cat > "${mem_dir}/analysis.md" <<'MD'
+# Analysis
+
+<!-- n1:signals
+security_relevant: true
+-->
+MD
+
+    local saved_n1_home="${N1_HOME:-}"
+    local saved_id="${ID:-}"
+    export N1_HOME="$tmpdir"
+    export ID="TEST-1"
+
+    local TEST_CONFIG="${tmpdir}/config.json"
+    n1_config_file() { echo "$TEST_CONFIG"; }
+
+    local cr sr
+    cr=$(n1_resolve_model code-reviewer review) || true
+    sr=$(n1_resolve_model security-reviewer review) || true
+
+    n1_config_file() { echo "$(n1_home)/config.json"; }
+    [ -n "$saved_n1_home" ] && export N1_HOME="$saved_n1_home" || export N1_HOME=""
+    [ -n "$saved_id"      ] && export ID="$saved_id"      || export ID=""
+
+    assert_eq "code-reviewer stays sonnet on security_relevant" "sonnet" "$cr"
+    assert_eq "security-reviewer is opus on security_relevant" "opus" "$sr"
+}
+
+# ---------------------------------------------------------------------------
 # Test (c): prune snippet removes only equal-to-default entries
 # ---------------------------------------------------------------------------
 test_c() {
@@ -242,6 +281,7 @@ JSON
 # ---------------------------------------------------------------------------
 test_a
 test_b
+test_b_security_reviewers
 test_c
 test_d
 test_plan_approval_headless
