@@ -3,6 +3,7 @@ import io
 import importlib.util
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -1427,6 +1428,50 @@ class ReportTest(unittest.TestCase):
     def test_cmd_report_without_snapshots(self):
         d = TempDirs()
         self.assertEqual(bm.main(["report", "--out", str(d.out)]), 0)
+
+
+# Ids are hyphenated; the hyphen requirement keeps prose such as "n1_record_decision with ..." from matching.
+EMIT_RE = re.compile(r'n1_record_decision\s+"?([a-z][a-z0-9]*(?:-[a-z0-9]+)+)"?')
+IMPROVISED_IDS = ("review-rerun", "finish-merge", "review-fix-cap", "review-extra-cycle",
+                  "review-fix-cap-extra")
+
+
+class GateRegistryTest(unittest.TestCase):
+    """N1-596: the benchmark gate registry must match the literal emit sites and the telemetry doc."""
+
+    @staticmethod
+    def _emitted_ids():
+        found = set()
+        for root in ("lib", "skills"):
+            for p in (REPO / root).rglob("*"):
+                if p.is_file() and p.suffix in (".sh", ".md"):
+                    found.update(EMIT_RE.findall(p.read_text(encoding="utf-8", errors="replace")))
+        return found
+
+    def test_registry_matches_literal_emit_sites(self):
+        # Fails when a new literal emit site is not registered, or a registered id lost its emit site.
+        self.assertEqual(self._emitted_ids(), set(bm.KNOWN_GATE_IDS))
+
+    def test_prefixes_match_config_emit_site(self):
+        config = (REPO / "lib" / "config.sh").read_text(encoding="utf-8")
+        self.assertIn('dec_id="${section%_triggers}:', config)
+        self.assertEqual(set(bm.GATE_ID_PREFIXES), {"escalation:", "downgrade:"})
+
+    def test_telemetry_doc_lists_registry_and_improvised_ids(self):
+        doc = (REPO / "references" / "telemetry.md").read_text(encoding="utf-8")
+        section = doc.split("## Decision events", 1)[1].split("\n## ", 1)[0]
+        for did in sorted(bm.KNOWN_GATE_IDS):
+            self.assertIn(f"`{did}`", section, did)
+        for prefix in bm.GATE_ID_PREFIXES:
+            self.assertIn(f"`{prefix}", section, prefix)
+        for did in IMPROVISED_IDS:
+            self.assertIn(f"`{did}`", section, did)
+            self.assertFalse(bm._is_gate_id(did), did)
+
+    def test_telemetry_skill_counts_only_documented_ids(self):
+        text = (REPO / "skills" / "n1-telemetry" / "steps" / "01-collect.md").read_text(encoding="utf-8")
+        self.assertIn("`references/telemetry.md` § Decision events", text)
+        self.assertNotIn("finish-gate", text)
 
 
 class SkillRootResolutionTest(unittest.TestCase):
