@@ -6,7 +6,7 @@ Run only on the queue final PR path (`headRefName` starts with `queue/`, see Ste
 source ~/.n1/preamble.sh; bash "$N1_ROOT/scripts/n1-queue-chain.sh" --pred "<merged final PR url>" --all || true
 ```
 
-Fill `<merged final PR url>` from Step 1's `gh pr view` url. Report each `queue chain:` line in the Step 6 summary. No line means no queue waited on this PR. A stop (predecessor closed or changed, rebase conflict, push refused) is already recorded in that queue's queue.md and sent as a needs-you notice. It does not fail this finish.
+Fill `<merged final PR url>` from Step 1's `gh pr view` url. Report each `queue chain:` line in the Step 6 summary. No line means no queue waited on this PR. A stop (predecessor closed or changed, rebase conflict, push refused) is already recorded in that queue's queue.md. It does not fail this finish.
 
 ## Close landed children (N1-532)
 
