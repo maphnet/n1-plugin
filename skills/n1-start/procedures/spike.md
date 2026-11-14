@@ -24,7 +24,9 @@ MAIN=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
 DEF=$(n1_config_val '.git.defaultBranch'); DEF="${DEF:-main}"
 BASE="$DEF"; git -C "$MAIN" rev-parse -q --verify "refs/remotes/origin/$DEF" >/dev/null && BASE="origin/$DEF"
 WT="$MAIN/$(n1_worktree_root)/spike-$ID"
-if [ -d "$WT" ]; then echo "SPIKE_WT=$WT BASE=$BASE"
+if [ -d "$WT" ]; then
+    [ "$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "spike/$ID" ] && [ "$(git -C "$WT" rev-parse --git-common-dir 2>/dev/null)" = "$(git -C "$MAIN" rev-parse --git-common-dir)" ] \
+        && echo "SPIKE_WT=$WT BASE=$BASE" || echo "spike:worktree-failed"
 elif git -C "$MAIN" show-ref -q --verify "refs/heads/spike/$ID"; then
     git -C "$MAIN" worktree add -q "$WT" "spike/$ID" && echo "SPIKE_WT=$WT BASE=$BASE" || echo "spike:worktree-failed"
 else
@@ -43,7 +45,7 @@ git -C "$WT" add -A && { git -C "$WT" diff --cached --quiet || git -C "$WT" comm
 echo "AHEAD=$(git -C "$WT" rev-list --count "$BASE..HEAD") SHA=$(git -C "$WT" rev-parse --short HEAD)"
 # secret scan over everything the push would publish (developer commits included)
 if git -C "$WT" diff --name-only "$BASE..HEAD" | grep -qiE '(^|/)(\.env[^/]*|id_[a-z0-9]+|[^/]*\.(pem|key|p12|pfx))$' \
-   || git -C "$WT" diff "$BASE..HEAD" | grep -E '^\+' | grep -qiE 'BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9_-]{20,}|(api[_-]?key|secret|token|passw(or)?d)["'"'"' ]*[:=]["'"'"' ]*[A-Za-z0-9/+_.-]{8,}'; then
+   || git -C "$WT" diff --text "$BASE..HEAD" | grep -aE '^\+' | grep -aqiE 'BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9_-]{20,}|(api[_-]?key|secret|token|passw(or)?d)["'"'"' ]*[:=]["'"'"' ]*[A-Za-z0-9/+_.-]{8,}'; then
     echo "SECRET=hit"; else echo "SECRET=none"; fi
 ```
 

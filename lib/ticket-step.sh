@@ -77,7 +77,9 @@ n1_ticket_persist() {
     MAX=$(( 50 - ${#ID} - 1 )); SESSION_NAME="$ID${TITLE:+ ${TITLE:0:$MAX}}"
     n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" "$RESOLVED_TYPE"
     n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type_matched_by" "$TYPE_MATCHED_BY"
-    [ -n "$VARIANT" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "variant" "$VARIANT"
+    if [ -n "$VARIANT" ]; then n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "variant" "$VARIANT"
+    elif grep -q '^variant: .' "$N1_HOME/memory/$ID/overview.md" 2>/dev/null; then n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "variant" "" # clear stale variant on re-run
+    fi
     [ -n "${N1_STORY_ID:-}" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story" "$N1_STORY_ID"
     [ -n "$ORIGINAL_STATUS" ] && [ "$ORIGINAL_STATUS" != "Not specified" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "original_status" "$ORIGINAL_STATUS"
     SC=$(tr -d '\\\r\n' 2>/dev/null < "$N1_HOME/memory/$ID/.story-convert"); rm -f "$N1_HOME/memory/$ID/.story-convert"; [ -n "$SC" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story_convert" "$SC"

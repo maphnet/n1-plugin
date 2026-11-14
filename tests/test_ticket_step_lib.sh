@@ -141,5 +141,8 @@ eq "persist: spike type frontmatter" "investigation" "$(n1_read_frontmatter "$ME
 printf -- '---\n---\n' > "$MEM/overview.md"; ret "$BUG"
 n1_ticket_persist '' >/dev/null 2>&1
 eq "persist: no variant for a non-spike ticket" "" "$(n1_read_frontmatter "$MEM/overview.md" variant)"
+printf -- '---\nvariant: spike\n---\n' > "$MEM/overview.md"; ret "$BUG"
+n1_ticket_persist '' >/dev/null 2>&1
+eq "persist: stale spike variant is cleared" "" "$(n1_read_frontmatter "$MEM/overview.md" variant)"
 
 exit $FAIL
