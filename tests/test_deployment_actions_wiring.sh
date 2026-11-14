@@ -222,7 +222,7 @@ check "tick after moving a release row still succeeds" "^ticked:#7$" <(printf '%
     && echo "PASS: tick after move flips the Before release line" || { echo "FAIL: tick after move missed Before release"; FAIL=1; }
 
 # --- agents
-TW=agents/tech-writer.md
+TW=$(split_cat "$T/tw.md" TW)
 check "tech-writer template has Deployment Actions" "^## Deployment Actions" "$TW"
 check "tech-writer template has Before deploy" "^### Before deploy" "$TW"
 check "tech-writer template has After deploy" "^### After deploy" "$TW"
@@ -374,7 +374,7 @@ check "walk: every item gets a reported outcome" "report each item's outcome" "$
 check "headless runs after checks only after a confirmed deploy" "once a deploy was watched and succeeded in this run" "$P"
 
 # --- N1-568: tech-writer writes Check: only for read-only verification
-TW=agents/tech-writer.md
+TW=$(split_cat "$T/tw.md" TW)
 check "tech-writer has the read-only Check: rule" "\*\*Read-only checks:\*\*" "$TW"
 check "tech-writer keeps writes and secrets out of Check:" "involves a secret stays .Manual:. or a shell command" "$TW"
 check "tech-writer Format lists Check: as the third kind" "or text starting with .Check:." "$TW"

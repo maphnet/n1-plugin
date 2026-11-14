@@ -355,7 +355,8 @@ for d in "$T/decoy-dir" "$T/home/scratch/reconcile-7.x/sub" "$T/home/scratch/rec
 done
 
 # --- tech-writer reconcile mode
-TW=agents/tech-writer.md
+source "$(dirname "$0")/persona_split_lib.sh"
+TW=$(split_cat "$T/tw.md" TW)
 check "tech-writer input declares mode create|reconcile" '^- `mode`: `create` \(default\) or `reconcile`' "$TW"
 check "tech-writer has a Reconcile Mode section" "^## Reconcile Mode" "$TW"
 before "reconcile skip line precedes Phase 1 Step 1" "skip Phase 1 and Phase 2" "### Step 1: Extract Change Footprint" "$TW"

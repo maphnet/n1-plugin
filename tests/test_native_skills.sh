@@ -257,7 +257,7 @@ fi
 
 # 9. N1-127: tech-writer writes the PR body to a file; 02 creates the PR from it
 P1=skills/n1-pr/steps/01-prepare.md
-TWR=agents/tech-writer.md
+TWR=$(split_cat "$SPLIT_T/tw.md" TW)
 if grep -qF 'PR_BODY_FILE=$(mktemp "$N1_HOME/scratch/pr-body-' "$P1" && grep -qF 'body_file:' "$P1"; then
     echo "PASS: 01-prepare creates the PR body file and passes body_file"
 else

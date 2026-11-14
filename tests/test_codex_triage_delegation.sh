@@ -12,6 +12,7 @@ lacks() { if grep -qE -- "$3" "$2" 2>/dev/null; then echo "FAIL: $1 (still has /
 TW=agents/tail-worker.md
 CT=skills/n1-pr/procedures/codex-triage.md
 CW=$(split_cat "$T/ctw.md" CTW)
+TWC=$(split_cat "$T/tw.md" TW)
 P3=skills/n1-pr/steps/03-codex-review.md
 FW=references/file-write-mechanism.md
 
@@ -21,13 +22,13 @@ has "exception is the solution-architect"        "$FW" 'solution-architect'
 has "definition forbids shell content writes"    "$FW" 'heredoc'
 has "HOST ROUTING points to the definition"      hooks/session-start.sh 'references/file-write-mechanism\.md'
 has "solution-architect cites its exception"     agents/solution-architect.md 'file-write-mechanism\.md'
-has "tech-writer points to the definition"       agents/tech-writer.md 'file-write-mechanism\.md'
+has "tech-writer points to the definition"       "$TWC" 'file-write-mechanism\.md'
 OTHERS=$(grep -lE 'NOT the Write tool|heredoc/cat redirect' agents/*.md 2>/dev/null | grep -v '^agents/solution-architect\.md$')
 if [ -z "$OTHERS" ]; then echo "PASS: no other persona prescribes shell writes"; else echo "FAIL: personas contradict the definition: $OTHERS"; FAIL=1; fi
 
 # (f) reconcile takes the fix report by path, so the orchestrator never holds developer text
 has "reconcile accepts fix report file"   references/reconcile-pr-body.md '`fix report file:`'
-has "tech-writer reads fix report file"   agents/tech-writer.md '`fix report file`'
+has "tech-writer reads fix report file"   "$TWC" '`fix report file`'
 
 # (a) the persona hosts triage and dispatches validator and developer itself
 has "tail-worker has codex-triage mode"            "$TW" '^## Mode: codex-triage$'
