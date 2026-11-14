@@ -81,11 +81,22 @@ eq "K9: head == default branch -> main untouched" "worktree:none,branch:none" "$
 eq "K9: main checkout intact" yes "$(yn test -d "$M/.git")"
 # K10: invalid id.
 eq "K10: invalid id" "cleanup:skipped (invalid-id)" "$(n1_clean_ticket '../x' clean)"
-# K11: detached workspace_path worktree is reported, never removed.
+# K11 (N1-583): a detached workspace_path worktree is removed when its HEAD is within the merged PR; kept otherwise.
 wt "$T/k11" b11; git -C "$M" merge -q --no-ff -m m11 b11; git -C "$T/k11" checkout -q --detach; ov K-11
 sed -i "2i workspace_path: $T/k11" "$N1_HOME/memory/K-11/overview.md"
-eq "K11: detached diagnostic" "worktree:kept (workspace_path $T/k11 holds detached),branch:deleted" "$(ct K-11 "$(printf 'MERGED\tb11\t%s\tmain' "$(rev b11)")")"
-eq "K11: dir kept" yes "$(yn test -d "$T/k11")"
+eq "K11: detached workspace_path tree removed" "worktree:removed,branch:deleted" "$(ct K-11 "$(printf 'MERGED\tb11\t%s\tmain' "$(rev b11)")")"
+eq "K11: dir gone" no "$(yn test -d "$T/k11")"
+eq "K11: path recorded" "- **Cleanup:** worktree:removed, branch:deleted ($T/k11)" "$(cl K-11)"
+wt "$T/k11b" b11b; git -C "$M" merge -q --no-ff -m m11b b11b; git -C "$T/k11b" checkout -q --detach
+git -C "$T/k11b" commit -q --allow-empty -m extra; ov K-111
+sed -i "2i workspace_path: $T/k11b" "$N1_HOME/memory/K-111/overview.md"
+eq "K11b: commit outside the merged PR -> kept" "worktree:kept (unmerged),branch:deleted" "$(ct K-111 "$(printf 'MERGED\tb11b\t%s\tmain' "$(rev b11b)")")"
+eq "K11b: dir kept" yes "$(yn test -d "$T/k11b")"
+# K16 (AC4): PR head maphskiy/jiaolong, local tree on maphskiy/otter -> resolved through workspace_path.
+wt "$T/k16" maphskiy/otter; ov K-16; sed -i "2i workspace_path: $T/k16" "$N1_HOME/memory/K-16/overview.md"
+eq "K16: renamed-branch tree resolved through workspace_path" "worktree:removed,branch:none" "$(ct K-16 "$(printf 'MERGED\tmaphskiy/jiaolong\t%s\tmain' "$(rev maphskiy/otter)")")"
+eq "K16: dir gone" no "$(yn test -d "$T/k16")"
+eq "K16: local branch untouched" yes "$(yn git -C "$M" show-ref -q --verify refs/heads/maphskiy/otter)"
 # K12: queue env -> ticket_cleanup event with outcome and reason.
 mkdir -p "$T/q/Q-1"; wt "$T/k12" b12; git -C "$M" merge -q --no-ff -m m12 b12; echo x > "$T/k12/d"; ov K-12
 (export N1_QUEUE_DIR="$T/q/Q-1" N1_QUEUE_RUN_ID=r1; ct K-12 "$(printf 'MERGED\tb12\t%s\tmain' "$(rev b12)")" >/dev/null)

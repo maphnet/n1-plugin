@@ -1190,12 +1190,13 @@ _n1_clean_record() {
 # Usage: n1_clean_ticket <ID> <finish|clean|queue|general> [<headRef> <oid> <defaultBranch>]
 # finish passes the PR facts it already has (local merge: empty oid). Other triggers read pr_url from overview
 # (## Pending or ## Finish), require gh state MERGED and take headRefName/headRefOid/baseRefName from it; anything else
-# prints one "cleanup:skipped (<why>)" line and touches nothing. Never fuzzy, never cwd: n1_finish_cleanup's exact
-# branch match. Inside an Orca-owned target the predicted outcome is recorded BEFORE the removal, because Orca's rm
+# prints one "cleanup:skipped (<why>)" line and touches nothing. Never cwd: n1_finish_cleanup's exact branch match, else
+# (N1-583) the ticket's workspace_path tree from n1_find_workspace, always gated (dirty/unmerged kept, never forced).
+# Inside an Orca-owned target the predicted outcome is recorded BEFORE the removal, because Orca's rm
 # kills the terminal (and this session) running there; a surviving session overwrites it with the real tokens.
 n1_clean_ticket() {
     local id="${1:-}" trig="${2:-clean}" hr="${3:-}" oid="${4:-}" def="${5:-}"
-    local url="" res="" st="" a main top="" gate="" out toks wp b="" nof=1
+    local url="" res="" st="" a main top="" gate="" out toks b="" nof=1
     [ "$trig" = finish ] && nof=0
     [[ "$id" =~ ^[A-Za-z][A-Za-z0-9]*-[0-9]+$ ]] || id=""
     if [ "$trig" != finish ]; then
@@ -1218,19 +1219,21 @@ n1_clean_ticket() {
     main=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
     [ -n "$main" ] || { _n1_clean_record "$id" "$trig" "cleanup:skipped (no-repo)" "" ""; echo "cleanup:skipped (no-repo)"; return 0; }
     top=$(_n1_wt_holder "$hr"); [ "$top" = "$main" ] && top=""
+    if [ -z "$top" ]; then
+        # N1-583: a detached, re-branched or no-PR tree is located by overview workspace_path first (n1_find_workspace)
+        # and always gated, never forced: its HEAD must be an ancestor of the merged oid.
+        top=$(n1_find_workspace "$id"); [ "$top" = "$main" ] && top=""
+        b=$(_n1_wt_records | P="$top" awk -F'\t' 'ENVIRON["P"] != "" && $1 == ENVIRON["P"] {print substr($2, 12); exit}')
+        case "$b" in spike/*) top="" ;; esac   # N1-577: a spike worktree is never the ticket's workspace
+        [ -n "$top" ] && nof=1
+    fi
     [ -n "$top" ] && gate=$(_n1_clean_gate "$top" "$main" "$oid" "$def" "$nof")
     # The surviving-session record below may emit step/queue events a second time.
     if [ "$gate" = $'orca\t' ] && case "$(pwd -P)/" in "$top"/*) true ;; *) false ;; esac; then
         _n1_clean_record "$id" "$trig" "worktree:removed, branch:kept (checked out in $top)" "$top" orca
     fi
-    out=$(n1_finish_cleanup "$hr" "$oid" "$def" "$nof")
+    out=$(n1_finish_cleanup "$hr" "$oid" "$def" "$nof" "$top")
     [ -d "$PWD" ] || cd "$main" 2>/dev/null || true
-    if [ -z "$top" ]; then
-        # A detached (or re-branched) workspace_path worktree cannot be located by branch: report it, never remove it.
-        wp=$(sed -n 's/^workspace_path: *//p' "$(n1_home)/memory/$id/overview.md" 2>/dev/null | head -1)
-        [ -n "$wp" ] && b=$(_n1_wt_records | tail -n +2 | P="$wp" awk -F'\t' '$1 == ENVIRON["P"] {print ($2 == "" ? "detached" : substr($2, 12)); exit}')
-        [ -n "$b" ] && out="worktree:kept (workspace_path $wp holds $b)${out#worktree:none}"
-    fi
     toks="${out//$'\n'/, }"
     _n1_clean_record "$id" "$trig" "$toks" "$top" "${gate%%$'\t'*}"
     printf '%s\n' "$out"

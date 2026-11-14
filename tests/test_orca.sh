@@ -279,6 +279,15 @@ rm -f "$FAKE/rm-snap"
 has "F8: record written before rm" "- **Cleanup:** worktree:removed, branch:kept (checked out in $F8)" "$(cat "$FAKE/rm-snap" 2>/dev/null)"
 has "F8: surviving session overwrites with real tokens" "- **Cleanup:** worktree:removed, branch:deleted ($F8)" "$(cat "$N1_HOME/memory/F-8/overview.md")"
 
+# N1-583 O1: a detached Orca workspace_path tree is removed through Orca (finish trigger, gated, never forced).
+F9="$T/wts/fin9"; fin "$F9" fb9; git -C "$F9" checkout -q --detach
+mkdir -p "$N1_HOME/memory/F-9"; printf -- '---\nstep: done\nworkspace_path: %s\n---\n' "$F9" > "$N1_HOME/memory/F-9/overview.md"
+orca_list "$WO=X-4" "$F9"
+reset; eq "O1: detached Orca workspace_path tree removed" "worktree:removed,branch:deleted" \
+    "$( (cd "$M" && n1_clean_ticket F-9 finish fb9 "$(git -C "$M" rev-parse fb9)" main) | paste -sd, -)"
+has "O1: removed through the workspace manager" "worktree rm --worktree path:$F9 --json" "$(calls)"
+hasnt "O1: never forced" "--force" "$(calls)"
+
 # ---- static wiring ----
 cd "$REPO_ROOT"
 eq "W1b (N1-307): handoff failure rule checks for an existing workspace" "1" "$(grep -c 'handoff:failed.*n1_find_workspace' skills/n1-start/procedures/workspace-ownership.md)"
