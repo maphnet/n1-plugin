@@ -4,7 +4,9 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
 T=skills/n1-start/steps/ticket.md
-A=agents/product-analyst.md
+source "$(dirname "$0")/persona_split_lib.sh"
+PT=$(mktemp -d); trap 'rm -rf "$PT"' EXIT
+A=$(split_cat "$PT/pa.md" PA)
 G=skills/n1-start/procedures/output-gates.md
 ENVREAD="printf 'QUEUE_RUN_ID=%s\\nHEADLESS=%s\\n' \"\${N1_QUEUE_RUN_ID:-}\" \"\${N1_HEADLESS:-}\""
 

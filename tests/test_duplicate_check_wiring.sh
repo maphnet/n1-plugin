@@ -141,7 +141,9 @@ else
 fi
 
 # N1-555: analyst owns readTicket/getIssueLinks, never getTransitions; records links once in ticket.md
-PA=agents/product-analyst.md
+source "$(dirname "$0")/persona_split_lib.sh"
+PT=$(mktemp -d); trap 'rm -rf "$PT"' EXIT
+PA=$(split_cat "$PT/pa.md" PA)
 check "N1-555: analyst states read ownership" "Read ownership.*readTicket.*getIssueLinks.*orchestrator owns .getTransitions." "$PA"
 if grep -qF 'operations.getTransitions' "$PA" 2>/dev/null; then echo "FAIL: N1-555: analyst never calls getTransitions"; FAIL=1; else echo "PASS: N1-555: analyst never calls getTransitions"; fi
 check "N1-555: analyst calls getIssueLinks on Jira when issuelinks is absent" "Otherwise, if .operations\.getIssueLinks. is present, call .mcp__<trackerMcp>__<operations\.getIssueLinks>. once" "$PA"

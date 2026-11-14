@@ -233,7 +233,7 @@ check "architecture.md documents the Before release heading" "### Before release
 check "tech-writer scans the diff for vars/secrets" '\(vars\|secrets\)' "$TW"
 check "tech-writer never writes secret values" "Secret values never appear" "$TW"
 check "tech-writer omits the section when empty" "Omit .## Deployment Actions. entirely" "$TW"
-PA=agents/product-analyst.md
+PA=$(split_cat "$T/pa.md" PA)
 check "product-analyst ticket.md has Deployment Actions" "^### Deployment Actions" "$PA"
 check "product-analyst copies it verbatim" "Deployment Actions rule" "$PA"
 

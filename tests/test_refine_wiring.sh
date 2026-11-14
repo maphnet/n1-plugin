@@ -3,6 +3,8 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
+source "$(dirname "$0")/persona_split_lib.sh"
+PT=$(mktemp -d); trap 'rm -rf "$PT"' EXIT
 
 has() { # <label> <fixed-string> <file>
     if grep -qF -- "$2" "$3" 2>/dev/null; then echo "PASS: $1"; else echo "FAIL: $1"; FAIL=1; fi
@@ -76,7 +78,7 @@ before "spike verdict parsed after Implementable" 'IMPLEMENTABLE_RAW=' 'VALIDATE
 has "variant read in the telemetry block" 'echo "VARIANT=$(n1_read_frontmatter' "$I"
 
 # --- Task 4: product-analyst + queue intake markers
-PA=agents/product-analyst.md
+PA=$(split_cat "$PT/pa.md" PA)
 line_has "PA skip line lists refined marker after pinned sentence" 'already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment' '`Refined by N1`' "$PA"
 lacks "PA skip line never mentions Briefed refined" 'Briefed by N1 (queue plan)*` (n1-refine' "$PA"
 has "PA has refined block rule" '**Refined block rule:**' "$PA"
