@@ -35,6 +35,20 @@ class TelemetryConsumersTest(unittest.TestCase):
         self.assertIn("unknown", agg["by_step"])
         analyzer._diff_reports(report, report)
 
+    def test_cycle_two_plus_windows_aggregate_separately(self):
+        run = {"run_id": "r", "steps": [
+            {"step": "fix", "step_number": 10, "duration_s": 240, "loop_iteration": None},
+            {"step": "fix", "step_number": 10, "duration_s": 120, "loop_iteration": 2},
+            {"step": "fix", "step_number": 10, "duration_s": 420, "loop_iteration": 3},
+            {"step": "qa", "step_number": 8, "duration_s": 60, "metadata": {"loop_iteration": 3}}]}
+        report = analyzer.extract_run_report(run)
+        self.assertEqual([s["name"] for s in report["steps"]],
+                         ["fix", "fix (cycle 2+)", "fix (cycle 2+)", "qa"])
+        agg = analyzer.aggregate_runs([report])
+        self.assertEqual(agg["by_step"]["fix"]["duration"], analyzer._stat_block([240]))
+        self.assertEqual(agg["by_step"]["fix (cycle 2+)"]["duration"], analyzer._stat_block([120, 420]))
+        self.assertEqual(agg["by_step"]["qa"]["duration"], analyzer._stat_block([60]))
+
     def test_null_agent_fields_surface_as_unknown(self):
         run = {"run_id": "r", "agents": [{"agent_type": None, "step": None, "duration_s": 2}],
                "steps": [{"step": "x", "outcome": None}]}

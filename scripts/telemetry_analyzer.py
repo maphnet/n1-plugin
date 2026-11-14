@@ -176,8 +176,14 @@ def extract_steps(run: dict) -> list[dict]:
     raw_steps = run.get("steps") or []
     steps = []
     for s in raw_steps:
+        name = s.get("step") or "unknown"
+        iteration = s.get("loop_iteration")
+        if type(iteration) is int and iteration >= 2:
+            # N1-593: review/fix re-entry windows get their own row so base-step stats stay
+            # per first pass; the orchestrator lookup by name finds nothing, so no token double count.
+            name = f"{name} (cycle 2+)"
         step = {
-            "name": s.get("step") or "unknown",
+            "name": name,
             "step_number": s.get("step_number"),
             "duration_s": s.get("duration_s"),
             "outcome": s.get("outcome") or "unknown",
