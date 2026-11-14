@@ -9,7 +9,9 @@ R=skills/n1-start/steps/review.md
 RP=skills/n1-start/procedures/review-preexisting.md
 F=skills/n1-start/steps/fix.md
 S=skills/n1-start/SKILL.md
-T=agents/tech-writer.md
+source "$(dirname "$0")/persona_split_lib.sh"
+ST=$(mktemp -d); trap 'rm -rf "$ST"' EXIT
+T=$(split_cat "$ST/tw.md" TW)
 C=agents/code-reviewer.md
 SR=agents/security-reviewer.md
 

@@ -3,6 +3,8 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
+source "$(dirname "$0")/persona_split_lib.sh"
+SPLIT_T=$(mktemp -d); trap 'rm -rf "$SPLIT_T"' EXIT
 
 # 1. No Superpowers in any manifest
 for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json; do
@@ -55,7 +57,7 @@ fi
 P2=skills/n1-pr/steps/02-push-create.md
 P3=skills/n1-pr/steps/03-codex-review.md
 TRI=skills/n1-pr/procedures/codex-triage.md
-TRW=skills/n1-pr/procedures/codex-triage-worker.md
+TRW=$(split_cat "$SPLIT_T/ctw.md" CTW)
 P1=skills/n1-pr/steps/01-prepare.md
 if grep -q 'CHECKPOINT:' "$P2"; then
     echo "FAIL: 02-push-create still prints a CHECKPOINT"; FAIL=1
@@ -255,7 +257,7 @@ fi
 
 # 9. N1-127: tech-writer writes the PR body to a file; 02 creates the PR from it
 P1=skills/n1-pr/steps/01-prepare.md
-TWR=agents/tech-writer.md
+TWR=$(split_cat "$SPLIT_T/tw.md" TW)
 if grep -qF 'PR_BODY_FILE=$(mktemp "$N1_HOME/scratch/pr-body-' "$P1" && grep -qF 'body_file:' "$P1"; then
     echo "PASS: 01-prepare creates the PR body file and passes body_file"
 else
@@ -292,7 +294,7 @@ fi
 
 # 11. N1-138/N1-405: codex-triage scratch paths are prefix-checked (no subpath) before mv / rm
 CT=skills/n1-pr/procedures/codex-triage.md
-TT=$(mktemp -d); trap 'rm -rf "$TT"' EXIT
+TT=$(mktemp -d); trap 'rm -rf "$TT" "$SPLIT_T"' EXIT
 mkdir -p "$TT/home/scratch"
 awk '/^### Triage File/{f=1} f&&/^```bash/{g=1;next} g&&/^```/{exit} g' "$CT" \
     | sed -E -e '/^source ~\/\.n1\/preamble\.sh$/d' -e "s/^([A-Z_]+)='<.*>'\$/\1=\"\${V_\1}\"/" > "$TT/save.sh"

@@ -3,7 +3,9 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
-P=references/deployment-actions.md
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+source "$(dirname "$0")/persona_split_lib.sh"
+P=$(split_cat "$T/da.md" DA)
 unset N1_QUEUE_RUN_ID N1_HEADLESS
 
 check() { # <label> <extended-regex> <file>
@@ -35,7 +37,6 @@ check "tick writes via gh pr edit --body-file" "gh pr edit .*--body-file -" "$P"
 check "architecture.md documents the procedure" "references/deployment-actions\.md" references/architecture.md
 
 # --- behavior: § Parse and § Tick against a stubbed gh (CRLF body, ticked item, items outside the section)
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin"
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -221,7 +222,7 @@ check "tick after moving a release row still succeeds" "^ticked:#7$" <(printf '%
     && echo "PASS: tick after move flips the Before release line" || { echo "FAIL: tick after move missed Before release"; FAIL=1; }
 
 # --- agents
-TW=agents/tech-writer.md
+TW=$(split_cat "$T/tw.md" TW)
 check "tech-writer template has Deployment Actions" "^## Deployment Actions" "$TW"
 check "tech-writer template has Before deploy" "^### Before deploy" "$TW"
 check "tech-writer template has After deploy" "^### After deploy" "$TW"
@@ -232,7 +233,7 @@ check "architecture.md documents the Before release heading" "### Before release
 check "tech-writer scans the diff for vars/secrets" '\(vars\|secrets\)' "$TW"
 check "tech-writer never writes secret values" "Secret values never appear" "$TW"
 check "tech-writer omits the section when empty" "Omit .## Deployment Actions. entirely" "$TW"
-PA=agents/product-analyst.md
+PA=$(split_cat "$T/pa.md" PA)
 check "product-analyst ticket.md has Deployment Actions" "^### Deployment Actions" "$PA"
 check "product-analyst copies it verbatim" "Deployment Actions rule" "$PA"
 
@@ -373,7 +374,7 @@ check "walk: every item gets a reported outcome" "report each item's outcome" "$
 check "headless runs after checks only after a confirmed deploy" "once a deploy was watched and succeeded in this run" "$P"
 
 # --- N1-568: tech-writer writes Check: only for read-only verification
-TW=agents/tech-writer.md
+TW=$(split_cat "$T/tw.md" TW)
 check "tech-writer has the read-only Check: rule" "\*\*Read-only checks:\*\*" "$TW"
 check "tech-writer keeps writes and secrets out of Check:" "involves a secret stays .Manual:. or a shell command" "$TW"
 check "tech-writer Format lists Check: as the third kind" "or text starting with .Check:." "$TW"

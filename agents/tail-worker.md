@@ -44,7 +44,7 @@ Input: the block from `<n1_root>/skills/n1-finish/steps/handoff.md` § Dispatch.
 
 ## Mode: codex-triage
 
-Input: `mode: codex-triage`, `phase: fix` or `phase: report`, plus the fields that phase lists in `<n1_root>/skills/n1-pr/procedures/codex-triage.md`. Read `<n1_root>/skills/n1-pr/procedures/codex-triage-worker.md` and run only its `## Phase: <phase>` part.
+Input: `mode: codex-triage`, `phase: fix`, `phase: validate` or `phase: report`, plus the fields that phase lists in `<n1_root>/skills/n1-pr/procedures/codex-triage.md` (`phase: validate`: in `<n1_root>/skills/n1-start/procedures/review-codex.md`). Read `<n1_root>/skills/n1-pr/procedures/codex-triage-worker.md`, then only the files its § Phase Files table names for your `phase`, and run only that phase.
 
 - Start every Bash call with `source ~/.n1/preamble.sh` and `cd "<workspace>"` (the `workspace:` input; each call is a fresh shell, and `git` must run in the workspace checkout). Tell the developer that path as its working directory.
 - Dispatch code-reviewer (validator) and developer (fixer) yourself, and wait for each result before continuing. Their output stays with you and in files under the state directory.

@@ -85,7 +85,7 @@ tl prompt "round trip: attended prompt stop -> tail:prompt"
 N1H=1; tl stopped "round trip: headless prompt stop stays tail:stopped"; N1H=
 has "handoff.md: tail:prompt runs Steps 3-6 inline" "$H" '^- `tail:prompt` .*Steps 3-6 inline'
 has "handoff.md: dispatch passes the real headless value" "$H" '^N1_HEADLESS: <1 when the entry printed headless:yes, else empty>$'
-has "deployment-actions: § Walk still asks in the orchestrator path" references/deployment-actions.md '§ Walk'
+has "deployment-actions: § Walk still asks in the orchestrator path" references/deployment-actions-rows.md '§ Walk'
 has "persona: finish prompt stops carry the prompt: prefix" "$P" 'reason: prompt: '
 has "handoff.md: attended tail:unknown runs Steps 3-6 inline" "$H" '^- `tail:unknown` .*attended .*`tail:prompt`'
 

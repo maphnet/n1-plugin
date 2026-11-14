@@ -3,6 +3,8 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
+source "$(dirname "$0")/persona_split_lib.sh"
+PT=$(mktemp -d); trap 'rm -rf "$PT"' EXIT
 
 has() { # <label> <fixed-string> <file>
     if grep -qF -- "$2" "$3" 2>/dev/null; then echo "PASS: $1"; else echo "FAIL: $1"; FAIL=1; fi
@@ -76,7 +78,7 @@ before "spike verdict parsed after Implementable" 'IMPLEMENTABLE_RAW=' 'VALIDATE
 has "variant read in the telemetry block" 'echo "VARIANT=$(n1_read_frontmatter' "$I"
 
 # --- Task 4: product-analyst + queue intake markers
-PA=agents/product-analyst.md
+PA=$(split_cat "$PT/pa.md" PA)
 line_has "PA skip line lists refined marker after pinned sentence" 'already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment' '`Refined by N1`' "$PA"
 lacks "PA skip line never mentions Briefed refined" 'Briefed by N1 (queue plan)*` (n1-refine' "$PA"
 has "PA has refined block rule" '**Refined block rule:**' "$PA"
@@ -235,7 +237,7 @@ line_has "N1-296: architecture row describes decomposition" '| n1-refine |' 'Epi
 has "N1-296: duplicate-check lists n1-refine as caller" 'n1-ticket and n1-refine (before creation)' references/duplicate-check.md
 
 # --- N1-33: premise check for bug tickets
-SA=agents/solution-architect.md
+SA=$(split_cat "$PT/sa.md" SA)
 before "N1-33: premise check sits inside step 6 (bug only)" 'Bug investigation (when type is `bug`)' '**Premise check:**' "$SA"
 before "N1-33: premise check precedes the defect trace" '**Premise check:**' 'Identify the code path where the bug manifests' "$SA"
 line_has "N1-33: falsified premise counts in ticket_contradictions" '**Premise check:**' 'count it in `ticket_contradictions`' "$SA"

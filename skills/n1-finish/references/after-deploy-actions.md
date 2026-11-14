@@ -1,6 +1,6 @@
 # Step 4: After-Deploy Actions (deferred or unticked rows)
 
-Read from `steps/04-close-ticket.md` § After-deploy actions only when § Parse printed `deferred:<M>` or `unticked:<N>` above 0; it is not read at entry. `<N1_ROOT>/references/deployment-actions.md` was already read at entry; do not re-read it. "Continue below" means: return to `04-close-ticket.md` right after its After-deploy actions block (the Hard-skip gate).
+Read from `steps/04-close-ticket.md` § After-deploy actions only when § Parse printed `deferred:<M>` or `unticked:<N>` above 0; it is not read at entry. `<N1_ROOT>/references/deployment-actions.md` (§ Parse) was already read at entry; do not re-read it. Read `<N1_ROOT>/references/deployment-actions-rows.md` now: § Walk, § Check, § Tick and § Runbook below are there. "Continue below" means: return to `04-close-ticket.md` right after its After-deploy actions block (the Hard-skip gate).
 
 1. When § Parse printed `deferred:<M>` with M > 0, keep the items from its `deferred #<n> <item>` lines for the Step 6 Report's `Deferred to release:` line (a mid-step message is lost in hand-off mode); n1-finish never walks, ticks or writes them to the runbook. No line when `deferred:0`. Then: `unticked:0` → continue below.
 2. **Deploy confirmed.** This means the Step 3 deploy status is `succeeded`, delivery is `succeeded`, or this run resumed a pending deploy in Step 1:

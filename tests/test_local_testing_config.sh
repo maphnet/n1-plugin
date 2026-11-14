@@ -18,6 +18,7 @@ assert_eq() {
 
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
+source "$(dirname "$0")/persona_split_lib.sh"; TWC=$(split_cat "$T/tw.md" TW)
 export N1_HOME="$T/home"
 mkdir -p "$N1_HOME"
 cfg() { printf '%s\n' "$1" > "$N1_HOME/config.json"; }
@@ -187,7 +188,7 @@ assert_eq "W5 (AC6): stub sentence written by the step" "1" "$(grep -cF "$SENT" 
 assert_eq "W6 (AC7): planner has no test-mode branch" "0" "$(grep -cF '"test"' "$R/agents/local-test-planner.md")"
 assert_eq "W7 (AC7): run procedure has no test-mode branch" "0" "$(grep -cF 'If mode is `test`' "$R/skills/n1-start/procedures/local-testing-run.md")"
 assert_eq "W8 (AC6): tech-writer uses the not-run first line as the summary line" "1" \
-  "$(grep -cF 'first line starts with `Local testing: not run`' "$R/agents/tech-writer.md")"
+  "$(grep -cF 'first line starts with `Local testing: not run`' "$TWC")"
 assert_eq "W9 (AC6): Gate 3 rule names the exact sentence" "1" \
   "$(grep -cF "$SENT" "$R/skills/n1-start/procedures/output-gates.md")"
 

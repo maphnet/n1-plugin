@@ -5,6 +5,7 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+source "$(dirname "$0")/persona_split_lib.sh"; TWC=$(split_cat "$T/tw.md" TW)
 export HOME="${HOME:-$T}"
 source lib/config.sh
 source lib/frontmatter.sh
@@ -104,7 +105,7 @@ eq "V15 NON_CONVERGING routes to Step 8, not an escalation" "0" "$(grep -c 'NON_
 eq "V16 review.md names FIX_STATES output" "1" "$(grep -c 'FIX_STATES:' "$R")"
 
 # ---- wiring: PR body + telemetry ----
-eq "P1 tech-writer renders For Human Review" "1" "$(grep -cE 'review\.md has `## For Human Review`.*mandatory' agents/tech-writer.md)"
+eq "P1 tech-writer renders For Human Review" "1" "$(grep -cE 'review\.md has `## For Human Review`.*mandatory' "$TWC")"
 eq "P2 pr step emits review_unresolved_at_pr" "1" "$(grep -c '"review_unresolved_at_pr=' lib/pr-step.sh)"
 
 eq "R5 fix.md consults the gate before the counter increment (reverting the gate call goes red)" "yes" "$(gl=$(grep -n 'n1_review_fix_gate' "$F" | head -1 | cut -d: -f1); il=$(grep -n 'n1_increment_counter.*review_fix_cycle' "$F" | head -1 | cut -d: -f1); [ -n "$gl" ] && [ -n "$il" ] && [ "$gl" -lt "$il" ] && echo yes || echo no)"
@@ -285,7 +286,7 @@ ARCH=references/architecture.md
 eq "DOC1 architecture.md has a Review Fix Cap section" "1" "$(grep -cx '## Review Fix Cap' "$ARCH")"
 eq "DOC2 section documents the gate, states, contract, exit and filter" "5" "$(sed -n '/^## Review Fix Cap$/,/^## Codex Review$/p' "$ARCH" | grep -cE '^\*\*(Progress gate|Finding states|Developer contract|Exit at exhaustion|Out-of-scope filter)')"
 eq "DOC3 architecture no longer documents the grant helper" "0" "$(grep -cE 'n1_review_fix_grant|n1_review_fix_extra_round' "$ARCH")"
-eq "DOC4 tech-writer no longer orders [granted]" "0" "$(grep -c 'granted' agents/tech-writer.md)"
+eq "DOC4 tech-writer no longer orders [granted]" "0" "$(grep -c 'granted' "$TWC")"
 eq "DOC6 architecture states default 3" "1" "$(grep -cF '`review.maxFixAttempts` (default 3) bounds FAIL fix cycles' "$ARCH")"
 eq "DOC7 n1-review states default 3" "1" "$(grep -cF '`review.maxFixAttempts` (default 3)' skills/n1-review/steps/01-analyze.md)"
 eq "DOC8 schema: all four loops default to 3" "1" "$(grep -cF 'all four loops default to 3' pipeline.schema.md)"
