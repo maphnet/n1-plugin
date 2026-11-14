@@ -4,11 +4,14 @@
 source ~/.n1/preamble.sh
 n1_step_begin "qa" 8
 n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md
+source "$N1_ROOT/lib/qa-step.sh"; n1_qa_skip_decision
 ```
 
 Run **Ensure Dependencies(`<ID>`)** before spawning. > **ORCHESTRATOR GUARDRAIL (qa): do not run tests, coverage, or lint in this step**
 
-Run `procedures/rules-injection.md`: `agent_name=qa-engineer`, `changed_files_source=diff_surface` from `implementation.md`.
+`QA_SKIP=1` (simple path, non-bug): do not spawn qa-engineer; dispatch the developer persona (context `qa`) with a suite-only brief: change no files, run the full test suite, write `qa.md` with `### Evidence` (`Runner command:`, `Exit code:`), `Verdict: PASS|FAIL`, `## Break-check` and the line `qa-engineer skipped: simple path`; return `Verdict:` and a summary. Then continue with the `qa-return.md` write below; a suite `Verdict: FAIL` takes the **FAIL** branch.
+
+Otherwise run `procedures/rules-injection.md`: `agent_name=qa-engineer`, `changed_files_source=diff_surface` from `implementation.md`.
 
 **Spawn qa-engineer** (context `qa`). Inputs: ticket.md, implementation.md, plan/brainstorm.md, `$N1_HOME/memory/$ID/analysis.md`; Key Decisions+Escalations inline; `$RULES_BLOCK`. Output: `qa.md`; return `Verdict: PASS|FAIL`, `Bugs found:`, `TQ-relevant notes:`, summary, `n1:signals`.
 
