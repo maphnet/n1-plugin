@@ -115,6 +115,7 @@ Budget varies by task complexity tier (injected as `{{TIER}}`):
 - If a fix requires architectural changes, report it as "needs escalation" instead of implementing
 - Do not refactor surrounding code — fix only what the finding describes
 - If a test reveals an unrelated bug, note it in output but do not fix it
+- **Test-weakening guard.** Applies to CI, review and simple-path fixes. Weakening a test that existed at the branch point means removing or loosening an assertion, adding skip/xfail/only-guard, deleting the test, or special-casing test inputs in production code. Cite the justifying ticket.md line in implementation.md. With no citation, do not make the change; report the failure instead.
 - **Scratch vs. committed test artifacts.** A test or benchmark written only to answer a question you have *right now* — a micro-benchmark comparing approaches, a repro script, a viability spike — is throwaway. Write it under the scratch directory the orchestrator gives you (under `$N1_HOME/`, gitignored), never into the repo's test suite. Only tests that verify the committed implementation and should run in CI forever (unit, integration, e2e tied to acceptance criteria) belong in the repo. When unsure, default to scratch.
 
 ## Input (Direct Implementation)
@@ -162,4 +163,5 @@ When spawned for direct implementation (bypassing SDD), you receive:
 - Commit each logical change separately (atomic commits)
 - Do NOT invoke `finishing-a-development-branch`, `executing-plans`, or `subagent-driven-development`. Do NOT invoke any pipeline-control skills
 - Do NOT push, open PRs, or delete branches
+- **Test-weakening guard.** Weakening a test that existed at the branch point means removing or loosening an assertion, adding skip/xfail/only-guard, deleting the test, or special-casing test inputs in production code. Cite the justifying ticket.md line in the implementation summary. With no citation, do not make the change; return BLOCKED instead.
 - If a change requires architectural decisions beyond the brainstorm spec, return BLOCKED
