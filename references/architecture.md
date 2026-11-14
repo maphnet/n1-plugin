@@ -359,17 +359,6 @@ The QA, local-testing and CI fix loops stop early when two consecutive failing r
 
 **Reset.** User-continue paths (QA option 2, local-testing 9d options 1 and 3, n1-ci Step 5 `escalate` classification and Step 5b option 2, n1-ci Step 6b options 1 and 3), the n1-ci Step 7 run end and ticket-watch re-plans (`n1_tw_replan_reset`) write the key empty, so the next failing round cannot stall at once. A CI `NOT_BRANCH_CAUSED` round also clears `ci_fail_sig`: Step 5 stores the signature before classification, so clearing is how that round "does not update" it. A clear can delay a stall by one round, never cause one.
 
-## Stuck Detector
-
-`hooks/stuck-detector.sh` (N1-342) stops an agent that repeats the same failing Bash call inside one dispatch, which the fix-cycle caps do not see. One fail-open script, three registrations, branching on `hook_event_name`:
-
-- **PostToolUseFailure `Bash`** (second command beside `pr-review-observe.sh`): hashes the call (`tool_name` + `jq -S -c` `tool_input` without `.description`) and the normalized error (first 3 lines, digit runs to `N`, 300 bytes). The same failure hash increments the count; any other failure starts a new streak at 1. At count 3 it returns one `additionalContext` nudge per streak.
-- **PreToolUse `Bash`** (separate entry; `enforce-agent-policy.sh` is untouched and any deny wins): once 5 identical failures are recorded, an identical call is denied with exit 2 and a stderr reason. A denied call fires no Post event, so the deny holds until a success or an edit.
-- **PostToolUse `^(Bash|Edit|Write|MultiEdit|NotebookEdit)$`**: deletes the state. Read/Grep do not reset.
-
-State: `$N1_HOME/scratch/stuck/<session_id>.<agent_id|main>`, one line `H F count flag`, hashes only. Ids must match `^[A-Za-z0-9_-]+$`; symlinked `scratch/`, `scratch/stuck/` or state files are never followed; writes are mktemp + mv. Commands matching `n1_wait_`, `lib/poll.sh`, `gh pr checks` or `gh run list|view|watch` are never recorded (raw polls exit non-zero while pending). `lib/poll.sh` waits return 0 and never reach PostToolUseFailure. N1-317's `pgrep_deny` is a stateless PreToolUse deny, so the two never double-trigger. `hooks/session-start.sh` deletes state files older than a day; there is no SessionEnd handler.
-
-
 ## Codex Review
 
 n1-pr runs one cross-host Codex review before the push (N1-405), at the start of `skills/n1-pr/steps/01-prepare.md`, after N1 review PASS and local testing. `scripts/codex-pr-review.sh BASE ID` writes `git diff BASE...HEAD` (BASE = merge-base with `origin/<default>`) to a temp file and runs `codex exec --sandbox read-only -o` on it (10 s auth, 900 s review budget). Native `codex review --base` is not used: it rejects a custom prompt (codex-cli 0.166.0). Outcomes `ran|skipped|timeout|failed` go to a receipt at `${N1_STATE_DIR:-~/.n1}/review-receipts/<session>/<KEY>.json` (file `<repo>__<KEY>.json`, repo = clone slug, KEY = branch with `/` as `_`; fields `branch,repo,head,outcome,reason,processed,comment`; `ran` counts only while `head` is an ancestor of the checked head, and `n1_review_reanchor` moves it across the n1-pr rebase, N1-405) and to a `codex-review` decision. Raw output goes to `memory/<ID>/codex-review.md` and is never posted. Findings are fenced (N1-360) into scratch and printed only as `findings:file=|none|unavailable`.
