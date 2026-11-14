@@ -41,11 +41,15 @@ source ~/.n1/preamble.sh
 WT="<SPIKE_WT>"; BASE="<BASE>"
 git -C "$WT" add -A && { git -C "$WT" diff --cached --quiet || git -C "$WT" commit -q -m "Prototype spike for $ID"; }
 echo "AHEAD=$(git -C "$WT" rev-list --count "$BASE..HEAD") SHA=$(git -C "$WT" rev-parse --short HEAD)"
+# secret scan over everything the push would publish (developer commits included)
+if git -C "$WT" diff --name-only "$BASE..HEAD" | grep -qiE '(^|/)(\.env[^/]*|id_[a-z0-9]+|[^/]*\.(pem|key|p12|pfx))$' \
+   || git -C "$WT" diff "$BASE..HEAD" | grep -E '^\+' | grep -qiE 'BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9_-]{20,}|(api[_-]?key|secret|token|passw(or)?d)["'"'"' ]*[:=]["'"'"' ]*[A-Za-z0-9/+_.-]{8,}'; then
+    echo "SECRET=hit"; else echo "SECRET=none"; fi
 ```
 
 **5. Verdict.** From `spike-result.md`, replace the `**Verdict:**` line in investigation.md with the suggested verdict; keep the desk Verdict when the file or its `Suggested verdict:` line is missing. When the verdict changed, add one Findings bullet: `- Prototype changed the verdict from <desk> to <new>: <reason> (spike-result.md)`. Insert `### Prototype Result` before `### Next Steps` with `**Prototype:** spike/<ID> @ <SHA>` (`AHEAD=0`: `**Prototype:** none (no prototype commit)`) and `**Result:**` followed by at most 3 lines from ## Result. Leave the rest of Findings and Recommendations as written.
 
-**6. Push** (only when `AHEAD` > 0; substitute the literal ticket ID for `<ID>`):
+**6. Push** (only when `AHEAD` > 0 and `SECRET=none`; substitute the literal ticket ID for `<ID>`):
 ```bash
 source ~/.n1/preamble.sh
 WT="<SPIKE_WT>"; MAIN=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
@@ -55,6 +59,7 @@ else
     echo "push:failed worktree:kept $WT"
 fi
 ```
+`SECRET=hit`: push nothing and keep the worktree; append ` (push skipped: possible secret in prototype, worktree kept at <path>)` to the `**Prototype:**` line, say "Spike push skipped: possible secret; review <path>." and continue (non-blocking).
 `AHEAD=0`: run only `git -C "$MAIN" worktree remove "$WT"` (no `--force`, so a dirty tree stays) and push nothing.
 `push:failed`: append ` (push failed, worktree kept at <path>)` to the `**Prototype:**` line, say "Spike push failed; worktree kept at <path>." and continue (non-blocking). `push:ok worktree:kept`: say "Spike worktree kept at <path> (uncommitted changes)." Then return to the step.
 
