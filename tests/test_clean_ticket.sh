@@ -125,6 +125,7 @@ eq "K15: empty id finish" "worktree:none,branch:none" "$( (cd "$M" && n1_clean_t
 
 # n1-clean wiring (N1-339 D5).
 S="$R/skills/n1-clean/SKILL.md"
+G="$R/skills/n1-clean/general.md"  # general-mode steps
 # W1: non-finish triggers never force an N1-managed tree (dirty / unmerged stay kept); finish still forces.
 WR="$(n1_worktree_root)"; mkdir -p "$M/$WR"
 wt "$M/$WR/w1" bw1; git -C "$M" merge -q --no-ff -m mw1 bw1; echo x > "$M/$WR/w1/d"; ov K-70
@@ -142,25 +143,25 @@ eq "W2e: finish emits cleanup event" "cleanup|success" "$(jq -r '"\(.step)|\(.ou
 eq "W2e: skill binds run id" yes "$(yn grep -qF 'N1_RUN_ID="${N1_RUN_ID:-$RUN}" n1_clean_ticket' "$R/skills/n1-finish/steps/06-cleanup.md")"
 eq "W2: ticket mode calls n1_clean_ticket" yes "$(yn grep -qF 'n1_clean_ticket "$ID"' "$S")"
 eq "W3: --ticket mode documented" yes "$(yn grep -qF -- '--ticket <ID>' "$S")"
-eq "W4: discovery not limited to the N1 worktree root" 0 "$(grep -c 'n1_worktree_root' "$S")"
-eq "W5: general mode removes through n1_clean_ticket" yes "$(yn grep -qF 'n1_clean_ticket "<ID>" general' "$S")"
-eq "W6: auto mode never removes Abandoned" yes "$(yn grep -qF 'never removes Abandoned' "$S")"
-eq "W7: Orca worktrees tagged" yes "$(yn grep -qF 'n1_orca_owns' "$S")"
-eq "W8: Completed requires a merged PR" yes "$(yn grep -qF 'MERGED' "$S")"
+eq "W4: discovery not limited to the N1 worktree root" 0 "$(cat "$S" "$G" | grep -c 'n1_worktree_root')"
+eq "W5: general mode removes through n1_clean_ticket" yes "$(yn grep -qF 'n1_clean_ticket "<ID>" general' "$G")"
+eq "W6: auto mode never removes Abandoned" yes "$(yn grep -qF 'never removes Abandoned' "$G")"
+eq "W7: Orca worktrees tagged" yes "$(yn grep -qF 'n1_orca_owns' "$G")"
+eq "W8: Completed requires a merged PR" yes "$(yn grep -qF 'MERGED' "$G")"
 # W10-W18 (N1-583): general mode scans, asks before removing (interactive), keeps the autonomy gate when unattended.
-eq "W10: general mode runs the leftover scan" yes "$(yn grep -qF 'n1_clean_scan' "$S")"
-eq "W11: no-PR trees removed through merged-nopr" yes "$(yn grep -qF 'n1_clean_ticket "<ID>" merged-nopr' "$S")"
-eq "W12: run-mode detection" yes "$(yn grep -qF 'echo mode:unattended || echo mode:interactive' "$S")"
-eq "W13: both prompts carry the no-recommendation sentence" 2 "$(grep -cF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$S")"
-eq "W14: no option marked Recommended" 0 "$(grep -cF '(Recommended)' "$S")"
-eq "W15: skill never removes worktrees with plain git" 0 "$(grep -c 'git worktree remove' "$S")"
-eq "W16: unattended runs never remove leftovers" yes "$(yn grep -qF 'unattended runs never remove Leftovers or remote branches' "$S")"
-eq "W17: remote branches deleted one at a time by full ref" yes "$(yn grep -qF 'git push origin --delete "refs/heads/<branch>"' "$S")"
-eq "W18: nothing removed before the answer" yes "$(yn grep -qF 'nothing has been removed yet' "$S")"
+eq "W10: general mode runs the leftover scan" yes "$(yn grep -qF 'n1_clean_scan' "$G")"
+eq "W11: no-PR trees removed through merged-nopr" yes "$(yn grep -qF 'n1_clean_ticket "<ID>" merged-nopr' "$G")"
+eq "W12: run-mode detection" yes "$(yn grep -qF 'echo mode:unattended || echo mode:interactive' "$G")"
+eq "W13: both prompts carry the no-recommendation sentence" 2 "$(grep -cF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$G")"
+eq "W14: no option marked Recommended" 0 "$(grep -cF '(Recommended)' "$G")"
+eq "W15: skill never removes worktrees with plain git" 0 "$(cat "$S" "$G" | grep -c 'git worktree remove')"
+eq "W16: unattended runs never remove leftovers" yes "$(yn grep -qF 'unattended runs never remove Leftovers or remote branches' "$G")"
+eq "W17: remote branches deleted one at a time by full ref" yes "$(yn grep -qF 'git push origin --delete "refs/heads/<branch>"' "$G")"
+eq "W18: nothing removed before the answer" yes "$(yn grep -qF 'nothing has been removed yet' "$G")"
 
 # W9 (N1-347): Step 1 discovery snippet. Main checkout excluded, branch name without refs/heads/,
 # detached and missing trees reported. Orca ownership stubbed off.
-STEP1=$(awk '/^## Step 1:/{s=1} s&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$S" | sed '/preamble\.sh/d')
+STEP1=$(awk '/^## Step 1:/{s=1} s&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$G" | sed '/preamble\.sh/d')
 wt "$T/s1" bs1
 git -C "$M" worktree add -q --detach "$T/s2" main
 wt "$T/s3" bs3; rm -rf "$T/s3"
