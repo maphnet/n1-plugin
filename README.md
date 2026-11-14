@@ -177,8 +177,8 @@ N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation
 | planner | opus | medium | Isolated implementation-plan writing |
 | implementer | sonnet | medium | n1-implement execution wrapper |
 | developer | sonnet | medium | Implementation and review fix cycles |
-| code-reviewer | opus | medium | Adversarial code quality review |
-| security-reviewer | opus | medium | Security vulnerability review (OWASP, CWE) |
+| code-reviewer | sonnet | high | Adversarial code quality review |
+| security-reviewer | opus | high | Security vulnerability review (OWASP, CWE) |
 | qa-engineer | sonnet | medium | Test design and implementation |
 | local-test-planner | sonnet | medium | Local test plan creation |
 | post-deploy-verifier | sonnet | low | Acceptance-criterion verification after a successful deployment |
