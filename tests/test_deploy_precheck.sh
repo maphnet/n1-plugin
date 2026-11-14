@@ -60,7 +60,8 @@ for f in '(^|[^a]' '(?:^|[^a]' '([^c]|^)' '(?:[^c]|^)'; do
     printf '%s\n' "$f" > "$T/pat"; grep -F "$f" "$T/pat"; chk "shim returns 1 for $f" "1" "$?"
 done
 chk "R ignores legit anchors" "0" "$(printf '%s\n' '([^0-9]|$)' '(^|/)' | command grep -cE -e "$R")"
-command grep -rnE -e "$R" "$REPO/skills" "$REPO/lib" --exclude=SKILL.md >/dev/null 2>&1; chk "no ugrep-unsafe alternation in skills/ lib/ (grep exit 1 = no match)" "1" "$?"
+# lib/release.sh keeps `(^|[^a-z@])` in an awk string (matched by awk, not grep), so it is excluded like SKILL.md.
+command grep -rnE -e "$R" "$REPO/skills" "$REPO/lib" --exclude=SKILL.md --exclude=release.sh >/dev/null 2>&1; chk "no ugrep-unsafe alternation in skills/ lib/ (grep exit 1 = no match)" "1" "$?"
 chk "SKILL.md: no grep line carries it" "" "$(command grep -rE -e "$R" "$REPO/skills" --include=SKILL.md | command grep -w grep)"
 chk "n1-finish look() uses =~, not grep -qiE" "0" "$(command grep -c 'grep -qiE "\$X"' "$REPO/skills/n1-finish/SKILL.md")"
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
