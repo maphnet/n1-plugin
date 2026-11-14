@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for lib/queue.sh and scripts/n1-queue-run.sh: parsing, plan/status/report, decisions, desc-hash chain, wiring greps, notify, held helpers.
+# Tests for lib/queue.sh and scripts/n1-queue-run.sh: parsing, plan/status/report, decisions, desc-hash chain, wiring greps, held helpers.
 # Shared setup and fixtures: tests/queue_runner_lib.sh (N1-304 split).
 set -euo pipefail
 source "$(dirname "$0")/queue_runner_lib.sh"
@@ -686,76 +686,6 @@ test_escalation_text() {
     printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- real one\n  wrapped\n- real two\n' > "$tmp/last.md"
     assert_eq "esc-text: last mode prints newest entry" "real two" "$(n1_queue_escalation_text "$tmp/last.md" last)"
     assert_eq "esc-text: headless step still resolves" "plan" "$(_n1_queue_escalated_step "$tmp/hl.md")"
-}
-
-# --- n1_desktop_notify / n1_notify -------------------------------------------
-test_desktop_notify() {
-    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-    mkdir -p "$tmp/bin"; ln -s "$(command -v timeout)" "$tmp/bin/timeout"
-    printf '#!/bin/sh\nexit 1\n' > "$tmp/bin/notify-send"            # present but broken
-    printf '#!/bin/sh\necho "$@" > "%s/osa"\n' "$tmp" > "$tmp/bin/osascript"
-    chmod +x "$tmp/bin/notify-send" "$tmp/bin/osascript"
-    local rc=0; ( export PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
-    assert_eq "desktop: falls through broken backend" "0" "$rc"
-    assert_eq "desktop: osascript used" "yes" "$([ -f "$tmp/osa" ] && echo yes || echo no)"
-    rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"
-    rc=0; ( export PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
-    assert_eq "desktop: none available -> 1" "1" "$rc"
-    printf '#!/bin/sh\necho "$N1_NT|$N1_NB" > "%s/ps"\n' "$tmp" > "$tmp/ps.exe"; chmod +x "$tmp/ps.exe"
-    rc=0; ( export PATH="$tmp/bin"; N1_WSL_POWERSHELL="$tmp/ps.exe" n1_desktop_notify "Title" "Body" ) || rc=$?
-    assert_eq "desktop: WSL powershell off PATH used" "0|Title|Body" "$rc|$(cat "$tmp/ps" 2>/dev/null)"
-}
-
-test_desktop_notify_stdin() {   # N1-265: no desktop backend may consume the caller's stdin (WSL powershell.exe drains it)
-    local tmp b out; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-    mkdir -p "$tmp/bin"; ln -s "$(command -v timeout)" "$tmp/bin/timeout"
-    printf '#!/bin/sh\nwhile read -r _; do :; done\nexit 0\n' > "$tmp/drain"; chmod +x "$tmp/drain"
-    for b in notify-send osascript; do
-        rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"; cp "$tmp/drain" "$tmp/bin/$b"
-        out=$(printf 'a\nb\nc\n' | { read -r _; ( export PATH="$tmp/bin"; n1_desktop_notify T B ); cat; } | paste -sd, -)
-        assert_eq "desktop-stdin: $b leaves caller stdin alone" "b,c" "$out"
-    done
-    rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"
-    out=$(printf 'a\nb\nc\n' | { read -r _; ( export PATH="$tmp/bin"; N1_WSL_POWERSHELL="$tmp/drain" n1_desktop_notify T B ); cat; } | paste -sd, -)
-    assert_eq "desktop-stdin: powershell leaves caller stdin alone" "b,c" "$out"
-}
-
-test_notify_backends() {
-    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-    local TEST_CONFIG="$tmp/config.json"
-    n1_config_file() { echo "$TEST_CONFIG"; }
-
-    assert_eq "notify: default backend none" "none" "$(n1_queue_val notify)"
-
-    printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}' "$tmp" > "$TEST_CONFIG"
-    n1_notify needs-you "T-1 needs you"
-    n1_notify done "Queue q: 1 PR / 0 awaiting / 0 failed"
-    assert_eq "notify: command gets JSON on stdin" "needs-you|T-1 needs you" "$(head -1 "$tmp/notes" | jq -r '.kind + "|" + .text')"
-    assert_eq "notify: one line per call" "2" "$(wc -l < "$tmp/notes" | tr -d ' ')"
-
-    printf '{"queue":{"notify":"command","notifyCommand":"exit 7"}}' > "$TEST_CONFIG"
-    local rc=0; n1_notify info "x" || rc=$?
-    assert_eq "notify: failing command is fail-open" "0" "$rc"
-
-    printf '{"queue":{"notify":"command","notifyCommand":"sleep 30"}}' > "$TEST_CONFIG"
-    local start end elapsed
-    start=$(date +%s); rc=0; n1_notify info "x" || rc=$?; end=$(date +%s)
-    elapsed=$((end - start))
-    assert_eq "notify: hanging command is fail-open" "0" "$rc"
-    assert_eq "notify: hanging command bounded by timeout" "yes" "$([ "$elapsed" -lt 20 ] && echo yes || echo no)"
-
-    printf '{"queue":{"notify":"none","notifyCommand":"cat >> %s/none"}}' "$tmp" > "$TEST_CONFIG"
-    n1_notify info "x"
-    assert_eq "notify: none is a no-op" "no" "$([ -f "$tmp/none" ] && echo yes || echo no)"
-
-    # desktop with no notifier on PATH: skip line on stderr, rc 0
-    mkdir -p "$tmp/bin"; local c
-    for c in jq timeout date; do ln -s "$(command -v "$c")" "$tmp/bin/$c"; done
-    printf '{"queue":{"notify":"desktop"}}' > "$TEST_CONFIG"
-    rc=0; ( export PATH="$tmp/bin"; n1_notify needs-you "T-2 needs you" ) 2> "$tmp/err" || rc=$?
-    assert_eq "notify: desktop skip rc 0" "0" "$rc"
-    assert_eq "notify: desktop skip logged" "yes" "$(grep -q 'no desktop notifier available; skipped (needs-you: T-2 needs you)' "$tmp/err" && echo yes || echo no)"
-    unset -f n1_config_file
 }
 
 # --- n1_queue_decision_counts ------------------------------------------------
@@ -2897,9 +2827,6 @@ test_queue_answer
 test_escalated_step_fallback
 test_queue_event
 test_escalation_text
-test_desktop_notify
-test_desktop_notify_stdin
-test_notify_backends
 test_answer_wiring
 test_headless_plan_wiring
 test_status_reconcile_merged

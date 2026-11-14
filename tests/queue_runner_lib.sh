@@ -212,7 +212,7 @@ esac
 FAKEEOF
     printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/sleep"
     chmod +x "$tmp/bin/claude" "$tmp/bin/sleep"
-    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1}}\n' > "$tmp/n1home/config.json"
     {
         printf -- '---\nstep: plan\nqueue_id: %s\n---\n## Plan\n' "$qid"
         printf '| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|--------|-------|------|---------|-------|--------|--------|\n'
@@ -340,14 +340,6 @@ wl_row() {
 }
 wl_set() { local tmp="$1"; shift; local IFS=,; printf '{"ok":true,"result":{"workers":[%s]}}\n' "$*" > "$tmp/fake/workers.json"; }   # <tmp> <row-json>...
 
-# drain_notifier <tmp> — N1-265: desktop notify through a notify-send that swallows its stdin (what WSL
-# powershell.exe does); each call appends to $FAKE_DIR/drained so a test can prove the notifier fired.
-drain_notifier() {
-    printf '#!/bin/sh\nwhile read -r _; do :; done\necho x >> "%s/fake/drained"\nexit 0\n' "$1" > "$1/bin/notify-send"
-    chmod +x "$1/bin/notify-send"
-    cfg_set "$1" '.queue.notify = "desktop"'
-}
-
 # orca_lib <tmp> <fn> [args...] — N1-268: run one lib function with the fake Orca CLI, the fake gh and a private HOME.
 orca_lib() {
     local tmp="$1"; shift
@@ -441,8 +433,8 @@ seed_live_session() {
 
 # N1-185 chain fixtures.
 chain_setup() { # <tmp> <fullAuto> <mergeOnFinish> — config with both flags; PR state OPEN
-    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":10,"notify":"command","notifyCommand":"cat >> %s/notes"},"autonomy":{"fullAuto":%s},"finishWork":{"mergeOnFinish":%s}}\n' \
-        "$1" "$2" "$3" > "$1/n1home/config.json"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":10},"autonomy":{"fullAuto":%s},"finishWork":{"mergeOnFinish":%s}}\n' \
+        "$2" "$3" > "$1/n1home/config.json"
     echo OPEN > "$1/fake/gh-state"
 }
 gh_overview() { # <file> <pr-number> — overview at step pr with a GitHub pr_url

@@ -1686,6 +1686,7 @@ run_orca() {
                 if n1_orca_stop_worker "$QUEUE" "$NUM" "$TICKET" "$N1H" "$TASK" "$DISP" "$ORCA_RUN" </dev/null; then
                     SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"
                 else
+                    echo "Stop failed: $TICKET (worker terminal not closed; row and identity kept). Close it in the workspace manager, then run /n1:n1-queue --status $QUEUE_ID"
                     n1_notify needs-you "Stop failed: $TICKET (worker terminal not closed; row and identity kept). Close it in the workspace manager, then run /n1:n1-queue --status $QUEUE_ID" </dev/null
                 fi
             done 3< <(n1_orca_unsettled "$QUEUE")
@@ -1876,6 +1877,7 @@ run_orca() {
                 done
                 if [ "$OWED" != " " ] && [ -z "$OWED_NOTED" ]; then
                     OWED_NOTED=1
+                    echo "Queue $QUEUE_ID: worker(s)${OWED% } still running after their PR; not released. Resume: /n1:n1-queue --run $QUEUE_ID"
                     n1_notify info "Queue $QUEUE_ID: worker(s)${OWED% } still running after their PR; not released. Resume: /n1:n1-queue --run $QUEUE_ID"
                 fi
             fi

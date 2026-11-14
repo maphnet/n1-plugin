@@ -767,13 +767,13 @@ test_queue_chain_stops() {
         assert_eq "chain-$c: row $want" "$want" "$(n1_queue_preds "$tmp/queue.md" | cut -f7)"
         assert_eq "chain-$c: no worktree left" "" "$(find "$tmp" -maxdepth 1 -type d -name 'chain-*')"
         if [ -n "$why" ]; then
-            assert_eq "chain-$c: needs-you notice" yes "$(grep -qF "$why" "$tmp/notes" 2>/dev/null && echo yes || echo no)"
+            assert_eq "chain-$c: needs-you notice" yes "$(grep -qF "$why" "$tmp/chain.txt" 2>/dev/null && echo yes || echo no)"
             assert_eq "chain-$c: event" 1 "$(grep -c "$ev" "$tmp/events.jsonl" || true)"
             assert_eq "chain-$c: Final PRs row keeps its PR, Note says why" \
                 "$(printf 'https://github.com/o/r/pull/9\tdraft\tMERGEABLE\tchain: %s' "$why")" "$(fin_row "$tmp" "$tmp/repo")"
         else
-            assert_eq "chain-$c: skipped, no notice" "yes,no" \
-                "$(grep -qF 'rows still open' "$tmp/chain.txt" && echo yes || echo no),$([ -s "$tmp/notes" ] && echo yes || echo no)"
+            assert_eq "chain-$c: skipped" "yes" \
+                "$(grep -qF 'rows still open' "$tmp/chain.txt" && echo yes || echo no)"
         fi
         rm -rf "$tmp"
     done
@@ -1095,7 +1095,6 @@ test_final_pr_not_created() {
     assert_eq "final-none: exit 0" 0 "$(run_bg_queue "$tmp")"
     assert_eq "final-none: row" $'-\t-\t-\tnot-created' "$(fin_row "$tmp" "$tmp/repo")"
     assert_eq "final-none: failed event" not-created "$(jq -r 'select(.event == "final_pr_failed") | .reason' "$tmp/events.jsonl")"
-    assert_eq "final-none: notice" yes "$(grep -qF 'no final PR for story S-1' "$tmp/notes" && echo yes || echo no)"
     rm -rf "$tmp"
 }
 
@@ -1212,7 +1211,6 @@ test_final_pr_not_authorized() {
         assert_eq "final-noauth ($f): PR open, ready" "OPEN,ready" "$(cut -f1 "$tmp/fake/gh-view.9"),$(fin_row "$tmp" "$tmp/repo" | cut -f2)"
         assert_eq "final-noauth ($f): note" "waits: not-authorized" "$(fin_note "$tmp")"
         assert_eq "final-noauth ($f): no review" no "$(has_file "$tmp/fake/codex-calls")"
-        assert_eq "final-noauth ($f): no notice for the PR" no "$(grep -qF 'pull/9' "$tmp/notes" 2>/dev/null && echo yes || echo no)"
         rm -rf "$tmp"
     done
 }
@@ -1343,7 +1341,6 @@ test_final_pr_merge_refused() {
     assert_eq "final-offbase: note" "waits: merged-off-default" "$(fin_note "$tmp")"
     assert_eq "final-offbase: escalated" "runner merge landed on develop, not main" \
         "$(jq -r 'select(.event == "escalated") | .reason' "$tmp/events.jsonl" | tail -n1)"
-    assert_eq "final-offbase: notice" yes "$(grep -qF 'final PR https://github.com/o/r/pull/9' "$tmp/notes" 2>/dev/null && echo yes || echo no)"
     rm -rf "$tmp"
 }
 

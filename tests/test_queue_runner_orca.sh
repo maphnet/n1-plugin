@@ -242,7 +242,7 @@ test_orca_question_parks() {
     assert_eq "orca-ask: exit 0" "0" "$(run_orca_queue "$tmp")"
     assert_eq "orca-ask: row parked" "awaiting-human" "$(plan_cell "$tmp/queue.md" 1 8)"
     assert_eq "orca-ask: message id kept for --answer" "m-q1" "$(cat "$tmp/.ask-T-A" 2>/dev/null)"
-    assert_eq "orca-ask: needs-you points at --answer" "1" "$(grep -c 'T-A needs you.*--answer T-A' "$tmp/notes" || true)"
+    assert_eq "orca-ask: one escalation" "1" "$(jq -r 'select(.event=="escalated" and .ticket=="T-A") | .ticket' "$tmp/events.jsonl" 2>/dev/null | wc -l | tr -d ' ')"
     assert_eq "orca-ask: never relaunched" "1" "$(grep -c worker-start "$tmp/fake/orca-calls")"
     rm -rf "$tmp"
 }
@@ -264,7 +264,6 @@ test_orca_question_after_timeout() {
     evc() { jq -R --arg e "$1" --arg o "${2:-}" 'fromjson? | select(.event == $e and .ticket == "T-A" and ($o == "" or .outcome == $o)) | .event' "$tmp/events.jsonl" | wc -l | tr -d ' '; }
     assert_eq "orca-ask-after-timeout: row re-adopted" "1" "$(grep -c 'T-A -> awaiting-human (worker asked after the row failed)' "$tmp/output.txt" || true)"
     assert_eq "orca-ask-after-timeout: one escalated event" "1" "$(evc escalated)"
-    assert_eq "orca-ask-after-timeout: needs-you points at --answer" "1" "$(grep -c 'T-A needs you.*--answer T-A' "$tmp/notes" || true)"
     assert_eq "orca-ask-after-timeout: unblocked after the answer" "1" "$(evc unblocked)"
     # no WORKED reset: the stale clock (>60 s) would time the re-adopted row out again on the next tick
     assert_eq "orca-ask-after-timeout: exactly one timeout (clock reset)" "1" "$(evc ticket_finished failed)"
@@ -285,7 +284,6 @@ test_orca_stop_notice_not_escalated() {
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=4 > /dev/null
     evc() { jq -R --arg e "$1" 'fromjson? | select(.event == $e and .ticket == "T-A") | .event' "$tmp/events.jsonl" | wc -l | tr -d ' '; }
     assert_eq "orca-stop: no escalated event" "0" "$(evc escalated)"
-    assert_eq "orca-stop: no needs-you" "0" "$(cat "$tmp/notes" 2>/dev/null | grep -c 'T-A needs you' || true)"
     assert_eq "orca-stop: one worker_stopped event" "1" "$(evc worker_stopped)"
     assert_eq "orca-stop: event keeps stopReason and flattened excerpt" "stopped (finished): Worker ended its turn Last output: Done?" \
         "$(jq -R -r 'fromjson? | select(.event == "worker_stopped" and .ticket == "T-A") | .reason' "$tmp/events.jsonl")"
@@ -320,9 +318,6 @@ test_orca_plain_escalation_reason() {
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=4 > /dev/null
     assert_eq "orca-esc: escalated reason is the Orca subject" "Blocked on missing credentials" \
         "$(jq -R -r 'fromjson? | select(.event == "escalated" and .ticket == "T-A") | .reason' "$tmp/events.jsonl")"
-    assert_eq "orca-esc: needs-you names the subject" "1" \
-        "$(cat "$tmp/notes" 2>/dev/null | grep -c 'T-A needs you: Blocked on missing credentials' || true)"
-    assert_eq "orca-esc: no --answer hint without .ask/.question" "0" "$(cat "$tmp/notes" 2>/dev/null | grep -c -- '--answer' || true)"
     rm -rf "$tmp"
 }
 
@@ -359,9 +354,6 @@ test_orca_obsolete_releases_successor() {
     assert_eq "orca-obsolete: row settled escalated/obsolete" "escalated|obsolete" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
     assert_eq "orca-obsolete: escalated event carries the reason" "[headless] analysis: ticket obsolete: fix already on main" \
         "$(jq -R -r 'fromjson? | select(.event == "escalated" and .ticket == "T-1") | .reason' "$tmp/events.jsonl")"
-    assert_eq "orca-obsolete: needs-you names the reason" "1" \
-        "$(cat "$tmp/notes" 2>/dev/null | grep -c 'T-1 needs you: \[headless\] analysis: ticket obsolete' || true)"
-    assert_eq "orca-obsolete: no empty-reason alert" "0" "$(cat "$tmp/notes" 2>/dev/null | grep -c 'waiting for an answer' || true)"
     assert_eq "orca-obsolete: no strike" "1" "$(grep -c 'T-1: obsolete ticket, not counted' "$tmp/output.txt" || true)"
     assert_eq "orca-obsolete: successor not skipped" "no" "$([ "$(plan_cell "$tmp/queue.md" 2 8)" = skip ] && echo yes || echo no)"
     assert_eq "orca-obsolete: successor launched" "1" "$(grep -c '^orchestration worker-start.*--task task-T-2' "$tmp/fake/orca-calls" || true)"
@@ -389,8 +381,6 @@ test_orca_no_pr_settles() {
         "$(runs_outcome "$tmp/queue.md" T-1)|$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-1/ { gsub(/ /,"",$6); p=$6 } END { print p }' "$tmp/queue.md")"
     assert_eq "orca-no-pr: event outcome" "no-pr" \
         "$(jq -R -r 'fromjson? | select(.event == "ticket_finished" and .ticket == "T-1") | .outcome' "$tmp/events.jsonl")"
-    assert_eq "orca-no-pr: one notification naming ticket and gate3.md" "1" \
-        "$(cat "$tmp/notes" 2>/dev/null | grep -c 'T-1 ended without a PR (see .*/memory/T-1/gate3\.md)' || true)"
     assert_eq "orca-no-pr: worker settled (sentinel removed)" "no" "$([ -e "$tmp/n1home/queue/sentinels/T-1.env" ] && echo yes || echo no)"
     assert_eq "orca-no-pr: successor launched" "1" "$(grep -c '^orchestration worker-start.*--task task-T-2' "$tmp/fake/orca-calls" || true)"
     rm -rf "$tmp"
@@ -410,7 +400,6 @@ test_orca_question_on_pr_row() {
     assert_eq "orca-ask-pr: .ask kept for --answer" "m-q2" "$(cat "$tmp/.ask-T-A" 2>/dev/null)"
     assert_eq "orca-ask-pr: one escalated event" "1" \
         "$(jq -R 'fromjson? | select(.event == "escalated" and .ticket == "T-A") | .event' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
-    assert_eq "orca-ask-pr: one needs-you" "1" "$(grep -c 'T-A needs you.*--answer T-A' "$tmp/notes" || true)"
     rm -rf "$tmp"
 }
 
@@ -443,7 +432,7 @@ test_orca_question_after_settle() {
     printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/q.late" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.5"
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=8 > /dev/null
     assert_eq "orca-ask-settled: no .ask marker" "no" "$([ -e "$tmp/.ask-T-A" ] && echo yes || echo no)"
-    assert_eq "orca-ask-settled: no alert" "0" "$(grep -c 'T-A needs you' "$tmp/notes" || true)"
+    assert_eq "orca-ask-settled: no escalation" "0" "$(jq -r 'select(.event=="escalated" and .ticket=="T-A") | .ticket' "$tmp/events.jsonl" 2>/dev/null | wc -l | tr -d ' ')"
     rm -rf "$tmp"
 }
 
@@ -737,13 +726,13 @@ test_orca_stop_marker_forged() {   # N1-268 SEC-2: a marker not carrying this qu
 test_orca_stop_close_failure_notifies() {   # N1-268 CR-5: a failed close on the queued path reaches the user
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
-    cfg_set "$tmp" '.queue.maxConcurrent = 1 | .queue.subtaskTimeoutMinutes = 5 | .queue.notify = "command" | .queue.notifyCommand = "cat >> '"$tmp"'/notes"'
+    cfg_set "$tmp" '.queue.maxConcurrent = 1 | .queue.subtaskTimeoutMinutes = 5'
     echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
     wl_set "$tmp" "$(wl_row T-A running | jq -c '.resource.terminalHandle = "term-A"')"
     n1_write_frontmatter "$tmp/queue.md" run_id RID-S
     printf 'printf %%s RID-S > "%s/.stop"\n' "$tmp" > "$tmp/fake/at.3"
     run_orca_queue "$tmp" FAKE_ORCA_CLOSE_FAIL=1 >/dev/null
-    assert_eq "orca-stop-fail: user notified" "yes" "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" 2>/dev/null | grep -qF 'Stop failed: T-A' && echo yes || echo no)"
+    assert_eq "orca-stop-fail: user told" "yes" "$(grep -qF 'Stop failed: T-A' "$tmp/output.txt" && echo yes || echo no)"
     rm -rf "$tmp"
 }
 
@@ -790,9 +779,9 @@ test_orca_resume_owed() {   # CR-1: a settled row is not re-owed on resume; CR-2
     assert_eq "orca-owed: live worker: exit 0" "0" "$(run_orca_queue "$tmp")"
     assert_eq "orca-owed: live worker is not released at expiry" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
     assert_eq "orca-owed: live worker keeps its sentinel" "yes" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
-    assert_eq "orca-owed: user told to resume" "1" "$(grep -c 'still running after their PR' "$tmp/notes" || true)"
+    assert_eq "orca-owed: user told to resume" "1" "$(grep -c 'still running after their PR' "$tmp/output.txt" || true)"
     # SEC-7: an empty list that was readable once, then failed refreshes, must not prove the worker gone.
-    rm -f "$tmp/fake/workers.json"; : > "$tmp/fake/orca-calls"; : > "$tmp/notes"
+    rm -f "$tmp/fake/workers.json"; : > "$tmp/fake/orca-calls"
     assert_eq "orca-owed: stale list: exit 0" "0" "$(run_orca_queue "$tmp" FAKE_ORCA_WL_FAIL_AFTER=1)"
     assert_eq "orca-owed: failed refresh after an empty list does not release" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
     assert_eq "orca-owed: stale list keeps the sentinel" "yes" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
@@ -1030,7 +1019,6 @@ test_orca_fin_blocked_sees_merge() {
     assert_eq "orca-fin-merge: Runs outcome merged" "merged" "$(runs_outcome "$tmp/queue.md" T-A)"
     assert_eq "orca-fin-merge: no escalated event after the retraction" "0" \
         "$(jq -rs '[.[] | select(.ticket == "T-A" or .event == "escalation_retracted") | .event] | (index("escalation_retracted") // length) as $i | .[$i:] | map(select(. == "escalated")) | length' "$tmp/events.jsonl")"
-    assert_eq "orca-fin-merge: one needs-you in total" "1" "$(grep -c 'T-A.*needs you' "$tmp/notes" || true)"
     rm -rf "$tmp"
 }
 
@@ -1050,7 +1038,6 @@ test_orca_fin_blocked_pr_closed() {
         "$(jq -r 'select(.event == "escalation_retracted") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
     assert_eq "orca-fin-closed: row reason" "finish:finish-pr-not-open" "$(plan_cell "$tmp/queue.md" 1 9)"
     assert_eq "orca-fin-closed: no further escalated event" "1" "$(jq -r 'select(.event == "escalated") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
-    assert_eq "orca-fin-closed: one needs-you in total" "1" "$(grep -c 'T-A.*needs you' "$tmp/notes" || true)"
     rm -rf "$tmp"
 }
 

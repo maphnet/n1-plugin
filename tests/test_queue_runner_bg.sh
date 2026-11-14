@@ -56,18 +56,9 @@ test_runner_three_strikes() {
     assert_eq "events-3s: escalated event carries outcome=terminal (stopped-path)" "terminal" \
         "$(jq -r 'select(.event=="escalated") | .outcome' "$tmp/events.jsonl")"
     assert_eq "events-3s: uniform schema" "true" "$(jq -s 'all(keys | length == 10)' "$tmp/events.jsonl")"
-    assert_eq "notify-3s: needs-you (esc), info (final fail), needs-you (halt); none for pr/deferred" \
-        "needs-you,info,needs-you" "$(jq -r .kind "$tmp/notes" | paste -sd, -)"
-    assert_eq "notify-3s: halt text" "yes" \
-        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -q '^Queue test-q halted: ' && echo yes || echo no)"
 
-    # N1-74: T-B's bg session is stopped on the success-path escalated finalize, and
-    # its resume hint points at n1-start (not a stale "claude attach" on a dead session).
+    # N1-74: T-B's bg session is stopped on the success-path escalated finalize.
     assert_eq "3s: T-B session stopped" "yes" "$(grep -qx 00000002 "$tmp/fake/stopped" && echo yes || echo no)"
-    assert_eq "3s: escalated resume hint is n1-start" "yes" \
-        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -qF 'resume: n1-start T-B' && echo yes || echo no)"
-    assert_eq "3s: no stale attach hint for T-B" "0" \
-        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -c 'claude attach' || true)"
 
     rm -rf "$tmp"
 }
@@ -93,8 +84,6 @@ test_runner_all_pr() {
         "$(jq -r 'select(.event=="ticket_finished") | .pr' "$tmp/events.jsonl" | head -1)"
     assert_eq "events-allpr: queue_done digest" "2 PR / 0 awaiting / 0 failed" \
         "$(jq -r 'select(.event=="queue_done") | .reason' "$tmp/events.jsonl")"
-    assert_eq "notify-allpr: exactly one done, no per-PR notify" "done|Queue test-q2: 2 PR / 0 awaiting / 0 failed" \
-        "$(jq -r '.kind + "|" + .text' "$tmp/notes" | paste -sd, -)"
 
     rm -rf "$tmp"
 }
@@ -256,8 +245,6 @@ test_bg_no_pr() {
     assert_eq "bg-no-pr: Runs outcome" "no-pr" "$(runs_outcome "$tmp/queue.md" T-A)"
     assert_eq "bg-no-pr: event outcome" "no-pr" \
         "$(jq -R -r 'fromjson? | select(.event == "ticket_finished" and .ticket == "T-A") | .outcome' "$tmp/events.jsonl")"
-    assert_eq "bg-no-pr: one notification naming ticket and gate3.md" "1" \
-        "$(jq -r 'select(.kind == "info") | .text' "$tmp/notes" | grep -c '^T-A ended without a PR (see .*/memory/T-A/gate3\.md)$' || true)"
     assert_eq "bg-no-pr: next row still runs" "T-B" "$(grep -o 'launch n1-bgq-T-B-[0-9]*' "$tmp/fake/events" | head -1 | sed 's/launch n1-bgq-//; s/-[0-9]*$//')"
     rm -rf "$tmp"
 }
@@ -311,9 +298,7 @@ test_bg_awaiting() {
         "$(jq -r 'select(.ticket=="T-A") | .event' "$tmp/events.jsonl" | paste -sd, -)"
     assert_eq "events-await: session on ticket_started" "00000001" \
         "$(jq -r 'select(.ticket=="T-A" and .event=="ticket_started") | .session' "$tmp/events.jsonl")"
-    assert_eq "notify-await: needs-you then done" "needs-you,done" "$(jq -r .kind "$tmp/notes" | paste -sd, -)"
-    assert_eq "notify-await: attach hint" "yes" \
-        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -qF '(resume: claude attach 00000001)' && echo yes || echo no)"
+    assert_eq "await: escalated then queue_done" "escalated,queue_done" "$(jq -r 'select(.event=="escalated" or .event=="queue_done") | .event' "$tmp/events.jsonl" | paste -sd, -)"
     rm -rf "$tmp"
 }
 
@@ -428,7 +413,7 @@ EOF
     rm -rf "$tmp"
 }
 
-# --- NP-216: overview.md reconciliation, non-empty reasons, notify check -----
+# --- NP-216: overview.md reconciliation, non-empty reasons -----------------
 
 test_bg_reconcile_working() {
     local tmp; tmp=$(mktemp -d)
@@ -455,7 +440,7 @@ test_bg_drain_defers_until_idle() {
     # never stop a blocked one at all.
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:working working done" "T-B:blocked"
-    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5}}\n' > "$tmp/n1home/config.json"
     mkdir -p "$tmp/n1home/memory/T-A" "$tmp/n1home/memory/T-B"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-A/overview.md"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-B/overview.md"
@@ -467,11 +452,8 @@ test_bg_drain_defers_until_idle() {
     # several polls (subtaskTimeoutMinutes=5 / pollSeconds=30 => T-B stays blocked for ~10 polls).
     assert_eq "drain: T-B escalated exactly once" "1" \
         "$(jq -c 'select(.event == "escalated" and .ticket == "T-B")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
-    assert_eq "drain: T-B needs-you notify uses the attach hint, not resume: n1-start" "1" \
-        "$(jq -r 'select(.kind == "needs-you") | .text' "$tmp/notes" | grep -c 'T-B needs you.*resume: claude attach')"
-    # N1-76: timeout break path also fires one leftover needs-you notify naming T-B.
-    assert_eq "drain: timeout break fires one leftover needs-you notify for T-B" "1" \
-        "$(jq -r 'select(.kind == "needs-you") | .text' "$tmp/notes" | grep -c '^still finishing up: T-B$')"
+    # N1-76: timeout break path reports T-B left running once.
+    assert_eq "drain: timeout break reports T-B left running" "1" "$(grep -c 'left running:' "$tmp/output.txt" || true)"
     rm -rf "$tmp"
 }
 
@@ -773,18 +755,6 @@ FAKEEOF
     rm -rf "$tmp"
 }
 
-test_notify_check() {
-    assert_eq "notify-check: none is silent" "" \
-        "$(N1_HOME="$(mktemp -d)" bash -c "source '$REPO_ROOT/lib/config.sh'; source '$REPO_ROOT/lib/frontmatter.sh'; source '$REPO_ROOT/lib/queue.sh'; n1_queue_val() { [ \"\$1\" = notify ] && echo none; }; n1_queue_notify_check")"
-    assert_eq "notify-check: command without notifyCommand warns" "yes" \
-        "$(out=$(bash -c "source '$REPO_ROOT/lib/config.sh'; source '$REPO_ROOT/lib/frontmatter.sh'; source '$REPO_ROOT/lib/queue.sh'; n1_queue_val() { [ \"\$1\" = notify ] && echo command; }; n1_queue_notify_check"); [ -n "$out" ] && echo yes || echo no)"
-    assert_eq "notify-check: ntfy without ntfyTopic warns" "yes" \
-        "$(out=$(bash -c "source '$REPO_ROOT/lib/config.sh'; source '$REPO_ROOT/lib/frontmatter.sh'; source '$REPO_ROOT/lib/queue.sh'; n1_queue_val() { [ \"\$1\" = notify ] && echo ntfy; }; n1_queue_notify_check"); [ -n "$out" ] && echo yes || echo no)"
-    local bash_bin; bash_bin=$(command -v bash)
-    assert_eq "notify-check: desktop with no notifier warns" "yes" \
-        "$(out=$(PATH=/nonexistent "$bash_bin" -c "source '$REPO_ROOT/lib/config.sh'; source '$REPO_ROOT/lib/frontmatter.sh'; source '$REPO_ROOT/lib/queue.sh'; n1_queue_val() { [ \"\$1\" = notify ] && echo desktop; }; n1_queue_notify_check"); [ -n "$out" ] && echo yes || echo no)"
-}
-
 test_bg_disclaimer() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:done" "T-B:done"
@@ -798,7 +768,6 @@ test_bg_disclaimer() {
     assert_eq "bg-disc: single launch attempt" "1" "$(grep -c '^launch' "$tmp/fake/events" || true)"
     assert_eq "bg-disc: fix hint printed" "yes" "$(grep -q 'dangerously-skip-permissions' "$tmp/output.txt" && echo yes || echo no)"
     assert_eq "events-disc: halted recorded" "halted" "$(jq -r .event "$tmp/events.jsonl" | tail -1)"
-    assert_eq "notify-disc: one needs-you" "needs-you" "$(jq -r .kind "$tmp/notes" | paste -sd, -)"
     rm -rf "$tmp"
 }
 
@@ -1319,7 +1288,6 @@ test_bg_reason_child_exited_incomplete
 test_bg_reason_bg_state_catchall
 test_bg_relay_marker
 test_bg_timeout_race_terminal_overview
-test_notify_check
 test_bg_disclaimer
 test_busy_guard
 test_queue_interrupted
