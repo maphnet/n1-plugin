@@ -172,6 +172,12 @@ assert_eq "config-dir root allowed (relative, payload cwd)" 0 "$(py_write_rc "al
 assert_eq "config-dir root: non-findings file denied" 2 "$(py_write_rc "$T/alt/config.json" "$T" "$T/alt/config.json")"
 assert_eq "no config file: alt dir denied" 2 "$(py_write_rc "" "$T" "$T/alt/memory/T-9/review-cr.md")"
 assert_eq "developer Write unscoped" 0 "$(rev_write_rc developer Write "$T/wt/f.txt")"
+# harness-owned SubagentHandback is exempt from the persona allowlist (N1-585)
+for P in code-reviewer security-reviewer developer; do
+    assert_eq "$P SubagentHandback allowed" 0 "$(rev_write_rc $P SubagentHandback "")"
+done
+assert_eq "code-reviewer Bash still denied" 2 "$(rev_write_rc code-reviewer Bash "")"
+assert_eq "developer NotebookEdit still denied" 2 "$(rev_write_rc developer NotebookEdit "")"
 # live-captured reviewer Write payload (N1-137): the real CC field set still scopes the Write
 RW="$FX/claude/pretooluse-reviewer-write.json"
 fx_write_rc() {  # fx_write_rc <file_path> [jq-filter]: captured payload with file_path (and optionally more) overridden
