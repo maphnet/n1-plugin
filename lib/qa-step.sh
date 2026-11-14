@@ -3,7 +3,22 @@
 # Requires lib/preamble.sh first. Needs $N1_HOME and $ID. Never calls n1_step_begin/n1_step_end (qa.md keeps them).
 # Input: the qa-engineer return, written by the model to $N1_HOME/memory/$ID/qa-return.md with the file-write mechanism.
 _n1_qa_step_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$_n1_qa_step_dir/memory.sh"; source "$_n1_qa_step_dir/breakcheck.sh"
+source "$_n1_qa_step_dir/memory.sh"; source "$_n1_qa_step_dir/breakcheck.sh"; source "$_n1_qa_step_dir/context.sh"
+
+n1_qa_skip_decision() {
+    # Usage: n1_qa_skip_decision — N1-591: prints QA_SKIP=1 when the simple path may skip qa-engineer (resolved type and analyst task_type
+    # both set and not bug, qa.breakCheck=bugs: the only combination where n1_qa_break_check passes without a Regression test: line), else QA_SKIP=0.
+    # Records the qa-engineer-skip decision on the first qa cycle only.
+    local QD="$N1_HOME/memory/$ID" SIMPLE_PATH="" TASK_TYPE RTYPE BC_MODE CYCLE SKIP=0
+    n1_read_context
+    RTYPE=$(n1_read_frontmatter "$QD/overview.md" "type" 2>/dev/null); TASK_TYPE=$(n1_read_signal "$QD/ticket.md" "task_type"); BC_MODE=$(n1_config_val '.qa.breakCheck'); BC_MODE=${BC_MODE:-bugs}
+    [ "$SIMPLE_PATH" = true ] && [ -n "$RTYPE" ] && [ "$RTYPE" != bug ] && [ -n "$TASK_TYPE" ] && [ "$TASK_TYPE" != bug ] && [ "$BC_MODE" = bugs ] && SKIP=1
+    CYCLE=$(n1_read_frontmatter "$QD/overview.md" "qa_fix_cycle" 2>/dev/null)
+    if [ -z "$CYCLE" ] || [ "$CYCLE" = 0 ]; then
+        n1_record_decision qa-engineer-skip "$([ "$SKIP" = 1 ] && echo true || echo false)" '{"all":[{"context":"SIMPLE_PATH","eq":"true"},{"frontmatter":"type","neq":"bug"},{"signal":"ticket.task_type","neq":"bug"},{"config":"qa.breakCheck","eq":"bugs"}]}' "simple_path=${SIMPLE_PATH:-}" "type=$RTYPE" "task_type=$TASK_TYPE" "break_check=$BC_MODE" >/dev/null 2>&1 || true
+    fi
+    echo "QA_SKIP=$SKIP"
+}
 
 n1_qa_verify() {
     # Usage: n1_qa_verify — writes the return's n1:signals to qa.md, marks QA degraded when qa.md has no ### Evidence,
