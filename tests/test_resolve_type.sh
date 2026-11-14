@@ -38,6 +38,16 @@ n1_resolve_type "x" "" "bug" "investigation" > "$T/out"
 assert_eq "override wins" "investigation" "$(cat "$T/out")"
 assert_eq "matched_by override" "override" "$N1_TYPE_MATCHED_BY"
 
+# N1-577: spike routes to investigation by tag, or by type field (fed from the Jira "Spike" issue type)
+n1_resolve_type "Caching strategy" "spike" "" "" > "$T/out"
+assert_eq "spike tag routes to investigation" "investigation" "$(cat "$T/out")"
+assert_eq "spike tag matched_by tags" "tags" "$N1_TYPE_MATCHED_BY"
+n1_resolve_type "Caching strategy" "" "spike" "" > "$T/out"
+assert_eq "spike type field routes to investigation" "investigation" "$(cat "$T/out")"
+assert_eq "spike type field matched_by type_field" "type_field" "$N1_TYPE_MATCHED_BY"
+n1_resolve_type "Caching strategy" "" "task" "" > "$T/out"
+assert_eq "task type field unaffected by the spike rule" "task" "$(cat "$T/out")"
+
 # n1_title_hints_investigation positive
 n1_title_hints_investigation "Investigate slow login" \
     && { echo "PASS: hint detects"; PASS=$((PASS+1)); } \

@@ -8,8 +8,8 @@ source "$_n1_ticket_step_dir/context.sh"
 
 _n1_ticket_parse() {
     # Usage: _n1_ticket_parse <type override> — sets the caller's locals (dynamic scope) from ticket-return.md:
-    # RET INTAKE_RESULT TITLE TYPE_OVERRIDE RESOLVED_TYPE TYPE_MATCHED_BY CLOUD_ID LINKED_ERROR_URL ISSUE_TYPE SUBTASK_COUNT ORIGINAL_STATUS.
-    local rt="$N1_HOME/memory/$ID/.resolved-type" TAGS_CSV TYPE_FIELD
+    # RET INTAKE_RESULT TITLE TYPE_OVERRIDE RESOLVED_TYPE TYPE_MATCHED_BY CLOUD_ID LINKED_ERROR_URL ISSUE_TYPE SUBTASK_COUNT ORIGINAL_STATUS VARIANT.
+    local rt="$N1_HOME/memory/$ID/.resolved-type" TAGS_CSV TYPE_FIELD tl
     case "$1" in *[!a-z-]*) TYPE_OVERRIDE="" ;; *) TYPE_OVERRIDE="$1" ;; esac  # type names only; a placeholder is ignored
     RET=""; [ -f "$N1_HOME/memory/$ID/ticket-return.md" ] && RET=$(cat "$N1_HOME/memory/$ID/ticket-return.md")
     INTAKE_RESULT=$(grep -m1 '^intake-result: ' <<<"$RET" | sed 's/^intake-result: //')
@@ -19,25 +19,29 @@ _n1_ticket_parse() {
     LINKED_ERROR_URL=$(jq -r '.linked_error.issueUrl // empty' <<<"$INTAKE_RESULT" 2>/dev/null)
     TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags" *: *\[//;s/\].*//' | tr -d '"' | tr -d ' ')
     TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*[,{] *"type": *"\([^"]*\)".*/\1/')
+    ISSUE_TYPE=$(echo "$INTAKE_RESULT" | sed -n 's/.*"issue_type": *"\([^"]*\)".*/\1/p' | tr '[:upper:]' '[:lower:]')
+    # N1-577: intake `type` never carries spike; the raw Jira issue type "Spike" feeds the investigation type_field rule.
+    [ "$ISSUE_TYPE" = spike ] && TYPE_FIELD=spike
     [ -n "$LINKED_ERROR_URL" ] && TYPE_FIELD=bug
     n1_resolve_type "$TITLE" "$TAGS_CSV" "$TYPE_FIELD" "$TYPE_OVERRIDE" > "$rt" 2>/dev/null || true
     RESOLVED_TYPE=$(cat "$rt" 2>/dev/null); rm -f "$rt"; TYPE_MATCHED_BY="${N1_TYPE_MATCHED_BY:-}"
-    ISSUE_TYPE=$(echo "$INTAKE_RESULT" | sed -n 's/.*"issue_type": *"\([^"]*\)".*/\1/p' | tr '[:upper:]' '[:lower:]')
+    tl=",$(tr '[:upper:]' '[:lower:]' <<<"$TAGS_CSV"),"
+    if [ "$RESOLVED_TYPE" = investigation ] && { [ "$ISSUE_TYPE" = spike ] || [[ "$tl" == *,spike,* ]]; }; then VARIANT=spike; else VARIANT=""; fi
     SUBTASK_COUNT=$(echo "$INTAKE_RESULT" | sed -n 's/.*"subtask_count": *\([0-9]*\).*/\1/p')
     ORIGINAL_STATUS=$(echo "$INTAKE_RESULT" | sed -n 's/.*"original_status": *"\([^"]*\)".*/\1/p')
 }
 
 n1_ticket_intake() {
     # Usage: n1_ticket_intake '<type override or empty>' — prints TITLE=, CLOUD_ID=, LINKED_ERROR_URL=, RESOLVED_TYPE=,
-    # TYPE_MATCHED_BY=, INVESTIGATION_DETECTED=, ISSUE_TYPE=, IS_STORY=, ORIGINAL_STATUS=, QUEUE_RUN_ID=, HEADLESS=.
-    local RET INTAKE_RESULT TITLE TYPE_OVERRIDE RESOLVED_TYPE TYPE_MATCHED_BY CLOUD_ID LINKED_ERROR_URL ISSUE_TYPE SUBTASK_COUNT ORIGINAL_STATUS
+    # TYPE_MATCHED_BY=, INVESTIGATION_DETECTED=, ISSUE_TYPE=, IS_STORY=, ORIGINAL_STATUS=, VARIANT=, QUEUE_RUN_ID=, HEADLESS=.
+    local RET INTAKE_RESULT TITLE TYPE_OVERRIDE RESOLVED_TYPE TYPE_MATCHED_BY CLOUD_ID LINKED_ERROR_URL ISSUE_TYPE SUBTASK_COUNT ORIGINAL_STATUS VARIANT
     local INVESTIGATION_DETECTED=false IS_STORY=false
     _n1_ticket_parse "${1:-}"
     [ "$RESOLVED_TYPE" = "investigation" ] && INVESTIGATION_DETECTED=true || { [ -z "$TYPE_OVERRIDE" ] && n1_title_hints_investigation "$TITLE" && echo "Hint: title looks like investigation; re-run with --type investigation; continuing as ${RESOLVED_TYPE}."; }
     case "$ISSUE_TYPE" in epic) IS_STORY=true ;; story) ;; *) [ "${SUBTASK_COUNT:-0}" -gt 0 ] && ! grep -q '### Parent Context' "$N1_HOME/memory/$ID/ticket.md" 2>/dev/null && IS_STORY=true ;; esac
     printf 'TITLE=%s\nCLOUD_ID=%s\nLINKED_ERROR_URL=%s\n' "$TITLE" "$CLOUD_ID" "$LINKED_ERROR_URL"
     printf 'RESOLVED_TYPE=%s\nTYPE_MATCHED_BY=%s\nINVESTIGATION_DETECTED=%s\n' "$RESOLVED_TYPE" "$TYPE_MATCHED_BY" "$INVESTIGATION_DETECTED"
-    printf 'ISSUE_TYPE=%s\nIS_STORY=%s\nORIGINAL_STATUS=%s\n' "$ISSUE_TYPE" "$IS_STORY" "$ORIGINAL_STATUS"
+    printf 'ISSUE_TYPE=%s\nIS_STORY=%s\nORIGINAL_STATUS=%s\nVARIANT=%s\n' "$ISSUE_TYPE" "$IS_STORY" "$ORIGINAL_STATUS" "$VARIANT"
     printf 'QUEUE_RUN_ID=%s\nHEADLESS=%s\n' "${N1_QUEUE_RUN_ID:-}" "${N1_HEADLESS:-}"
     return 0
 }
@@ -57,9 +61,9 @@ _n1_ticket_write_url() {
 
 n1_ticket_persist() {
     # Usage: n1_ticket_persist '<type override or empty>' — after the final <ID>: ticket.md dependency check, return signals,
-    # overview.md frontmatter (tier, type, type_matched_by, story, original_status, story_convert), ticket context.
+    # overview.md frontmatter (tier, type, type_matched_by, variant, story, original_status, story_convert), ticket context.
     # Prints TIER= (return's tier:, default standard), SESSION_NAME=, the four assign config values and any n1_assign_gap_warn line.
-    local RET INTAKE_RESULT TITLE TYPE_OVERRIDE RESOLVED_TYPE TYPE_MATCHED_BY CLOUD_ID LINKED_ERROR_URL ISSUE_TYPE SUBTASK_COUNT ORIGINAL_STATUS
+    local RET INTAKE_RESULT TITLE TYPE_OVERRIDE RESOLVED_TYPE TYPE_MATCHED_BY CLOUD_ID LINKED_ERROR_URL ISSUE_TYPE SUBTASK_COUNT ORIGINAL_STATUS VARIANT
     local SIGNAL_LINE PAIRS MAX SESSION_NAME SC TIER TYPE ASSIGN_TO_CREATOR GET_USER_OP ASSIGN_OP READ_OP
     _n1_ticket_parse "${1:-}"
     n1_verify_dependencies "$N1_HOME/memory/$ID" ticket.md
@@ -73,6 +77,7 @@ n1_ticket_persist() {
     MAX=$(( 50 - ${#ID} - 1 )); SESSION_NAME="$ID${TITLE:+ ${TITLE:0:$MAX}}"
     n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" "$RESOLVED_TYPE"
     n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type_matched_by" "$TYPE_MATCHED_BY"
+    [ -n "$VARIANT" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "variant" "$VARIANT"
     [ -n "${N1_STORY_ID:-}" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story" "$N1_STORY_ID"
     [ -n "$ORIGINAL_STATUS" ] && [ "$ORIGINAL_STATUS" != "Not specified" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "original_status" "$ORIGINAL_STATUS"
     SC=$(tr -d '\\\r\n' 2>/dev/null < "$N1_HOME/memory/$ID/.story-convert"); rm -f "$N1_HOME/memory/$ID/.story-convert"; [ -n "$SC" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story_convert" "$SC"

@@ -31,7 +31,7 @@
     },
     "investigation": {
       "steps": ["ticket", "analysis", "brainstorm", "investigation-deliverable"],
-      "detect": { "tags": ["investigation"] }
+      "detect": { "tags": ["investigation", "spike"], "type_field": "spike" }
     },
     "bug": {
       "steps": ["ticket", "analysis", "brainstorm", "plan",
