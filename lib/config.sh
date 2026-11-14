@@ -1265,6 +1265,67 @@ n1_clean_ticket() {
     return 0
 }
 
+# N1-583: read-only leftover scan for n1-clean general mode; removes nothing, rc 0. One tab-separated line per item:
+#   nopr-worktree <ID> <path> <branch|detached>  linked tree with a ticket id (folder, else branch), no overview pr_url,
+#                                                step done or absent, not spike/*, passing _n1_clean_gate against
+#                                                origin/<default> (clean; Orca: ignored files allowed; reachable)
+#   empty-dir - <path> -                         empty dir beside a linked worktree or under <main>/<worktree root>
+#   stale-marker <ID> <overview> -               awaiting / ## Pending marker next to ## Finish (scripts/clean-pending.sh)
+#   remote-branch - <branch> <pr-url>            merged same-repo PR head still on origin at the merged oid; not the
+#                                                default, spike/, queue/ or story/ branch; no open PR; not checked out
+#   note - - <text>                              a kind that could not be scanned
+# ponytail: empty dirs are searched only beside live linked worktrees; an Orca root with none left is not discovered.
+n1_clean_scan() {
+    local recs main def base p b id ov st mode keep d prs open heads held h o u
+    recs=$(_n1_wt_records); main=$(head -n1 <<<"$recs" | cut -f1)
+    [ -n "$main" ] || { printf 'note\t-\t-\tnot inside a git repository\n'; return 0; }
+    IFS=$'\t' read -r def base <<<"$(_n1_nopr_base --fetch)"
+    if [ -z "$base" ]; then printf 'note\t-\t-\tno-PR worktrees not scanned (no %s branch)\n' "$def"
+    else
+        while IFS=$'\t' read -r p b; do
+            b="${b#refs/heads/}"
+            [ -d "$p" ] || continue
+            case "$b" in spike/*) continue ;; esac
+            id=$(printf '%s' "${p##*/}" | tr '[:lower:]' '[:upper:]')
+            [[ "$id" =~ ^[A-Z][A-Z0-9]*-[0-9]+$ ]] || id=$(grep -oE '[A-Za-z][A-Za-z0-9]*-[0-9]+' <<<"$b" | head -1 | tr '[:lower:]' '[:upper:]')
+            [ -n "$id" ] || continue
+            ov="$(n1_home)/memory/$id/overview.md"
+            [ -n "$(awk '/^## (Pending|Finish)/{f=1;next} /^## /{f=0} f && /^pr_url:/{print; exit}' "$ov" 2>/dev/null)" ] && continue
+            st=$(sed -n 's/^step: *//p' "$ov" 2>/dev/null | head -1 | tr -d '\r')
+            [ -z "$st" ] || [ "$st" = done ] || continue
+            IFS=$'\t' read -r mode keep <<<"$(_n1_clean_gate "$p" "$main" "$base" "$def" 1)"
+            if [ -z "$keep" ]; then printf 'nopr-worktree\t%s\t%s\t%s\n' "$id" "$p" "${b:-detached}"; fi
+        done < <(tail -n +2 <<<"$recs")
+    fi
+    { tail -n +2 <<<"$recs" | cut -f1 | sed 's#/[^/]*$##'; printf '%s\n' "$main/$(n1_worktree_root)"; } | sort -u |
+        while IFS= read -r d; do [ -d "$d" ] && find "$d" -mindepth 1 -maxdepth 1 -type d -empty 2>/dev/null; done |
+        while IFS= read -r d; do printf 'empty-dir\t-\t%s\t-\n' "$d"; done
+    for ov in "$(n1_home)"/memory/*/overview.md; do
+        [ -f "$ov" ] || continue
+        awk 'NR == 1 && /^---\r?$/ { fm = 1; next } fm && /^---\r?$/ { fm = 0; next }
+            fm && /^awaiting:/ { b = 1 } /^## Finish\r?$/ { f = 1 } /^## Pending\r?$/ { a = 1 }
+            END { exit !(f && (a || b)) }' "$ov" 2>/dev/null || continue
+        id="${ov%/overview.md}"; printf 'stale-marker\t%s\t%s\t-\n' "${id##*/}" "$ov"
+    done
+    if command -v gh >/dev/null 2>&1 \
+        && prs=$(timeout 60 gh pr list --state merged --limit 1000 --json headRefName,headRefOid,isCrossRepository,url \
+            -q '.[] | select(.isCrossRepository | not) | [.headRefName, .headRefOid, .url] | @tsv' </dev/null 2>/dev/null) \
+        && open=$(timeout 60 gh pr list --state open --limit 1000 --json headRefName -q '.[].headRefName' </dev/null 2>/dev/null) \
+        && heads=$(GIT_TERMINAL_PROMPT=0 timeout 30 git ls-remote --heads origin </dev/null 2>/dev/null); then
+        held=$(cut -f2 <<<"$recs" | sed 's#^refs/heads/##')
+        while IFS=$'\t' read -r h o u; do
+            [[ "$h" =~ ^[A-Za-z0-9._/-]+$ ]] && [[ "$o" =~ ^[0-9a-f]{40,64}$ ]] || continue
+            [ "$h" = "$def" ] && continue
+            case "$h" in spike/*|queue/*|story/*) continue ;; esac
+            [ "$(H="refs/heads/$h" awk '$2 == ENVIRON["H"] {print $1; exit}' <<<"$heads")" = "$o" ] || continue
+            grep -qxF -- "$h" <<<"$open" && continue
+            grep -qxF -- "$h" <<<"$held" && continue
+            printf 'remote-branch\t-\t%s\t%s\n' "$h" "$u"
+        done <<<"$prs"
+    else printf 'note\t-\t-\tremote branches not scanned (gh or origin unavailable)\n'; fi
+    return 0
+}
+
 escape_json_val() {
     local s="$1"
     s="${s//\\/\\\\}"

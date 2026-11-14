@@ -14,11 +14,12 @@ export N1_HOME="$T/home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 unset ORCA_CLI_COMMAND N1_RUN_ID N1_QUEUE_DIR N1_QUEUE_RUN_ID
 mkdir -p "$T/bin" "$N1_HOME/memory"
-# gh stub: logs argv, prints $GH_TSV (state, headRefName, headRefOid, baseRefName). Never left empty in a case
-# that reaches gh (an empty answer triggers the 2s/4s retry backoff).
+# gh stub: logs argv; prints $GH_OPEN for "--state open" lists, else $GH_TSV (state, headRefName, headRefOid,
+# baseRefName; or merged-PR rows for n1_clean_scan). Never left empty in a case that reaches gh pr view (retry backoff).
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
-echo "$*" >> "$GH_CALLS"; printf '%s\n' "${GH_TSV:-}"
+echo "$*" >> "$GH_CALLS"
+case " $* " in *" --state open "*) printf '%s\n' "${GH_OPEN:-}" ;; *) printf '%s\n' "${GH_TSV:-}" ;; esac
 EOF
 chmod +x "$T/bin/gh"; export PATH="$T/bin:$PATH" GH_CALLS="$T/gh.calls"
 
@@ -193,6 +194,37 @@ eq "N4: spike tree refused" "cleanup:skipped (spike)" "$(nc N-4)"
 eq "N4: spike dir kept" yes "$(yn test -d "$T/spike-N-4")"
 eq "N5: no workspace -> skipped" "cleanup:skipped (no-workspace)" "$(nc N-5)"
 eq "N6: invalid id" "cleanup:skipped (invalid-id)" "$(n1_clean_ticket '../x' merged-nopr)"
+
+# L1-L8 (N1-583): n1_clean_scan lists leftovers and removes nothing.
+O=$(git -C "$M" rev-parse origin/main)
+git -C "$M" worktree add -q -b l1b "$T/L-1" "$O"                        # clean, on origin/main, no overview
+git -C "$M" worktree add -q -b l2b "$T/L-2" "$O"; nov L-2 implement     # in progress
+git -C "$M" worktree add -q -b l3b "$T/L-3" "$O"; ov L-3                # has a PR: Step 2 classifies it
+mkdir -p "$T/empty-583" "$M/$WR/empty-wr"
+mkdir -p "$N1_HOME/memory/L-7" "$N1_HOME/memory/L-8" "$N1_HOME/memory/L-9"
+printf -- '---\nstep: done\nawaiting: merge\n---\n# L-7\n## Finish\n- **Cleanup:** worktree:none, branch:none\n' > "$N1_HOME/memory/L-7/overview.md"
+printf -- '---\nstep: pr\nawaiting: merge\n---\n# L-8\n## Pending\nawaiting: merge\n' > "$N1_HOME/memory/L-8/overview.md"
+printf -- '---\nstep: done\n---\n# L-9\n## Pending\r\nawaiting: merge\r\n## Finish\r\n' > "$N1_HOME/memory/L-9/overview.md"
+git -C "$M" branch -q rb1 main; git -C "$M" branch -q rb3 main; wt "$T/rb4" rb4
+git -C "$M" push -q origin rb1 rb3 rb4 "$O:refs/heads/rb2" spike/S-2
+MO=$(rev main)
+RB=$(printf 'rb1\t%s\tU1\nrb2\t%s\tU2\nrb3\t%s\tU3\nrb4\t%s\tU4\nspike/S-2\t%s\tU5\nmain\t%s\tU6\ngone\t%s\tU7' \
+    "$MO" "$MO" "$MO" "$(rev rb4)" "$(rev spike/S-2)" "$O" "$MO")
+SC=$(cd "$M" && GH_TSV="$RB" GH_OPEN=rb3 n1_clean_scan)
+row() { printf '%s\t%s\t%s\t%s' "$@"; }
+hr() { yn grep -qxF "$(row "$@")" <<<"$SC"; }
+eq "L1: clean no-PR tree on origin/main listed" yes "$(hr nopr-worktree L-1 "$T/L-1" l1b)"
+eq "L2: in-progress tree not listed" 0 "$(grep -cF "$T/L-2" <<<"$SC")"
+eq "L3: tree with a PR not listed" 0 "$(grep -cF "$T/L-3" <<<"$SC")"
+eq "L4: dirty, unmerged and spike trees not listed" 0 "$(grep -cF -e "$T/N-2	" -e "$T/N-3	" -e "$T/spike-N-4	" <<<"$SC")"
+eq "L5: empty dir beside worktrees listed" yes "$(hr empty-dir - "$T/empty-583" -)"
+eq "L5: empty dir under the N1 root listed" yes "$(hr empty-dir - "$M/$WR/empty-wr" -)"
+eq "L5: non-empty dir not listed" 0 "$(grep -cF "$T/bin" <<<"$SC")"
+eq "L6: stale marker listed" yes "$(hr stale-marker L-7 "$N1_HOME/memory/L-7/overview.md" -)"
+eq "L6: CRLF stale marker listed" yes "$(hr stale-marker L-9 "$N1_HOME/memory/L-9/overview.md" -)"
+eq "L6: still-pending ticket not listed" 0 "$(grep -c '^stale-marker	L-8	' <<<"$SC")"
+eq "L7: only the merged branch still at its PR head listed" "$(row remote-branch - rb1 U1)" "$(grep '^remote-branch' <<<"$SC")"
+eq "L8: scan removed nothing" "yes yes yes 1" "$(yn test -d "$T/L-1") $(yn test -d "$T/empty-583") $(yn grep -q '^awaiting: merge' "$N1_HOME/memory/L-7/overview.md") $(git -C "$M" ls-remote origin refs/heads/rb1 | wc -l | tr -d ' ')"
 
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]
