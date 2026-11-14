@@ -12,12 +12,12 @@ source "$N1_ROOT/lib/ticket-step.sh"
 n1_step_begin "ticket" 1
 n1_ticket_intake '<TYPE_OVERRIDE from input parsing, empty if none>'
 ```
-Output: `TITLE=`, `CLOUD_ID=`, `LINKED_ERROR_URL=` (non-empty: linked error; the type is already `bug`), `RESOLVED_TYPE=`, `TYPE_MATCHED_BY=`, `INVESTIGATION_DETECTED=`, `ISSUE_TYPE=`, `IS_STORY=`, `ORIGINAL_STATUS=`, `QUEUE_RUN_ID=`, `HEADLESS=`, and a `Hint:` line (relay it) when the title looks like an investigation. No `intake-result:` line: the call uses `{"title":null,"tags":[],"type":"task"}`.
+Output: `TITLE=`, `CLOUD_ID=`, `LINKED_ERROR_URL=` (non-empty: linked error; the type is already `bug`), `RESOLVED_TYPE=`, `TYPE_MATCHED_BY=`, `INVESTIGATION_DETECTED=`, `ISSUE_TYPE=`, `IS_STORY=`, `ORIGINAL_STATUS=`, `VARIANT=` (`spike` for a spike ticket, else empty), `QUEUE_RUN_ID=`, `HEADLESS=`, and a `Hint:` line (relay it) when the title looks like an investigation. No `intake-result:` line: the call uses `{"title":null,"tags":[],"type":"task"}`.
 **Brief:** only when QUEUE_RUN_ID is empty and HEADLESS is not 1, print the `brief:` line text from the analyst return (already in context) verbatim; print nothing in queue children, headless runs or without a `brief:` line; continue without pausing.
 
 **Story/epic** (`ISSUE_TYPE=story` or `IS_STORY=true`): read `procedures/ticket-story.md` and follow it (Story children, convert decision, Story handoff); otherwise skip it.
 
-`INVESTIGATION_DETECTED=true` with `N1_QUEUE_RUN_ID` unset and `N1_HEADLESS=1` not set: say "Interactive investigation moved: run `/n1:n1-refine <ID> --investigate`." (no tracker ID: `/n1:n1-ticket` first) and STOP before overview.md (run `source ~/.n1/preamble.sh; n1_step_end "ticket" 1 skipped '{"skip_reason":"investigation_moved"}'` first).
+`INVESTIGATION_DETECTED=true` with `VARIANT` empty (spike tickets run the investigation pipeline here in every mode), `N1_QUEUE_RUN_ID` unset and `N1_HEADLESS=1` not set: say "Interactive investigation moved: run `/n1:n1-refine <ID> --investigate`." (no tracker ID: `/n1:n1-ticket` first) and STOP before overview.md (run `source ~/.n1/preamble.sh; n1_step_end "ticket" 1 skipped '{"skip_reason":"investigation_moved"}'` first).
 
 **ID-Final:** no memory file/branch until `<ID>` final. product-analyst writes ticket.md directly to `ticketMdPath`.
 

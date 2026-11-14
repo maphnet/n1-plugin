@@ -30,6 +30,11 @@ lacks "brain-dump investigation variant removed" "**Brain-dump variant**" skills
 has "architecture points investigation to n1-refine" '/n1:n1-refine <ID> --investigate' references/architecture.md
 
 before "redirect precedes overview creation" 'Interactive investigation moved' '**Create overview.md**' skills/n1-start/steps/ticket.md
+# N1-577: spike tickets run in n1-start; refine routes the Jira Spike issue type
+line_has "spike tickets skip the refine redirect" 'Interactive investigation moved' '`VARIANT` empty' skills/n1-start/steps/ticket.md
+has "ticket step documents the VARIANT output" '`VARIANT=`' skills/n1-start/steps/ticket.md
+before "refine parses issue type before resolving" 'ISSUE_TYPE=$(echo "$INTAKE_RESULT"' 'n1_resolve_type "$TITLE"' skills/n1-refine/steps/01-fetch.md
+has "refine routes the Jira Spike issue type" '[ "$ISSUE_TYPE" = spike ] && TYPE_FIELD=spike' skills/n1-refine/steps/01-fetch.md
 has "write closes block with end line" '*End of Refined by N1*' skills/n1-refine/steps/03-write.md
 has "write replaces through end line" 'through the next `End of Refined by N1` line' skills/n1-refine/steps/03-write.md
 line_has "handoff investigation form keys on resolved type" 'resolved type is `investigation`' '`--investigate` on a Task-typed ticket does not count' skills/n1-refine/steps/03-write.md
