@@ -1468,6 +1468,23 @@ class GateRegistryTest(unittest.TestCase):
             self.assertIn(f"`{did}`", section, did)
             self.assertFalse(bm._is_gate_id(did), did)
 
+    def test_telemetry_doc_emitted_bullets_equal_registry(self):
+        # N1-597: a stale or extra id in the "Emitted decision ids" bullets must fail.
+        lines = (REPO / "references" / "telemetry.md").read_text(encoding="utf-8").splitlines()
+        start = next(i for i, l in enumerate(lines) if l.startswith("Emitted decision ids"))
+        bullets = []
+        for l in lines[start + 1:]:
+            if l.startswith("- "):
+                bullets.append(l)
+            elif l.strip():
+                break
+        tokens = re.findall(r"`([^`]+)`", "\n".join(bullets))
+        tokens = [t for t in tokens if "/" not in t and "." not in t]
+        prefixes = {t.split(":", 1)[0] + ":" for t in tokens if "<" in t}
+        ids = {t for t in tokens if re.fullmatch(r"[a-z]+(-[a-z]+)+", t)}
+        self.assertEqual(ids, set(bm.KNOWN_GATE_IDS))
+        self.assertEqual(prefixes, set(bm.GATE_ID_PREFIXES))
+
     def test_telemetry_skill_counts_only_documented_ids(self):
         text = (REPO / "skills" / "n1-telemetry" / "steps" / "01-collect.md").read_text(encoding="utf-8")
         self.assertIn("`references/telemetry.md` § Decision events", text)
