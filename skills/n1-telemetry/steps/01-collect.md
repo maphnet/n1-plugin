@@ -61,7 +61,7 @@ For each threshold in the system, report:
 
 ### Gate Activation Rates
 
-For each unique decision ID found in `decisions[]` across the last 50 runs:
+Consider only decision IDs listed in `references/telemetry.md` § Decision events (the exact ids plus any id starting with `escalation:` or `downgrade:`). Skip every other id: the orchestrator improvised those and they have no emit site. For each listed ID found in `decisions[]` across the last 50 runs:
 
 - **Activation rate** = (runs where `result == true`) / (runs containing this decision ID)
 - **Coverage** = (runs containing this decision ID) / total_runs
@@ -71,7 +71,7 @@ Report as a table:
 | Gate | Activation Rate | Coverage | Status |
 |------|----------------|----------|--------|
 | lite-analysis-gate | X% | Y% | normal |
-| finish-gate | X% | Y% | ⚠ low — removal candidate |
+| release-gate | X% | Y% | ⚠ low — removal candidate |
 | ... | | | |
 
 **Removal candidates:** Gates with activation_rate < 5% AND coverage ≥ 50% (present in at least half of runs). Print:
