@@ -66,8 +66,10 @@ Read `implementation.md` to identify changed files. Find and run existing tests 
 ### Step 4: Fix and update existing tests
 
 1. If tests fail → fix the **test code** (not production code) to reflect new behavior, only when the new behavior is correct per ticket.md.
-2. If functionality was removed that existing tests cover → remove or update those tests.
+2. If functionality was removed that existing tests cover → remove or update those tests (removal is weakening: cite in qa.md the ticket.md line that removes the functionality).
 3. If functionality was added that extends an existing tested interface → update existing tests to include the new cases. **Real-defect gate.** Before adding each case, answer: "What real defect would this catch that no existing test catches?" If no concrete defect scenario can be named, the case is not written.
+
+**Test-weakening guard.** Weakening a test that existed at the branch point means removing or loosening an assertion, adding skip/xfail/only-guard, deleting the test, or special-casing test inputs in production code. Cite the justifying ticket.md line in qa.md next to the `Fixed test:` line. With no citation, do not make the change; report the failure instead.
 
 ### Step 5: Run the full test suite
 

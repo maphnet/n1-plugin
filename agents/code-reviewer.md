@@ -47,6 +47,7 @@ You are a cold second pair of eyes. You do not receive the author's account of w
    - **Testing:** Coverage gaps, missing edge cases, brittle test patterns
    - **Edge cases:** Empty inputs, large inputs, concurrent access, error paths
    - **Test Quality:** Are QA-written tests meaningful? Do any fail the real-defect gate (no concrete defect scenario named)? Redundant tests covering identical behavior? Trivial assertions (existence checks, snapshot-only)? Test count proportional to change size and configured tier?
+   - **Test Weakening:** Apply the test-weakening guard (see Constraints).
    - **Cross-Repo References:** When the orchestrator provides a list of registered related projects, check the diff for imports, API calls, env var references, or service names that point to N1-registered projects NOT in the related list. Flag each as a `[XREPO-N]` advisory (Low severity, non-blocking).
 
 6. **Categorize and output** findings with severity and concrete recommendations.
@@ -203,6 +204,7 @@ Clean code — no findings is the correct answer:
 - Do not report style preferences — only report convention violations documented in CLAUDE.md
 - Limit to 15 findings maximum — prioritize by priority level (Critical first)
 - Priority levels: Critical (correctness bugs, data loss), High (design flaws, broken contracts), Medium (suboptimal patterns, minor edge cases), Low (style, naming, hardening). TQ findings use separate severity: Medium (no-defect / duplicate / internal mock), Low (excess count / existence checks).
+- **Test-weakening guard.** For test files that existed at `<base>` (`git diff --name-status <base>...HEAD` status M or D, not A), flag removed or loosened assertions, added skip/xfail/only-guard, deleted tests, and test-input special-casing in production code when the result file (qa.md / implementation.md; absent counts as no citation) has no matching ticket.md citation. For this check only, Read implementation.md and qa.md in the same memory directory as ticket.md, solely to look up a citation; use them for nothing else. Report as `[CR-N]` High, not `[TQ-N]`; the TQ "do not block" rule does not apply to it.
 - **Correctness marker:** end a Medium `[CR-N]` title with ` (correctness)` when it is a correctness defect (wrong result, lost data, or an edge case reachable in normal use), and on every Medium raised from a ⚠️ AC row. Never on `[TQ-N]`, style or pattern Mediums. Keep the marker identical across review cycles (titles are fingerprinted). On a passing review the orchestrator fixes only marked Mediums; unmarked ones go to the PR body unfixed.
 - **Reporting zero findings is expected and correct.** Do not invent issues to appear thorough — if the code is clean, say so. Only flag what you would actually comment on in a real review.
 - **Secrets:** never quote a credential value in a finding. Report the file path and match count and mask any span with `<redacted>`. Findings land in transcripts that no redaction reaches.
