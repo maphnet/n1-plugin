@@ -216,7 +216,7 @@ assert_contains "T38: analysis.md surfaces simple-path in Gate 1 prose" "$ANALYS
 # N1-591: qa step skips qa-engineer on the simple path through the lib helper
 QA_STEP_TXT="$REPO_ROOT/skills/n1-start/steps/qa.md"
 assert_contains "T39: qa.md fence calls n1_qa_skip_decision" "$QA_STEP_TXT" "n1_qa_skip_decision"
-assert_contains "T40: qa.md keeps the qa-engineer spawn for non-skipped runs" "$QA_STEP_TXT" "**Spawn qa-engineer**"
+assert_contains "T40: qa.md keeps the qa-engineer spawn for non-skipped runs" "$QA_STEP_TXT" "**spawn qa-engineer**"
 assert_contains "T41: lib/qa-step.sh reads SIMPLE_PATH via n1_read_context" "$REPO_ROOT/lib/qa-step.sh" "n1_read_context"
 
 echo

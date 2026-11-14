@@ -6,16 +6,16 @@ _n1_qa_step_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_n1_qa_step_dir/memory.sh"; source "$_n1_qa_step_dir/breakcheck.sh"; source "$_n1_qa_step_dir/context.sh"
 
 n1_qa_skip_decision() {
-    # Usage: n1_qa_skip_decision — N1-591: prints QA_SKIP=1 when the simple path may skip qa-engineer (non-bug task, qa.breakCheck
-    # not all: bug tickets and mode all need the qa-engineer Regression test: line), else QA_SKIP=0 (also on missing context).
+    # Usage: n1_qa_skip_decision — N1-591: prints QA_SKIP=1 when the simple path may skip qa-engineer (resolved type and analyst task_type
+    # both set and not bug, qa.breakCheck=bugs: the only combination where n1_qa_break_check passes without a Regression test: line), else QA_SKIP=0.
     # Records the qa-engineer-skip decision on the first qa cycle only.
-    local QD="$N1_HOME/memory/$ID" SIMPLE_PATH="" TASK_TYPE BC_MODE CYCLE SKIP=0
+    local QD="$N1_HOME/memory/$ID" SIMPLE_PATH="" TASK_TYPE RTYPE BC_MODE CYCLE SKIP=0
     n1_read_context
-    TASK_TYPE=$(n1_read_signal "$QD/ticket.md" "task_type"); BC_MODE=$(n1_config_val '.qa.breakCheck'); BC_MODE=${BC_MODE:-bugs}
-    [ "$SIMPLE_PATH" = true ] && [ -n "$TASK_TYPE" ] && [ "$TASK_TYPE" != bug ] && [ "$BC_MODE" != all ] && SKIP=1
+    RTYPE=$(n1_read_frontmatter "$QD/overview.md" "type" 2>/dev/null); TASK_TYPE=$(n1_read_signal "$QD/ticket.md" "task_type"); BC_MODE=$(n1_config_val '.qa.breakCheck'); BC_MODE=${BC_MODE:-bugs}
+    [ "$SIMPLE_PATH" = true ] && [ -n "$RTYPE" ] && [ "$RTYPE" != bug ] && [ -n "$TASK_TYPE" ] && [ "$TASK_TYPE" != bug ] && [ "$BC_MODE" = bugs ] && SKIP=1
     CYCLE=$(n1_read_frontmatter "$QD/overview.md" "qa_fix_cycle" 2>/dev/null)
     if [ -z "$CYCLE" ] || [ "$CYCLE" = 0 ]; then
-        n1_record_decision qa-engineer-skip "$([ "$SKIP" = 1 ] && echo true || echo false)" '{"all":[{"context":"SIMPLE_PATH","eq":"true"},{"signal":"ticket.task_type","neq":"bug"},{"config":"qa.breakCheck","neq":"all"}]}' "simple_path=${SIMPLE_PATH:-}" "task_type=$TASK_TYPE" "break_check=$BC_MODE" >/dev/null 2>&1 || true
+        n1_record_decision qa-engineer-skip "$([ "$SKIP" = 1 ] && echo true || echo false)" '{"all":[{"context":"SIMPLE_PATH","eq":"true"},{"frontmatter":"type","neq":"bug"},{"signal":"ticket.task_type","neq":"bug"},{"config":"qa.breakCheck","eq":"bugs"}]}' "simple_path=${SIMPLE_PATH:-}" "type=$RTYPE" "task_type=$TASK_TYPE" "break_check=$BC_MODE" >/dev/null 2>&1 || true
     fi
     echo "QA_SKIP=$SKIP"
 }

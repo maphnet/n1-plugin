@@ -11,9 +11,9 @@ Run **Ensure Dependencies(`<ID>`)** before spawning. > **ORCHESTRATOR GUARDRAIL 
 
 `QA_SKIP=1` (simple path, non-bug): do not spawn qa-engineer; dispatch the developer persona (context `qa`) with a suite-only brief: change no files, run the full test suite, write `qa.md` with `### Evidence` (`Runner command:`, `Exit code:`), `Verdict: PASS|FAIL`, `## Break-check` and the line `qa-engineer skipped: simple path`; return `Verdict:` and a summary. Then continue with the `qa-return.md` write below; a suite `Verdict: FAIL` takes the **FAIL** branch.
 
-Otherwise run `procedures/rules-injection.md`: `agent_name=qa-engineer`, `changed_files_source=diff_surface` from `implementation.md`.
+`QA_SKIP=0` only: run `procedures/rules-injection.md`: `agent_name=qa-engineer`, `changed_files_source=diff_surface` from `implementation.md`.
 
-**Spawn qa-engineer** (context `qa`). Inputs: ticket.md, implementation.md, plan/brainstorm.md, `$N1_HOME/memory/$ID/analysis.md`; Key Decisions+Escalations inline; `$RULES_BLOCK`. Output: `qa.md`; return `Verdict: PASS|FAIL`, `Bugs found:`, `TQ-relevant notes:`, summary, `n1:signals`.
+Then **spawn qa-engineer** (context `qa`, only when `QA_SKIP=0`). Inputs: ticket.md, implementation.md, plan/brainstorm.md, `$N1_HOME/memory/$ID/analysis.md`; Key Decisions+Escalations inline; `$RULES_BLOCK`. Output: `qa.md`; return `Verdict: PASS|FAIL`, `Bugs found:`, `TQ-relevant notes:`, summary, `n1:signals`.
 
 qa.md missing/empty: write the returned summary to it. Write the qa-engineer's full returned text to `$N1_HOME/memory/$ID/qa-return.md` with the file-write mechanism (never paste it into a shell command or string), then:
 
