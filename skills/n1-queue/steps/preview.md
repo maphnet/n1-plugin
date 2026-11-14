@@ -158,13 +158,7 @@ Record Pre-Decision as `<category>: <ask-at-runtime|pre-authorize|narrow>`, seve
 
 ## Prompt
 
-```bash
-source ~/.n1/preamble.sh
-source "$N1_ROOT/lib/queue.sh"
-n1_queue_notify_check
-```
-
-Print any warning line verbatim (out-of-session alerts will be silently skipped otherwise). Print the plan table again (Reason now carries Order notes) and the Hierarchy block when it applies, then `Schedule: <SCHEDULE>` and `Concurrency: <MAX_CONCURRENT> (queue.maxConcurrent; the bg backend runs one at a time).`, and when `MAX_CONCURRENT` is above 1 append ` Parallel workers share your usage limits.`, plus `## Decisions` rows that have a Pre-Decision or Notes, plus, for each candidate whose Reason carries `briefed`, its brief under `Brief <KEY>:` so the user sees what the child will plan from. Then ask the user:
+Print the plan table again (Reason now carries Order notes) and the Hierarchy block when it applies, then `Schedule: <SCHEDULE>` and `Concurrency: <MAX_CONCURRENT> (queue.maxConcurrent; the bg backend runs one at a time).`, and when `MAX_CONCURRENT` is above 1 append ` Parallel workers share your usage limits.`, plus `## Decisions` rows that have a Pre-Decision or Notes, plus, for each candidate whose Reason carries `briefed`, its brief under `Brief <KEY>:` so the user sees what the child will plan from. Then ask the user:
 - **Start** (bare) or **Save plan** (`--plan`) -> proceed to the run step.
 - **Edit** -> free text: remove tickets, reorder, change model (`KEY=opus|sonnet`). Apply changes (a removed ticket also loses its `DECISIONS` row), re-run § 3's Schedule and concurrency block in the edited order, re-print the table and schedule, ask again. Log each edit as `| preview | edit | <text> |` in a pending Decision Ledger list.
 - **Cancel** -> run § Discard, then **STOP.** Cancel and Edit's ticket removal do not revert briefs already written to the tracker in § 1.

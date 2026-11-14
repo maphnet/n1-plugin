@@ -122,7 +122,7 @@ strip_pid() {
 
 EVENTS="$(dirname "$QUEUE")/events.jsonl"
 # ponytail: STARTED_AT/PARKED are in-memory; after a runner crash-restart duration_s is null and
-# a re-parked ticket may notify twice. Persist them in queue.md if that ever matters.
+# a re-parked ticket may report twice. Persist them in queue.md if that ever matters.
 declare -a STRUCK=() STARTED_AT=() PARKED=() DRAIN=() DRAIN_ESCALATED=()
 
 ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
@@ -132,18 +132,15 @@ hb_rebase() {   # N1-315: <ticket> — a wait the worker cannot beacon through (
     printf '%s\t%s\n' "$(date +%s)" "${p:--}" > "$N1_QUEUE_DIR/.hb-$1"; rm -f "$N1_QUEUE_DIR/.stall-$1"
 }
 
-# escalate <ticket> <n1-home> [session-state] — escalated event + needs-you notification
-# (with resume hint). session-state "stopped" means the bg session is draining (success-path
-# finalize; stopped once idle): hint n1-start, since attach only reaches a running session.
+# escalate <ticket> <n1-home> [session-state] — escalated event. session-state "stopped" means
+# the bg session is draining (success-path finalize; stopped once idle): the event gets outcome=terminal.
 # N1-60: when the child has mirrored a question to .question-<ticket>.json, that file's full
 # content (question/options/recommended/rationale) is packed into the event's reason field so
 # it survives the file's later removal by n1_queue_answer/the child on resume. events.jsonl's
 # reason field is already free text; this just widens what it can hold, as JSON, via jq -c.
-# N1-359: optional 4th arg = fallback reason (the Orca subject) used when overview.md has no ## Escalations entry. On an
-# Orca session the --answer hint is printed only when a question is pending (.ask-<T> or .question-<T>.json); otherwise
-# no hint (the worker is alive in its terminal, so neither --answer nor an n1-start resume applies).
+# N1-359: optional 4th arg = fallback reason (the Orca subject) used when overview.md has no ## Escalations entry.
 escalate() {
-    local sid q qfile qfull reason mark key fb hint=""
+    local sid q qfile qfull reason mark key fb
     sid=$(n1_queue_session_id "$QUEUE" "$1")
     # N1-241: newest entry, so an appended entry changes the reason and the watch dedupe relays it.
     q=$(n1_queue_escalation_text "$2/memory/$1/overview.md" last)
@@ -202,16 +199,6 @@ escalate() {
     else
         ev escalated ticket="$1" session="$sid" reason="$reason"
     fi
-    if [ "${3:-}" = "stopped" ]; then
-        n1_notify needs-you "$1 needs you: ${q:-waiting for an answer} (resume: n1-start $1)"
-    elif [ "${sid#orca:}" != "$sid" ]; then
-        if [ -n "$qfile" ] && { [ -f "$N1_QUEUE_DIR/.ask-$1" ] || [ -f "$qfile" ]; }; then
-            hint=" (answer: /n1:n1-queue --answer $1 <text>)"
-        fi
-        n1_notify needs-you "$1 needs you: ${q:-waiting for an answer}$hint"
-    else
-        n1_notify needs-you "$1 needs you: ${q:-waiting for an answer}${sid:+ (resume: $(n1_bg_cmd attach "$sid"))}"
-    fi
 }
 
 # release_backstop — NP-199: fires the automatic tag-release backstop (tag mode only,
@@ -228,12 +215,11 @@ release_backstop() {
     timeout -k 30 300 bash -c "$(n1_queue_release_cmd "$QUEUE_ID" "$rel_repo" "$rel_log")" >>"$rel_log" 2>&1 || true
 }
 
-# halt_now <message> — record, notify, and stop the runner (exit 2).
+# halt_now <message> — record and stop the runner (exit 2).
 halt_now() {
     n1_write_frontmatter "$QUEUE" step halted
     ev halted reason="$1"
     release_backstop
-    n1_notify needs-you "Queue $QUEUE_ID halted: ${1:0:200}"
     echo "$1"
     drain_wait
     strip_pid
@@ -248,7 +234,6 @@ halt() {
         [ -n "$HALT_DRAIN" ] && return 0
         HALT_DRAIN="$1"
         ev halt_draining reason="$1"
-        n1_notify needs-you "Queue $QUEUE_ID halted: ${1:0:160}; still supervising live workers. Stop them: /n1:n1-queue --stop $QUEUE_ID"
         echo "$1 (supervising live workers until they finish or are stopped)"
         return 0
     fi
@@ -340,14 +325,11 @@ finalize() {
         ' "$QUEUE" > "$tmp" && mv "$tmp" "$QUEUE" || { rm -f "$tmp"; false; }
     fi
 
-    # Events + notifications before three-strikes (which may exit). PR successes notify only
-    # through the end-of-queue digest; a no-PR end (N1-470) notifies once, pointing at the ticket gate3.md.
+    # Events before three-strikes (which may exit).
     [ "$OUTCOME" = "escalated" ] && [ -z "${PARKED[NUM]:-}" ] && escalate "$TICKET" "$N1H" stopped
     [ -n "${STARTED_AT[NUM]:-}" ] && DUR=$(( $(date +%s) - STARTED_AT[NUM] ))
     ev ticket_finished ticket="$TICKET" outcome="$EV_OUTCOME" pr="$PR_URL" \
         session="$(n1_queue_session_id "$QUEUE" "$TICKET")" duration_s="$DUR" reason="$REASON"
-    [ "$EV_OUTCOME" = "failed" ] && n1_notify info "$TICKET failed${REASON:+ ($REASON)}"
-    [ "$EV_OUTCOME" = no-pr ] && n1_notify info "$TICKET ended without a PR (see $N1H/memory/$TICKET/gate3.md)"
 
     # Three-strikes counter. N1-267: under Orca concurrency, a subtask-timeout right after a counted subtask-timeout
     # within STRIKE_WINDOW adds no strike (launch/exit failures stay systemic), so one cause timing out several rows neither halts nor stops the tick's other rows.
@@ -487,17 +469,15 @@ drain_stop() {
     DRAIN=(${keep[@]+"${keep[@]}"})
 }
 
-# drain_leftover <log-reason> <notify-label> — drain_wait gave up: log the left-running sids and
-# send one needs-you notification naming their tickets.
+# drain_leftover <log-reason> <label> — drain_wait gave up: log the left-running sids.
 drain_leftover() {
-    local entry sid ticket
-    local -a sids=() tickets=()
+    local entry sid
+    local -a sids=()
     for entry in ${DRAIN[@]+"${DRAIN[@]}"}; do
-        IFS=$'\t' read -r sid ticket _ <<<"$entry"
-        sids+=("$sid"); tickets+=("$ticket")
+        IFS=$'\t' read -r sid _ <<<"$entry"
+        sids+=("$sid")
     done
     echo "$1, left running: ${sids[*]}"
-    n1_notify needs-you "$2: ${tickets[*]}"
 }
 
 # drain_wait — end of run: give DRAIN sessions up to subtaskTimeoutMinutes to go idle, then
@@ -723,13 +703,11 @@ story_merge() {
     if [ "$st" = OPEN ]; then sm_retry merge-pending; return 0; fi
     if [ -z "$base" ]; then   # SEC-2: an unreadable base is not a clean merge (the re-read already retried 3 times)
         ev escalated ticket="$TICKET" reason="runner merge base unverified"
-        n1_notify needs-you "$TICKET: the runner merged $url but could not read its base; check that it landed on $SB"
         chain_note "$NUM" "$TICKET" merge-base-unverified
         return 0
     fi
     if [ "$base" != "$SB" ]; then
         ev escalated ticket="$TICKET" reason="runner merge landed on $base, not $SB"
-        n1_notify needs-you "$TICKET: the runner merged $url but its base reads $base, not $SB; check $base"
         chain_note "$NUM" "$TICKET" merged-off-story
         return 0
     fi
@@ -788,7 +766,6 @@ await_bg() {
                     if [ -z "$asked" ]; then
                         asked=1
                         ev escalated ticket="$2" session="$sid" reason="final PR session needs you"
-                        n1_notify needs-you "$2 final PR session needs you (resume: $(n1_bg_cmd attach "$sid"))"
                     fi ;;
                 *) asked=""; miss=0 ;;
             esac
@@ -811,7 +788,6 @@ await_bg() {
 final_none() {
     n1_queue_final_pr_set "$QUEUE" "$1" - - - "$2" || echo "final PR: $1 not recorded in queue.md"
     ev final_pr_failed ticket="$RUN_STORY_ID" reason="$2"
-    n1_notify needs-you "Queue $QUEUE_ID: no final PR for $RUN_MODE $RUN_STORY_ID in $1 ($2); open it from $RUN_MODE/$RUN_STORY_ID by hand"
     echo "final PR: $1 none ($2)"
 }
 
@@ -915,12 +891,10 @@ final_merge() {
     if [ "$st" != MERGED ]; then fm_end waits "waits: merge-state-${st:-unreadable}"; return 0; fi
     if [ -z "$base" ]; then   # SEC-2 (as story_merge): an unreadable base is not a clean merge
         ev escalated ticket="$RUN_STORY_ID" reason="runner merge base unverified"
-        n1_notify needs-you "Queue $QUEUE_ID: the runner merged final PR $url but could not read its base; check that it landed on $def"
         fm_end waits "waits: merge-base-unverified"; return 0
     fi
     if [ "$base" != "$def" ]; then
         ev escalated ticket="$RUN_STORY_ID" reason="runner merge landed on $base, not $def"
-        n1_notify needs-you "Queue $QUEUE_ID: the runner merged final PR $url but its base reads $base, not $def; check $base"
         fm_end waits "waits: merged-off-default"; return 0
     fi
     fm_end merged "merged$sfx"
@@ -1188,7 +1162,6 @@ chain_finish() {
                     if [ -z "$asked" ] && { [ -z "${ORCA_RUN:-}" ] || [ "$pst" = OPEN ]; }; then
                         asked=1
                         ev escalated ticket="$TICKET" session="$fsid" reason="chained n1-finish needs you"
-                        n1_notify needs-you "$TICKET n1-finish needs you (resume: $(n1_bg_cmd attach "$fsid"))"
                     fi ;;
                 *) asked=""; miss=0 ;;
             esac
@@ -1600,8 +1573,7 @@ run_orca() {
         # Time charged to this tick: a full wait only for a truly empty batch, else the real time spent (an early
         # return, a heartbeat, or a replayed batch must not count as a whole poll interval).
         if [ -n "$EVS" ]; then CHARGE=$(( $(date +%s) - TICK0 )); else CHARGE=$POLL; fi
-        # N1-265: loops that can reach n1_notify read fd 3; a notifier backend that reads fd 0
-        # (WSL powershell.exe drains it) must never consume the remaining rows or events.
+        # N1-265: the row and event loops read fd 3, so a callee that reads fd 0 never consumes the remaining rows or events.
         # N1-359: EXTRA = optional 5th column (stop/escalation text, see n1_orca_events); empty when absent.
         while IFS=$'\t' read -r -u 3 TYPE TASK MSG MDISP EXTRA; do
             _n1_orca_id "$TASK" || continue
@@ -1687,7 +1659,6 @@ run_orca() {
                     SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"
                 else
                     echo "Stop failed: $TICKET (worker terminal not closed; row and identity kept). Close it in the workspace manager, then run /n1:n1-queue --status $QUEUE_ID"
-                    n1_notify needs-you "Stop failed: $TICKET (worker terminal not closed; row and identity kept). Close it in the workspace manager, then run /n1:n1-queue --status $QUEUE_ID" </dev/null
                 fi
             done 3< <(n1_orca_unsettled "$QUEUE")
         fi
@@ -1797,7 +1768,6 @@ run_orca() {
                     : > "$N1_QUEUE_DIR/.stall-$TICKET"
                     echo "[$NUM] $TICKET may be stalled (live, no beacon for ${AGE} min, last phase ${HB_PHASE:--})"
                     ev stalled ticket="$TICKET" reason="phase=${HB_PHASE:--} age=${AGE}m"
-                    n1_notify info "$TICKET may be stalled: live but no beacon for $AGE min (last phase ${HB_PHASE:--})" </dev/null
                 fi
             fi
             WORKED[NUM]=$(( ${WORKED[NUM]:-0} + CHARGE ))
@@ -1878,7 +1848,6 @@ run_orca() {
                 if [ "$OWED" != " " ] && [ -z "$OWED_NOTED" ]; then
                     OWED_NOTED=1
                     echo "Queue $QUEUE_ID: worker(s)${OWED% } still running after their PR; not released. Resume: /n1:n1-queue --run $QUEUE_ID"
-                    n1_notify info "Queue $QUEUE_ID: worker(s)${OWED% } still running after their PR; not released. Resume: /n1:n1-queue --run $QUEUE_ID"
                 fi
             fi
             # N1-64/N1-114: held rows start only once their blocker's PR is merged (no Orca --deps).
@@ -2056,7 +2025,6 @@ else
     BACKEND=$(n1_queue_val backend)
     if [ "$BACKEND" = orca ] || { [ "$BACKEND" != bg ] && [ -n "${ORCA_CLI_COMMAND:-}" ]; }; then
         echo "Orca orchestration unavailable, using claude --bg"
-        n1_notify info "Queue $QUEUE_ID: Orca orchestration unavailable, using claude --bg"
     fi
     run_bg
 fi
@@ -2079,7 +2047,6 @@ DIGEST="$(count_rows pr) PR / $([ "$NOPR" = 0 ] || printf '%s no-PR / ' "$NOPR")
 if [ -n "$COORD" ] && [ "$(count_rows awaiting-human)" = 0 ]; then n1_orca_coord_close "$COORD"; fi
 release_backstop
 ev queue_done reason="$DIGEST"
-n1_notify done "Queue $QUEUE_ID: $DIGEST"
 n1_write_frontmatter "$QUEUE" step done
 drain_wait
 strip_pid

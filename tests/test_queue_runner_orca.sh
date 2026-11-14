@@ -362,7 +362,7 @@ test_orca_obsolete_releases_successor() {
 
 # N1-470 AC1/3/4/5. Bug caught (queue list-53e243e0, N1-437): a child that ended step done with no pr_url was recorded
 # pr with an empty PR cell, its worker was never settled (worker_done waited for a ## Finish block that never comes)
-# and the queue never finished. Now: row no-pr, one notification, no chain, worker settled, successor released.
+# and the queue never finished. Now: row no-pr, one ticket_finished event, no chain, worker settled, successor released.
 test_orca_no_pr_settles() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-1:done" "T-2:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'

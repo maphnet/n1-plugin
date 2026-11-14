@@ -42,7 +42,7 @@ case "${1:-}" in
     ''|-*) echo "usage: n1-queue-chain.sh [--own <queue/id>] [--pred <pr-url>] <queue.md>... | --all" >&2; exit 2 ;;
 esac
 
-# record <status> <event> <reason> <hint> — the row outcome: status, Final PRs Note, event, needs-you notice. No git.
+# record <status> <event> <reason> <hint> — the row outcome: status, Final PRs Note, event. No git.
 record() {
     local fu fd fm
     n1_queue_pred_set "$Q" "$REPO" "$PQ" "$PB" "$PU" "$BASE" "$HEAD" "$1" || echo "queue chain: $REPO row not recorded in queue.md"
@@ -50,8 +50,6 @@ record() {
     IFS=$'\t' read -r _ fu fd fm _ <<< "$(n1_queue_final_prs "$Q" | awk -F'\t' -v r="$REPO" '$1 == r')"
     [ -z "$fu" ] || n1_queue_final_pr_set "$Q" "$REPO" "$fu" "$fd" "$fm" "chain: $3" || true
     n1_queue_event "$(dirname "$Q")/events.jsonl" "$QID" "$RID" "$2" pr="$PU" reason="$3"
-    # </dev/null: the caller loops over a here-string and a notifier must not consume the remaining rows.
-    n1_notify needs-you "Queue $QID: $3 for ${OWN:-its queue branch} in $REPO (predecessor $PB, $PU); $4" </dev/null
     echo "queue chain: $REPO $3"
 }
 

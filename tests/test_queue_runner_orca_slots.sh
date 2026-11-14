@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for lib/queue.sh and scripts/n1-queue-run.sh: Orca slot counting and notifier/stdin drains.
+# Tests for lib/queue.sh and scripts/n1-queue-run.sh: Orca slot counting and fd-3 row/event loops.
 # Shared setup and fixtures: tests/queue_runner_lib.sh (N1-304 split).
 set -euo pipefail
 source "$(dirname "$0")/queue_runner_lib.sh"
@@ -38,13 +38,13 @@ test_orca_slot_held_told() {
     rm -rf "$tmp"
 }
 
-test_orca_notifier_drain_keeps_rows() {   # N1-265: a stdin-draining notifier must not hide in-flight rows from the slot count
+test_orca_failed_row_keeps_slots() {   # N1-265: a failed row must not hide in-flight rows from the slot count
     local tmp t; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done" "T-D:done" "T-E:done"; mk_orca "$tmp"
     cfg_set "$tmp" '.queue.maxConcurrent = 3 | .queue.subtaskTimeoutMinutes = 600'   # N1-267: no timeouts, so rows stay in flight; the tick cap ends the run
     for t in T-A T-B T-C T-D; do echo implement > "$tmp/fake/step.$t"; done
     : > "$tmp/fake/nodone.T-B"; : > "$tmp/fake/nodone.T-C"; : > "$tmp/fake/nodone.T-D"
-    # Tick 2: T-A's worker reports done without a terminal step -> failed (notifies) while T-B and T-C are in flight.
+    # Tick 2: T-A's worker reports done without a terminal step -> failed while T-B and T-C are in flight.
     # T-B/T-C/T-D never finish; the run ends on the tick cap.
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
     assert_eq "orca-drain: T-A failed" "failed|child-exited-incomplete" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
@@ -53,12 +53,12 @@ test_orca_notifier_drain_keeps_rows() {   # N1-265: a stdin-draining notifier mu
     rm -rf "$tmp"
 }
 
-test_orca_event_drain_keeps_events() {   # N1-265: an escalation's notifier must not swallow the rest of the event batch
+test_orca_event_drain_keeps_events() {   # N1-265: an escalation must not swallow the rest of the event batch
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = 3'
     echo implement > "$tmp/fake/step.T-A"; echo implement > "$tmp/fake/step.T-B"
     : > "$tmp/fake/nodone.T-A"; : > "$tmp/fake/nodone.T-B"
-    # One batch (emitted once both workers started): T-A escalates (notifies), then T-B's worker reports done.
+    # One batch (emitted once both workers started): T-A escalates, then T-B's worker reports done.
     printf '%s,%s' "$(orca_msg escalation task-T-A m-e1)" "$(orca_msg worker_done task-T-B m-d1)" > "$tmp/fake/question"
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
     # A lost worker_done leaves T-B to time out instead (subtask-timeout).
@@ -67,10 +67,10 @@ test_orca_event_drain_keeps_events() {   # N1-265: an escalation's notifier must
     rm -rf "$tmp"
 }
 
-test_bg_notifier_drain_keeps_rows() {   # N1-265: a failed row's stdin-draining notifier must not hide a working row
+test_bg_failed_row_keeps_rows() {   # N1-265: a failed row must not hide a working row
     local tmp b_done c_launch; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:failed" "T-B:working done" "T-C:done"
-    # Resume state: T-A (already a deferred retry, so its failure notifies instead of deferring) and T-B in flight.
+    # Resume state: T-A (already a deferred retry, so it fails instead of deferring) and T-B in flight.
     n1_queue_row_status "$tmp/queue.md" 1 in-progress deferred-retry
     n1_queue_row_status "$tmp/queue.md" 2 in-progress
     printf '/n1:n1-start T-A\n' > "$tmp/fake/prompt.n1-bgq-T-A-1"; echo 00000001 > "$tmp/fake/id.n1-bgq-T-A-1"
@@ -261,9 +261,9 @@ test_orca_stop_notice_deferral_survives_restart() {
 }
 
 test_orca_owed_holds_slot
-test_orca_notifier_drain_keeps_rows
+test_orca_failed_row_keeps_slots
 test_orca_event_drain_keeps_events
-test_bg_notifier_drain_keeps_rows
+test_bg_failed_row_keeps_rows
 test_runner_loops_fd3
 test_orca_stop_finished_releases_pr_slot
 test_orca_stop_finished_same_tick_releases

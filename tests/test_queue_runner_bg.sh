@@ -232,8 +232,8 @@ test_bg_sequential() {
 }
 
 # N1-470. Bug caught: a child that ended step done with no pr_url was recorded pr with an empty PR cell and the
-# fullAuto finish chain ran on the empty URL (Reason finish:pr-state-unreadable). Now: no-pr everywhere, one info
-# notification naming the ticket and its gate3.md, no chain, the queue ends.
+# fullAuto finish chain ran on the empty URL (Reason finish:pr-state-unreadable). Now: no-pr everywhere, a
+# ticket_finished outcome=no-pr event, no chain, the queue ends.
 test_bg_no_pr() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:done" "T-B:done"
@@ -387,7 +387,7 @@ test_bg_missing_grace() {
     mk_bg "$tmp" bgq
     # subtaskTimeoutMinutes large enough that the working-timeout path never preempts
     # the missing-session grace (BG_POLL_GRACE=10 polls) below.
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":600,"notify":"none"}}' > "$tmp/n1home/config.json"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":600}}' > "$tmp/n1home/config.json"
     # The defer-once retry (row 2) launches for real; give it a states file so it
     # resolves immediately instead of chaining another grace period.
     printf 'done\n' > "$tmp/fake/states.T-X"
@@ -420,7 +420,7 @@ test_bg_reconcile_working() {
     # N1-74: one extra "working" poll after the overview reaches pr, then "done" — the
     # runner must defer the stop until the bg session itself goes idle.
     mk_bg "$tmp" bgq "T-A:working done"
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":0,"notify":"none"}}' > "$tmp/n1home/config.json"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":0}}' > "$tmp/n1home/config.json"
     mkdir -p "$tmp/n1home/memory/T-A"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-A/overview.md"
     assert_eq "bg-recw: exit 0" "0" "$(run_bg_queue "$tmp")"
@@ -462,7 +462,7 @@ test_bg_drain_rearms_after_answer() {
     # The first state is consumed by run_bg's pre-finalize poll, before T-B enters DRAIN.
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-B:working blocked working blocked"
-    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5}}\n' > "$tmp/n1home/config.json"
     mkdir -p "$tmp/n1home/memory/T-B"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-B/overview.md"
     run_bg_queue "$tmp" >/dev/null
@@ -479,7 +479,7 @@ test_bg_drain_rearms_after_answer() {
 test_bg_drain_benign_reason() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-B:working blocked"
-    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5}}\n' > "$tmp/n1home/config.json"
     mkdir -p "$tmp/n1home/memory/T-B"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n\n## Key Decisions\n\n## Escalations\n- Plan review: FIXED - tightened Task 3\n- Approach A auto-decided (21/25)\n' > "$tmp/n1home/memory/T-B/overview.md"
     run_bg_queue "$tmp" >/dev/null
@@ -505,7 +505,7 @@ test_bg_drain_benign_reason() {
 test_bg_escalation_dedupe() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked blocked blocked"
-    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5}}\n' > "$tmp/n1home/config.json"
     printf -- '---\nstep: implementation\n---\n# T\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.1"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.2"
     printf '%s' '[headless] plan: pick A or B' > "$tmp/.esc-reason-T-A"
@@ -522,7 +522,7 @@ test_bg_escalation_dedupe() {
 test_bg_escalation_dedupe_question_file() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked blocked blocked"
-    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5}}\n' > "$tmp/n1home/config.json"
     printf -- '---\nstep: implementation\n---\n# T\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.1"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.2"
     printf '{"question":"Pick A or B?","options":["A","B"]}' > "$tmp/.question-T-A.json"
@@ -537,7 +537,7 @@ test_bg_escalation_dedupe_question_file() {
 test_bg_escalation_rearm_on_new_entry() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked blocked blocked"
-    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5}}\n' > "$tmp/n1home/config.json"
     printf -- '---\nstep: implementation\n---\n# T\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.1"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n\n## Escalations\n- [headless] plan: pick A or B\n- [headless] pr: second stop\n' > "$tmp/fake/overview.T-A.2"
     run_bg_queue "$tmp" >/dev/null
@@ -569,7 +569,7 @@ test_bg_drain_stop_retries_on_failure() {
     # next tick instead of leaking a running session.
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:done"
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"none"}}' > "$tmp/n1home/config.json"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1}}' > "$tmp/n1home/config.json"
     mkdir -p "$tmp/n1home/memory/T-A"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-A/overview.md"
     touch "$tmp/fake/stopfail.00000001"
@@ -582,7 +582,7 @@ test_bg_drain_stop_retries_on_failure() {
 test_bg_reconcile_missing() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:missing missing missing"
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":0,"notify":"none"}}' > "$tmp/n1home/config.json"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":0}}' > "$tmp/n1home/config.json"
     mkdir -p "$tmp/n1home/memory/T-A"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-A/overview.md"
     assert_eq "bg-recm: exit 0" "0" "$(run_bg_queue "$tmp")"
@@ -597,7 +597,7 @@ test_bg_reconcile_working_stale_escalation() {
     # "escalated" mid-run — it should be reconciled as "pr" once it truly finishes.
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:working working done"
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"none"}}' > "$tmp/n1home/config.json"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1}}' > "$tmp/n1home/config.json"
     mkdir -p "$tmp/n1home/memory/T-A"
     printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- [asked] resolved, continuing\n' > "$tmp/n1home/memory/T-A/overview.md"
     assert_eq "bg-recw-stale: exit 0" "0" "$(run_bg_queue "$tmp")"
@@ -621,7 +621,7 @@ test_bg_blocked_first_tick_parks() {
 test_bg_reason_child_exited_incomplete() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:done"
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"none"}}' > "$tmp/n1home/config.json"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1}}' > "$tmp/n1home/config.json"
     echo "developer" > "$tmp/fake/finish-step.T-A"
     run_bg_queue "$tmp" >/dev/null
     assert_eq "bg-reason-exited: row 1 deferred" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
@@ -632,7 +632,7 @@ test_bg_reason_child_exited_incomplete() {
 test_bg_reason_bg_state_catchall() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:zzz"
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"none"}}' > "$tmp/n1home/config.json"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1}}' > "$tmp/n1home/config.json"
     run_bg_queue "$tmp" >/dev/null
     assert_eq "bg-reason-catchall: row 1 deferred" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
     assert_eq "bg-reason-catchall: row 1 reason" "bg-state:failed" "$(plan_cell "$tmp/queue.md" 1 9)"
@@ -644,7 +644,7 @@ test_bg_reason_bg_state_catchall() {
 test_bg_relay_marker() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked stopped missing working done"
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":2,"notify":"none"}}' > "$tmp/n1home/config.json"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":2}}' > "$tmp/n1home/config.json"
     touch "$tmp/fake/relay.T-A" "$tmp/.question-T-A.json"
     run_bg_queue "$tmp" >/dev/null
     assert_eq "relay: fresh marker holds stopped/missing child" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
@@ -679,7 +679,7 @@ test_bg_relay_marker() {
     # escalated again (question file newer than the relay marker).
     tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked stopped blocked working done"
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":2,"notify":"none"}}' > "$tmp/n1home/config.json"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":2}}' > "$tmp/n1home/config.json"
     touch -d '-30 seconds' "$tmp/fake/relay.T-A"; touch "$tmp/.question-T-A.json"
     run_bg_queue "$tmp" >/dev/null
     assert_eq "relay: re-block escalates twice" "ticket_started,escalated,escalated,unblocked,ticket_finished" \
@@ -691,7 +691,7 @@ test_bg_relay_marker() {
     # the first-park branch drops the stale relay marker from the previous answer.
     tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked stopped working blocked blocked working done"
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":2,"notify":"none"}}' > "$tmp/n1home/config.json"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":2}}' > "$tmp/n1home/config.json"
     touch -d '-30 seconds' "$tmp/fake/relay.T-A"; touch "$tmp/.question-T-A.json"
     run_bg_queue "$tmp" >/dev/null
     assert_eq "relay: second question after working escalates once" \
@@ -702,7 +702,7 @@ test_bg_relay_marker() {
     # TQ-2: a relay marker newer than the question means no new question -> no re-escalation.
     tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked stopped blocked blocked working done"
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":2,"notify":"none"}}' > "$tmp/n1home/config.json"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":2}}' > "$tmp/n1home/config.json"
     touch -d '-30 seconds' "$tmp/.question-T-A.json"; touch "$tmp/fake/relay.T-A"
     run_bg_queue "$tmp" >/dev/null
     assert_eq "relay: marker newer than question -> single escalation" \
@@ -722,7 +722,7 @@ test_bg_timeout_race_terminal_overview() {
     # Marker refreshed (SEC-3 style) so relay-active holds the child past the subtask timeout;
     # "stopped" repeats so without the fix the child would be killed on poll 3.
     mk_bg "$tmp" bgq "T-A:stopped stopped stopped blocked"
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"none"}}' > "$tmp/n1home/config.json"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1}}' > "$tmp/n1home/config.json"
     touch -d '+1 hour' "$tmp/fake/relay.T-A"
     cat > "$tmp/bin/find" <<FAKEEOF
 #!/usr/bin/env bash

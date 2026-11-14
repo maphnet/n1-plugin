@@ -1820,7 +1820,6 @@ n1_queue_orca_scan() {
             fi
             n1_queue_event "$ev" "$qid" "$run" escalated ticket="$t" session="$(n1_queue_session_id "$q" "$t")" \
                 reason="worker question pending, runner down"
-            n1_notify needs-you "$t needs you: worker question pending, runner down (answer: /n1:n1-queue --answer $t <text>)"
         done 3< <(n1_orca_pending_questions "$d")
     fi
 }
@@ -2284,55 +2283,6 @@ n1_queue_session_started() {
             if (t == tk) { s = $3; gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); ts = s }
         }
         END { print ts }' "$1"
-}
-
-n1_queue_notify_check() {
-    # Usage: n1_queue_notify_check — prints a warning line when the configured
-    # queue.notify backend cannot deliver (NP-216: silent notification gaps).
-    # Prints nothing when the backend is usable. Mirrors n1_notify's backend logic.
-    local backend val
-    backend=$(n1_queue_val notify)
-    case "${backend:-none}" in
-        none) ;;
-        command)
-            val=$(n1_queue_val notifyCommand)
-            [ -n "$val" ] || echo "Warning: queue.notify=command but queue.notifyCommand is not set; notifications will be skipped." ;;
-        ntfy)
-            val=$(n1_queue_val ntfyTopic)
-            [ -n "$val" ] || echo "Warning: queue.notify=ntfy but queue.ntfyTopic is not set; notifications will be skipped." ;;
-        *)
-            if ! command -v notify-send >/dev/null 2>&1 && ! command -v osascript >/dev/null 2>&1 && [ -z "$(n1_powershell_path)" ]; then
-                echo "Warning: queue.notify=desktop but no desktop notifier (notify-send/osascript/powershell.exe) was found; notifications will be skipped."
-            fi
-            ;;
-    esac
-    return 0
-}
-
-n1_notify() {
-    # Usage: n1_notify <needs-you|done|info> <text> — best-effort out-of-session alert.
-    # Backend from queue.notify: none (default) | desktop | ntfy (queue.ntfyTopic) | command
-    # (queue.notifyCommand gets {"ts","kind","text"} on stdin). Never fails the caller.
-    local kind="$1" text="$2" title="N1 queue: $1" backend val
-    [ "$kind" != needs-you ] || n1_orca_unread_main "$text"   # N1-226: also mark the main-checkout Orca card
-    backend=$(n1_queue_val notify)
-    case "${backend:-none}" in
-        none) ;;
-        command)
-            val=$(n1_queue_val notifyCommand)
-            [ -z "$val" ] || jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg kind "$kind" --arg text "$text" \
-                '{ts:$ts,kind:$kind,text:$text}' 2>/dev/null | timeout 10 bash -c "$val" >/dev/null 2>&1 ;;
-        ntfy)
-            val=$(n1_queue_val ntfyTopic)
-            case "$val" in ""|*://*) ;; *) val="https://ntfy.sh/$val" ;; esac
-            [ -z "$val" ] || timeout 10 curl -fsS -H "Title: $title" \
-                -H "Priority: $([ "$kind" = needs-you ] && echo high || echo default)" \
-                -d "$text" "$val" </dev/null >/dev/null 2>&1 ;;
-        *)
-            n1_desktop_notify "$title" "$text" \
-                || echo "n1_notify: no desktop notifier available; skipped ($kind: $text)" >&2 ;;
-    esac
-    return 0
 }
 
 n1_story_convert_decision() {
