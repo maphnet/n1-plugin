@@ -5,7 +5,9 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
-TRI=skills/n1-pr/procedures/codex-triage-worker.md
+source "$(dirname "$0")/persona_split_lib.sh"
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+TRI=$(split_cat "$T/ctw.md" CTW)
 ARCH=references/architecture.md
 
 section() { # <heading>: print "### <heading>" of $TRI up to the next ### heading outside code fences

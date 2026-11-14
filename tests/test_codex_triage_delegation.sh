@@ -4,12 +4,14 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
+source "$(dirname "$0")/persona_split_lib.sh"
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 has()   { if grep -qE -- "$3" "$2" 2>/dev/null; then echo "PASS: $1"; else echo "FAIL: $1 (missing /$3/ in $2)"; FAIL=1; fi; }
 lacks() { if grep -qE -- "$3" "$2" 2>/dev/null; then echo "FAIL: $1 (still has /$3/ in $2)"; FAIL=1; else echo "PASS: $1"; fi; }
 
 TW=agents/tail-worker.md
 CT=skills/n1-pr/procedures/codex-triage.md
-CW=skills/n1-pr/procedures/codex-triage-worker.md
+CW=$(split_cat "$T/ctw.md" CTW)
 P3=skills/n1-pr/steps/03-codex-review.md
 FW=references/file-write-mechanism.md
 
