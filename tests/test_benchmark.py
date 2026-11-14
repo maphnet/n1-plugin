@@ -977,6 +977,22 @@ class AggregateTest(unittest.TestCase):
         self.assertFalse(h["sufficient"])
         self.assertEqual(h["metrics"]["interventions"]["n"], 1)
 
+    def test_aggregate_counts_only_registered_gate_ids(self):
+        # N1-596: ids with no emit site (improvised by the orchestrator) are not gates.
+        improvised = ("review-rerun", "finish-merge", "review-fix-cap", "review-extra-cycle",
+                      "review-fix-cap-extra")
+        decisions = [{"id": did, "result": True} for did in improvised]
+        decisions += [{"id": "review-tier", "result": True},
+                      {"id": "escalation:developer:implementation", "result": False}]
+        caches = []
+        for i in range(5):
+            c = cache_for("5.103.3", f"g{i}", 1.0)
+            c["run_record"] = make_run(run_id=f"g{i}")
+            c["run_record"]["decisions"] = decisions
+            caches.append(c)
+        rates = bm.aggregate(caches, "version")["claude-code/5.103.3"]["gate_activation_rates"]
+        self.assertEqual(rates, {"review-tier": 100.0, "escalation:developer:implementation": 0.0})
+
     def test_aggregate_partition_stats(self):
         caches = [cache_for("3.0.0", f"r{i}", 1.0, host="claude-code") for i in range(5)]
         caches += [cache_for("3.0.0", "u1", None, eligible=False, host="claude-code")]
@@ -1332,6 +1348,13 @@ class ReportTest(unittest.TestCase):
         caches = {"r1": {"run_record": {"decisions": [{"id": "review-tier", "result": False}]}}}
         text = bm.render_report(snap, None, None, "", caches)
         self.assertIn("| review-tier | 0.0% (counts unavailable) |", text)
+
+    def test_gate_counts_skip_improvised_ids(self):
+        # N1-596: _gate_counts must apply the same registry filter as aggregate().
+        decisions = [{"id": "review-tier", "result": True}, {"id": "review-rerun", "result": True},
+                     {"id": "finish-merge", "result": True}, {"id": "", "result": True}]
+        caches = {rid: {"run_record": {"decisions": decisions}} for rid in ("r1", "r2")}
+        self.assertEqual(bm._gate_counts(["r1", "r2"], caches), {"review-tier": (2, 2)})
 
     def test_gate_table_omitted_without_sufficient_partition(self):
         snap = self._gate_snap({"review-tier": 100.0}, {"review-tier": 0.0})

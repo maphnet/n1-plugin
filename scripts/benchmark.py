@@ -1102,6 +1102,24 @@ def codex_review_prs(cache: dict):
 UNLINKABLE_CAUSES = ("no project", "no timestamps")
 
 
+# N1-596: decision ids that have a literal emit site in lib/ or skills/. Ids outside this
+# set are improvised by the orchestrator (e.g. review-rerun, finish-merge); they stay in raw
+# and merged telemetry but are not counted as gates. To add a gate, add the emit site, an
+# entry here and a line in references/telemetry.md (Decision events). GateRegistryTest in
+# tests/test_benchmark.py fails when the three disagree.
+KNOWN_GATE_IDS = frozenset({
+    "lite-analysis-gate", "simple-path", "qa-engineer-skip", "codex-review", "simplicity-gate",
+    "release-gate", "local-testing-gate", "local-testing-offer", "local-testing-auto-skip",
+    "review-tier",
+})
+# Parameterized ids built in lib/config.sh n1_resolve_model: escalation:<agent>:<step>, downgrade:<agent>:<step>.
+GATE_ID_PREFIXES = ("escalation:", "downgrade:")
+
+
+def _is_gate_id(did) -> bool:
+    return isinstance(did, str) and (did in KNOWN_GATE_IDS or did.startswith(GATE_ID_PREFIXES))
+
+
 def unlink_cause(c: dict) -> str:
     """Why an eligible run has no transcript. The first two cannot link by construction
     (link_transcript needs a project dir and both timestamps)."""
@@ -1142,7 +1160,7 @@ def aggregate(caches, by: str, keyfn=None) -> dict:
             rr = c.get("run_record") or {}
             for dec in (rr.get("decisions") or []):
                 did = dec.get("id", "")
-                if not did:
+                if not _is_gate_id(did):
                     continue
                 res = dec.get("result", False)
                 if did not in gate_stats:
@@ -1449,13 +1467,13 @@ def _judge_reasons(turns):
 
 
 def _gate_counts(run_ids, caches) -> dict:
-    """{gate id: (true, total)} over the given runs; same counting rule as aggregate()."""
+    """{gate id: (true, total)} over the given runs; same counting rule as aggregate() (registered ids only)."""
     out: dict = {}
     for rid in run_ids:
         c = caches.get(rid) or {}
         for dec in ((c.get("run_record") or {}).get("decisions") or []):
             did = dec.get("id", "")
-            if not did:
+            if not _is_gate_id(did):
                 continue
             tr, tot = out.get(did, (0, 0))
             out[did] = (tr + (1 if dec.get("result", False) else 0), tot + 1)
