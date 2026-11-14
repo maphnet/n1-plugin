@@ -13,7 +13,7 @@ fi
 
 Carry `N1_SESSION_ID` and `N1_RUN_ID` from the session routing context and `n1_run_begin` into every subsequent helper invocation. Never infer identity from the shared discovery file. Missing identity remains unknown. The run's opening envelope is authoritative during finalization.
 
-**Step markers:** each `steps/*.md` file calls `n1_step_begin "<step_name>" <N>` in its first bash block and `n1_step_end "<step_name>" <N> <success|skipped|failed> ['<metadata JSON>']` on every exit path, skips and failures included (`lib/step.sh`; begin sets `current_step:`; end sets `step:`, clears it, ticks the checkbox). `<N>` must match the table: merge pairs events by number, first start and first end win, so a looping step ends once, at loop exit. Raw `n1_emit_step_event` is only for events outside `steps/` (n1-finish verification).
+**Step markers:** each `steps/*.md` file calls `n1_step_begin "<step_name>" <N>` in its first bash block and `n1_step_end "<step_name>" <N> <success|skipped|failed> ['<metadata JSON>']` on every exit path, skips and failures included (`lib/step.sh`; begin sets `current_step:`; end sets `step:`, clears it, ticks the checkbox). `<N>` must match the table: merge pairs events by number; the first start and first end form the step window, and each start/end pair after that first end becomes an extra window with `loop_iteration` 2, 3, ... (review and fix re-run begin and end on every fix cycle; qa ends once, at loop exit, so it keeps one window). Raw `n1_emit_step_event` is only for events outside `steps/` (n1-finish verification).
 
 | step_number | step_name | metadata fields |
 |-------------|-----------|-----------------|

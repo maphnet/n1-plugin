@@ -176,8 +176,25 @@ def extract_steps(run: dict) -> list[dict]:
     raw_steps = run.get("steps") or []
     steps = []
     for s in raw_steps:
+        name = s.get("step") or "unknown"
+        iteration = s.get("loop_iteration")
+        if type(iteration) is int and iteration >= 2:
+            # N1-593: review/fix re-entry windows get their own row so base-step stats stay
+            # per first pass; the orchestrator lookup by name finds nothing, so no token double count.
+            # All cycle 2+ windows of a run merge into one row (duration summed), so rows stay
+            # unique per name and aggregate stats are per run.
+            # Known limit: orchestrator tokens/tools are grouped by base step in the merge, so
+            # the base row carries all cycles' tokens and the cycle 2+ row shows 0 tokens.
+            name = f"{name} (cycle 2+)"
+            prev = next((x for x in steps if x["name"] == name), None)
+            if prev is not None:
+                d = s.get("duration_s")
+                if d is not None:
+                    prev["duration_s"] = (prev["duration_s"] or 0) + d
+                prev["outcome"] = s.get("outcome") or prev["outcome"]
+                continue
         step = {
-            "name": s.get("step") or "unknown",
+            "name": name,
             "step_number": s.get("step_number"),
             "duration_s": s.get("duration_s"),
             "outcome": s.get("outcome") or "unknown",
