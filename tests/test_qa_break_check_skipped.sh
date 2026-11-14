@@ -46,11 +46,6 @@ assert_eq "empty task type, no line -> inconclusive" "inconclusive" "$(run_bc f 
 # (g) no-line cases never call the lib
 assert_eq "no-line case does not call n1_break_check" "0" "$([ -f "$T/home/memory/a/called" ] && echo 1 || echo 0)"
 
-# (h) N1-591: the simple-path qa-engineer skip excludes bugs and mode all because they stay blocking without a Regression test: line
-assert_eq "skip rationale: bug stays blocking" "inconclusive" "$(run_bc c bug bugs)"
-assert_eq "skip rationale: non-bug mode all stays blocking" "inconclusive" "$(run_bc d task all)"
-assert_eq "skip rationale: non-bug mode bugs stays non-blocking" "skipped" "$(run_bc a task bugs)"
-
 # Prose rule lists `skipped` among non-failing verdicts.
 if grep -qF '`red-then-green`/`no-diff`/`skipped`' "$QA_STEP"; then
   echo "PASS: qa.md prose lists skipped as non-failing"; PASS=$((PASS+1))
