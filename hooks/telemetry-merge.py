@@ -100,6 +100,20 @@ def _duration(start: str | None, end: str | None) -> float | None:
     return int(duration) if duration.is_integer() else duration
 
 
+def _window(step, num, start: dict | None, end: dict | None, loop_iteration) -> dict:
+    start, end = start or {}, end or {}
+    return {
+        "step": step,
+        "step_number": num,
+        "started_at": start.get("started_at"),
+        "completed_at": end.get("completed_at"),
+        "duration_s": _duration(start.get("started_at"), end.get("completed_at")),
+        "outcome": end.get("outcome", "interrupted"),
+        "loop_iteration": loop_iteration,
+        "metadata": end.get("metadata", {}),
+    }
+
+
 def pair_steps(events: list[dict]) -> list[dict]:
     groups: dict = {}
     for ev in events:
@@ -109,18 +123,28 @@ def pair_steps(events: list[dict]) -> list[dict]:
     steps = []
     for num, evs in groups.items():
         start = next((e for e in evs if e.get("started_at")), None)
-        end = next((e for e in evs if e.get("completed_at")), None)
+        end_i = next((i for i, e in enumerate(evs) if e.get("completed_at")), None)
+        end = evs[end_i] if end_i is not None else None
         ref = start or end or {}
-        steps.append({
-            "step": ref.get("step"),
-            "step_number": num,
-            "started_at": (start or {}).get("started_at"),
-            "completed_at": (end or {}).get("completed_at"),
-            "duration_s": _duration((start or {}).get("started_at"), (end or {}).get("completed_at")),
-            "outcome": (end or {}).get("outcome", "interrupted"),
-            "loop_iteration": (end or {}).get("loop_iteration"),
-            "metadata": (end or {}).get("metadata", {}),
-        })
+        steps.append(_window(ref.get("step"), num, start, end, (end or {}).get("loop_iteration")))
+        if end_i is None:
+            continue
+        # N1-593: a step re-begun after its first end (review/fix cycles 2+) gets one extra
+        # window per later start/end pair, loop_iteration 2, 3, ... A stray end with no open
+        # start is ignored; an unended start stays interrupted for repair_windows. Steps that
+        # only re-begin before their first end (qa) or emit ends only (head) get no extras.
+        iteration, opened = 1, None
+        for ev in evs[end_i + 1:]:
+            if ev is start:
+                continue  # malformed order: the base window already used this start
+            if ev.get("started_at"):
+                opened = opened or ev
+            elif ev.get("completed_at") and opened:
+                iteration += 1
+                steps.append(_window(opened.get("step"), num, opened, ev, iteration))
+                opened = None
+        if opened:
+            steps.append(_window(opened.get("step"), num, opened, None, iteration + 1))
     steps.sort(key=lambda s: (s["step_number"] is None, s["step_number"]))
     return steps
 

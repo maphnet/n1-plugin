@@ -327,6 +327,52 @@ mk_fc "FC-NONE" ""
 assert_eq "N1-198: no outcome event -> fix cycles null" "null|null" \
     "$(jq -r '"\(.summary.review_fix_cycles)|\(.summary.qa_fix_cycles)"' "$FC_OUT")"
 
+# ==== Test N1-593: re-entered loop steps (review/fix cycles 2+) get extra windows ====
+# review: 3 passes; fix: cycle 1, cycle 2, a stray second end, then an unterminated cycle 3;
+# qa: re-begins before its single end (one window); head: end-only raw events (one window).
+RUN_ID11="test-run-011"
+TELEM_DIR11="$T/home/memory/TEST-11/telemetry"
+mkdir -p "$TELEM_DIR11/raw/steps" "$TELEM_DIR11/raw/agents"
+cat > "$TELEM_DIR11/raw/steps/$RUN_ID11.jsonl" <<'STEPS11'
+{"layer":"envelope","started_at":"2026-09-03T10:00:00Z","ticket_id":"TEST-11","session_id":"sess-011","host":"claude-code"}
+{"layer":"step","step":"qa","step_number":8,"started_at":"2026-09-03T10:00:00Z"}
+{"layer":"step","step":"qa","step_number":8,"started_at":"2026-09-03T10:01:00Z"}
+{"layer":"step","step":"qa","step_number":8,"started_at":"2026-09-03T10:02:00Z"}
+{"layer":"step","step":"qa","step_number":8,"completed_at":"2026-09-03T10:03:00Z","outcome":"success","metadata":{"loop_iteration":3}}
+{"layer":"step","step":"review","step_number":9,"started_at":"2026-09-03T10:03:00Z"}
+{"layer":"step","step":"review","step_number":9,"completed_at":"2026-09-03T10:05:00Z","outcome":"success","metadata":{"head":"a"}}
+{"layer":"step","step":"head","step_number":0,"completed_at":"2026-09-03T10:05:30Z","outcome":"success","metadata":{"head":"b","from":"a"}}
+{"layer":"step","step":"fix","step_number":10,"started_at":"2026-09-03T10:06:00Z"}
+{"layer":"step","step":"fix","step_number":10,"completed_at":"2026-09-03T10:10:00Z","outcome":"success"}
+{"layer":"step","step":"review","step_number":9,"started_at":"2026-09-03T10:10:00Z"}
+{"layer":"step","step":"review","step_number":9,"completed_at":"2026-09-03T10:12:00Z","outcome":"success","metadata":{"head":"c"}}
+{"layer":"step","step":"head","step_number":0,"completed_at":"2026-09-03T10:12:30Z","outcome":"success","metadata":{"head":"d","from":"c"}}
+{"layer":"step","step":"fix","step_number":10,"started_at":"2026-09-03T10:13:00Z"}
+{"layer":"step","step":"fix","step_number":10,"completed_at":"2026-09-03T10:15:00Z","outcome":"success"}
+{"layer":"step","step":"fix","step_number":10,"completed_at":"2026-09-03T10:15:10Z","outcome":"success"}
+{"layer":"step","step":"review","step_number":9,"started_at":"2026-09-03T10:16:00Z"}
+{"layer":"step","step":"review","step_number":9,"completed_at":"2026-09-03T10:17:00Z","outcome":"success","metadata":{"head":"e"}}
+{"layer":"step","step":"fix","step_number":10,"started_at":"2026-09-03T10:18:00Z"}
+{"layer":"step","step":"local-testing","step_number":11,"started_at":"2026-09-03T10:25:00Z"}
+{"layer":"step","step":"local-testing","step_number":11,"completed_at":"2026-09-03T10:28:00Z","outcome":"success"}
+{"layer":"envelope_close","completed_at":"2026-09-03T10:30:00Z","final_outcome":"pr_created"}
+STEPS11
+: > "$TELEM_DIR11/raw/agents/$RUN_ID11.jsonl"
+bash "$REPO_ROOT/hooks/telemetry-merge.sh" "$RUN_ID11" "$TELEM_DIR11"
+OUT11="$TELEM_DIR11/runs/$RUN_ID11.jsonl"
+win11() { jq -r --arg s "$1" '[.steps[] | select(.step==$s) | "\(.duration_s)|\(.loop_iteration)|\(.outcome)"] | join(",")' "$OUT11"; }
+assert_eq "N1-593: review cycle-1 window unchanged; re-reviews get iteration 2 and 3" \
+  "120|null|success,120|2|success,60|3|success" "$(win11 review)"
+assert_eq "N1-593: fix cycle 2 windowed, stray end ignored, unterminated cycle 3 interrupted" \
+  "240|null|success,120|2|success,420|3|interrupted" "$(win11 fix)"
+assert_eq "N1-593: unterminated re-entry end repaired from the next step start" \
+  "2026-09-03T10:25:00Z|true" \
+  "$(jq -r '.steps[] | select(.step=="fix" and .loop_iteration==3) | "\(.completed_at)|\(.window_inferred)"' "$OUT11")"
+assert_eq "N1-593: qa (re-begins before its single end) keeps one window" "180|null|success" "$(win11 qa)"
+assert_eq "N1-593: head (end-only raw events) keeps one window" "1" \
+  "$(jq '[.steps[] | select(.step=="head")] | length' "$OUT11")"
+assert_eq "N1-593: total windows (head, qa, 3 review, 3 fix, local-testing)" "9" "$(jq '.steps | length' "$OUT11")"
+
 echo "---"
 echo "$((PASS+FAIL)) tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
