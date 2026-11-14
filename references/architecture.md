@@ -488,7 +488,7 @@ Config keys: `release.enabled` (boolean, default `false`), `release.procedure` (
 
 ## Agent Personas
 
-12 atomic agents (plus the shared `research-standards.md` rubric) with scoped tools and configurable models:
+14 atomic agents (plus the shared `references/research-standards.md` rubric) with scoped tools and configurable models:
 
 | Agent | Default Model | Effort | Tools | Pipeline Stage |
 |-------|---------------|--------|-------|----------------|
@@ -513,7 +513,7 @@ Agent effort levels are static per-agent, set via subagent frontmatter `effort:`
 
 Note: Sonnet 4.6 supports effort levels low, medium, high, and max (no xhigh).
 
-**Trusted web research (always on).** `solution-architect` and `planner` carry `WebSearch, WebFetch` to research industry standards, best practices, and practitioner experience during analysis, planning, and plan-review. Research is constrained by the shared rubric in `agents/research-standards.md`: trusted source tiers, a marketing reject-list, ≥2-source corroboration, mandatory URL citation, a standards-over-soft-practices fitness gate (guards against over-engineering), and graceful degradation when the network is unavailable. Library API docs still go through Context7, not web search.
+**Trusted web research (always on).** `solution-architect` and `planner` carry `WebSearch, WebFetch` to research industry standards, best practices, and practitioner experience during analysis, planning, and plan-review. Research is constrained by the shared rubric in `references/research-standards.md`: trusted source tiers, a marketing reject-list, ≥2-source corroboration, mandatory URL citation, a standards-over-soft-practices fitness gate (guards against over-engineering), and graceful degradation when the network is unavailable. Library API docs still go through Context7, not web search.
 - **Single-pass analysis & research (v2.11.0):** the pre-plan `solution-architect` "deeper analysis" re-spawn was removed — the Step-2 `analysis.md` plus the `planner`'s native file discovery feed planning, and plan-review (4b) is the assumption safety net. Web research runs once (Step 2); 4b validates against the standards already recorded in `analysis.md` rather than re-researching.
 
 ## Host Layer

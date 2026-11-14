@@ -1,12 +1,7 @@
----
-model: sonnet
-effort: low
----
-
 # Research Standards (shared rubric)
 
-Agents that perform web research (solution-architect, planner) MUST follow these
-rules. Read this file before your first web search in a task. The two **Hard Rules**
+Personas that run a standards lookup (solution-architect, planner) MUST follow
+this rubric. Read this file before your first web search in a task. The two **Hard Rules**
 and the **Fitness Gate** are restated inline in each agent so they hold even if this
 file is not read.
 
