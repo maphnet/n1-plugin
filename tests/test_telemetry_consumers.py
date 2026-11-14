@@ -47,9 +47,15 @@ class TelemetryConsumersTest(unittest.TestCase):
         agg = analyzer.aggregate_runs([report])
         self.assertEqual(agg["by_step"]["fix"]["duration"], analyzer._stat_block([240]))
         self.assertEqual(agg["by_step"]["fix (cycle 2+)"]["duration"], analyzer._stat_block([540]))
-        diff = analyzer._diff_reports(report, report)
-        self.assertEqual(len([s for s in report["steps"] if s["name"] == "fix (cycle 2+)"]), 1)
         self.assertEqual(agg["by_step"]["qa"]["duration"], analyzer._stat_block([60]))
+        run_b = {"run_id": "r2", "steps": [
+            {"step": "fix", "step_number": 10, "duration_s": 240, "loop_iteration": None},
+            {"step": "fix", "step_number": 10, "duration_s": 120, "loop_iteration": 2},
+            {"step": "fix", "step_number": 10, "duration_s": 120, "loop_iteration": 3}]}
+        diff = analyzer._diff_reports(report, analyzer.extract_run_report(run_b))
+        self.assertEqual(diff["by_step"]["fix (cycle 2+)"]["duration"],
+                         {"a": 540, "b": 240, "diff": -300, "diff_pct": -55.6})
+        self.assertEqual(diff["by_step"]["fix"]["duration"]["diff"], 0)
 
     def test_null_agent_fields_surface_as_unknown(self):
         run = {"run_id": "r", "agents": [{"agent_type": None, "step": None, "duration_s": 2}],
