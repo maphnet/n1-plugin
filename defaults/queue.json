@@ -12,7 +12,6 @@
   "staleAfterHours": 24,
   "backend": "auto",
   "maxConcurrent": 1,
-  "unattendedAutoStart": false,
   "taskSizing": {
     "maxSize": "L",
     "warnOnLargeTask": true

@@ -2333,15 +2333,13 @@ test_list_input_wiring() {
         "$(sed -n '3p' "$s/SKILL.md" | grep -qF '[<ticket|url>...]' && echo yes || echo no)"
     assert_eq "list-input: argument-hint lists the ticket operand" "yes" \
         "$(sed -n '4p' "$s/SKILL.md" | grep -qF '[<ticket|url>...]' && echo yes || echo no)"
-    assert_eq "list-input: step 2 routes to input.md before the unattended entry" "yes" \
-        "$(grep -E '^2\. \*\*Saved plan' "$s/SKILL.md" | grep -qE 'steps/input\.md.*If `--unattended`' && echo yes || echo no)"
+    assert_eq "list-input: step 2 routes to input.md" "yes" \
+        "$(grep -E '^2\. \*\*Saved plan' "$s/SKILL.md" | grep -qE 'steps/input\.md' && echo yes || echo no)"
     assert_eq "list-input: SKILL.md no longer reads the default tag" "no" "$(hasF 'n1_queue_val tag' "$s/SKILL.md")"
     assert_eq "list-input: input.md never reads the default tag" "no" "$(hasF 'n1_queue_val tag' "$in")"
     assert_eq "list-input: URLs go through n1_extract_ticket_from_url" "yes" "$(hasF 'n1_extract_ticket_from_url' "$in")"
     assert_eq "list-input: list keys are validated" "yes" "$(hasF '^[A-Z][A-Z0-9_]*-[0-9]+$' "$in")"
     assert_eq "list-input: tag/story ids are validated" "yes" "$(hasF '^[A-Za-z0-9][A-Za-z0-9._-]*$' "$in")"
-    assert_eq "list-input: unattended with no input stops" "yes" \
-        "$(hasF 'No input: pass ticket IDs, --tag <tag> or --story <ID>.' "$in")"
     assert_eq "list-input: mixed input stops (names --goal, N1-441)" "yes" "$(hasF 'Pass one input: a ticket list, --tag, --story or --goal.' "$in")"
     assert_eq "list-input: --tag with --story is mixed input" "yes" "$(hasF 'includes `--tag` with `--story`' "$in")"
     assert_eq "list-input: no valid key stops" "yes" "$(hasF 'No valid ticket keys in the list.' "$in")"
@@ -2388,10 +2386,9 @@ test_list_input_wiring() {
     assert_eq "list-input: no-valid-key needs BAD items (N1-440)" "yes" "$(hasF '`KEYS` is empty and `BAD` is not' "$in")"
     assert_eq "list-input: interactive plans get a unique id (N1-440)" "yes" "$(hasF 'QUEUE_ID=$(n1_queue_new_id "$QUEUE_ID")' "$in")"
     assert_eq "list-input: planning pointer written at intake (N1-440)" "yes" "$(hasF 'n1_queue_plan_state write "$QUEUE_ID" intake "$MODE" "$SRC"' "$in")"
-    assert_eq "list-input: no bare mkdir -p for interactive ids (N1-440)" "1" "$(grep -c 'mkdir -p "$N1_HOME/queue/$QUEUE_ID"' "$in")"
+    assert_eq "list-input: no bare mkdir -p for interactive ids (N1-440)" "0" "$(grep -c 'mkdir -p "$N1_HOME/queue/$QUEUE_ID"' "$in")"
     # N1-441: --goal input (input.md)
     assert_eq "goal-input: --goal is a flag operand, never a token" "yes" "$(hasF '`--goal "<text>"` (the quoted value, or the words up to the next flag; it is never a token and never reaches bash)' "$in")"
-    assert_eq "goal-input: unattended goal stops" "yes" "$(hasF 'Goal mode needs approval; pass ticket IDs, --tag or --story.' "$in")"
     assert_eq "goal-input: empty goal stops" "yes" "$(hasF 'Goal text is empty.' "$in")"
     assert_eq "goal-input: a flag right after --goal counts as empty (N1-441)" "yes" "$(hasF 'or a flag right after it (for example `--goal --dry-run`)' "$in")"
     assert_eq "goal-input: apostrophe in goal stops" "yes" "$(hasF "Invalid goal: remove the apostrophe (')." "$in")"
@@ -2399,11 +2396,11 @@ test_list_input_wiring() {
     assert_eq "goal-input: MODE has no goal value" "yes" "$(hasF "MODE='<list|tag|story>'" "$in")"
     assert_eq "goal-input: goal mode is saved as mode list" "yes" "$(hasF 'goal mode is `goal-` plus the same checksum of the approved keys and is saved as `mode: list`' "$in")"
     lno() { grep -nF -- "$1" "$in" | head -1 | cut -d: -f1; }
-    local u q d x
-    u=$(lno 'Goal mode needs approval'); q=$(lno 'Invalid goal: remove the apostrophe')
+    local q d x
+    q=$(lno 'Invalid goal: remove the apostrophe')
     d=$(lno 'read and follow `<N1_ROOT>/skills/n1-queue/steps/goal.md`'); x=$(lno '5. **Queue id and dir.**')
     assert_eq "goal-input: goal stops and goal.md precede item 5, so nothing is written first" "yes" \
-        "$([ -n "$u" ] && [ -n "$q" ] && [ -n "$d" ] && [ -n "$x" ] && [ "$u" -lt "$d" ] && [ "$q" -lt "$d" ] && [ "$d" -lt "$x" ] && echo yes || echo no)"
+        "$([ -n "$q" ] && [ -n "$d" ] && [ -n "$x" ] && [ "$q" -lt "$d" ] && [ "$d" -lt "$x" ] && echo yes || echo no)"
     # N1-441: steps/goal.md
     local gm="$s/steps/goal.md"
     assert_eq "goal-input: goal.md exists" "yes" "$([ -f "$gm" ] && echo yes || echo no)"
@@ -2520,11 +2517,6 @@ EOF
     assert_eq "discard-saved: existing claim kept" "1|yes" "$rc|$(_kept sc)"
     _mksaved sf planned bogus; qdis sf saved && rc=0 || rc=$?
     assert_eq "discard-saved: refused discard releases its own claim" "1|no" "$rc|$([ -e "$h/queue/sf/.unattended-claim" ] && echo yes || echo no)"
-    _mksaved sr planned held;
-    # claim taken before removal: a launch trigger cannot win after validation
-    ( export N1_HOME="$h"; rm() { [ "$1" = -rf ] && { n1_queue_claim "$h/queue/sr" && echo LAUNCHED || echo BLOCKED; } > "$h/race.out"; command rm "$@"; }
-      n1_queue_plan_discard sr saved )
-    assert_eq "discard-saved: launch claim blocked during removal" "BLOCKED" "$(cat "$h/race.out")"
     _mksaved s2 planned held 'run_id: R1'; qdis s2 saved && rc=0 || rc=$?
     assert_eq "discard-saved: run_id kept" "1|yes" "$rc|$(_kept s2)"
     _mksaved s3 run held; qdis s3 saved && rc=0 || rc=$?

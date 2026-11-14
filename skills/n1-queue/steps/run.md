@@ -1,30 +1,12 @@
 # Run
 
-**Busy guard — always runs first, on every entry point, before § Unattended entry, § Saved plan or § Write plan below:** if `$QUEUE_DIR/queue.md` exists and its frontmatter `pid` is a live runner, print "Queue <QUEUE_ID> is already running (pid <pid>). Check: <queue watch hint>." **STOP.**
+**Busy guard — always runs first, on every entry point, before § Saved plan or § Write plan below:** if `$QUEUE_DIR/queue.md` exists and its frontmatter `pid` is a live runner, print "Queue <QUEUE_ID> is already running (pid <pid>). Check: <queue watch hint>." **STOP.**
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 OLD_PID=$(n1_read_frontmatter "$QUEUE_DIR/queue.md" pid 2>/dev/null); n1_queue_runner_alive "$OLD_PID" "$QUEUE_DIR/queue.md" && echo "busy:$OLD_PID"
 ```
-
-## Unattended entry (`--unattended` only)
-
-A scheduled trigger started this session and nobody is watching it. After the busy guard:
-
-```bash
-source ~/.n1/preamble.sh
-source "$N1_ROOT/lib/queue.sh"
-if [ "$(n1_queue_val unattendedAutoStart)" != true ]; then echo POLICY=off
-elif ! n1_queue_claim "$QUEUE_DIR"; then echo CLAIM=held
-elif n1_queue_interrupted "$QUEUE_DIR/queue.md"; then echo ENTRY=resume
-else echo ENTRY=plan; fi
-```
-
-- `POLICY=off`: print "Unattended runs are off: set `queue.unattendedAutoStart` to true in config.json, or remove the schedule with `/n1:n1-queue --schedule remove`." **STOP.**
-- `CLAIM=held`: print "Queue <QUEUE_ID> was claimed by another trigger in the last 15 minutes." **STOP.**
-- `ENTRY=resume`: print "Resuming interrupted run of `<QUEUE_ID>`." and go to § Launch with `RESUME=1`.
-- `ENTRY=plan`: continue at SKILL.md step 3 as a bare run. Every user prompt on that path takes its `--unattended` answer (marked in intake.md and preview.md); an unattended run always plans fresh and ignores a saved interactive plan (its Edit removals, model overrides and pre-decisions). Escalation, release and headless gates are unchanged.
 
 ## Saved plan (`--run <queue-id>` only)
 
@@ -69,7 +51,7 @@ Otherwise, `STEP` is not `planned` (queue.md is missing, or another step): print
    OLD_NOTES=$(printf '%s' "$ROW" | cut -f5)
    ```
    Keep these five values (`OLD_TOUCHES`, `OLD_ORDER`, `OLD_PREDECISION`, `OLD_CHECKSUM`, `OLD_NOTES`) as this row's working values. Steps 5-7 below only update the ones they touch, carry the rest forward unchanged, and flush everything in exactly one `n1_queue_decisions_write_row` call at the end of step 7 (never a second call for the same row).
-5. **Duplicate check (unconditional, every pending or held row that survived step 4, fresh search):** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=queue-plan`, `TEXT` = this ticket's title + description, `SELF_ID=<KEY>`, `OVERVIEW` empty. `DUP_CHOICE=exclude` -> move the row to Excluded with reason `duplicate: <HIT_IDs> (plan)`, drop its `## Decisions` row, continue to the next row. `DUP_CHOICE=close` -> the same with reason `duplicate: <HIT_IDs> closed (plan)`. Otherwise (`continue` or `link`) set `OLD_NOTES` to `dup:<HIT_IDs, comma-separated>:<DUP_CHOICE>` (not written yet) and keep going. `--unattended`: do not ask; take **Continue**, never Close.
+5. **Duplicate check (unconditional, every pending or held row that survived step 4, fresh search):** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=queue-plan`, `TEXT` = this ticket's title + description, `SELF_ID=<KEY>`, `OVERVIEW` empty. `DUP_CHOICE=exclude` -> move the row to Excluded with reason `duplicate: <HIT_IDs> (plan)`, drop its `## Decisions` row, continue to the next row. `DUP_CHOICE=close` -> the same with reason `duplicate: <HIT_IDs> closed (plan)`. Otherwise (`continue` or `link`) set `OLD_NOTES` to `dup:<HIT_IDs, comma-separated>:<DUP_CHOICE>` (not written yet) and keep going.
 6. **Touches extraction (unconditional, every pending or held row that survived step 5):** follow preview.md § Plan-Resolve 3's Touches list only (not its `n1_queue_overlap_order` reorder call — that runs once, globally, after every row below). Set `OLD_TOUCHES` to the result (not written yet).
 7. Clear the row's scratch files first and mark the fetch, so a failed capture below never leaves the stale plan snapshot to hash as `SAME`:
    ```bash
@@ -224,7 +206,7 @@ n1_queue_plan_state step saved || true
 
 `--plan`: run `source ~/.n1/preamble.sh; source "$N1_ROOT/lib/queue.sh"; n1_queue_plan_state clear`, then print "Plan saved: <QUEUE_DIR>/queue.md (<N> tickets). Schedule: <SCHEDULE>. Run it with `/n1:n1-queue --run <QUEUE_ID>` (re-validated first when older than <STALE_HOURS>h)." **STOP.**
 
-Bare and `--unattended`: continue to § Launch.
+Bare: continue to § Launch.
 
 ## Launch
 
