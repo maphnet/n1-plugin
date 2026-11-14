@@ -14,12 +14,13 @@ export N1_HOME="$T/home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 unset ORCA_CLI_COMMAND N1_RUN_ID N1_QUEUE_DIR N1_QUEUE_RUN_ID
 mkdir -p "$T/bin" "$N1_HOME/memory"
-# gh stub: logs argv; prints $GH_OPEN for "--state open" lists, else $GH_TSV (state, headRefName, headRefOid,
+# gh stub: logs argv; for "--state open" lists prints the head of each "head base" line in $GH_OPEN, plus the base
+# when baseRefName was requested (as the real -q '.[] | .headRefName, .baseRefName' does); else $GH_TSV (state, headRefName, headRefOid,
 # baseRefName; or merged-PR rows for n1_clean_scan). Never left empty in a case that reaches gh pr view (retry backoff).
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >> "$GH_CALLS"
-case " $* " in *" --state open "*) printf '%s\n' "${GH_OPEN:-}" ;; *) printf '%s\n' "${GH_TSV:-}" ;; esac
+case " $* " in *" --state open "*) case "$*" in *baseRefName*) printf '%s\n' "${GH_OPEN:-}" | tr ' ' '\n' ;; *) printf '%s\n' "${GH_OPEN:-}" | cut -d' ' -f1 ;; esac ;; *) printf '%s\n' "${GH_TSV:-}" ;; esac
 EOF
 chmod +x "$T/bin/gh"; export PATH="$T/bin:$PATH" GH_CALLS="$T/gh.calls"
 
@@ -225,7 +226,7 @@ git -C "$M" push -q origin rb-1 rb-3 rb-4 "$O:refs/heads/rb-2" spike/S-2 main:re
 MO=$(rev main)
 RB=$(printf 'rb-1\t%s\tU1\nrb-2\t%s\tU2\nrb-3\t%s\tU3\nrb-4\t%s\tU4\nspike/S-2\t%s\tU5\nmain\t%s\tU6\ngone\t%s\tU7\nrb-5\t%s\tU8\ndevelop\t%s\tU9\nnokey\t%s\tU10' \
     "$MO" "$MO" "$MO" "$(rev rb-4)" "$(rev spike/S-2)" "$O" "$MO" "$MO" "$MO" "$MO")
-SC=$(cd "$M" && GH_TSV="$RB" GH_OPEN=$'rb-3\nmain\nrb-5' n1_clean_scan)
+SC=$(cd "$M" && GH_TSV="$RB" GH_OPEN=$'rb-3 rb-5' n1_clean_scan)
 row() { printf '%s\t%s\t%s\t%s' "$@"; }
 hr() { yn grep -qxF "$(row "$@")" <<<"$SC"; }
 eq "L1: clean no-PR tree on origin/main listed" yes "$(hr nopr-worktree L-1 "$T/L-1" l1b)"
@@ -241,7 +242,8 @@ eq "L6: stale marker listed" yes "$(hr stale-marker L-7 "$N1_HOME/memory/L-7/ove
 eq "L6: CRLF stale marker listed" yes "$(hr stale-marker L-9 "$N1_HOME/memory/L-9/overview.md" -)"
 eq "L6: still-pending ticket not listed" 0 "$(grep -c '^stale-marker	L-8	' <<<"$SC")"
 eq "L7: only the merged branch still at its PR head listed" "$(row remote-branch - rb-1 U1)" "$(grep '^remote-branch' <<<"$SC")"
-eq "L7b: open-PR base, develop and non-ticket branches excluded" 0 "$(grep -cE 'rb-5|develop|nokey' <<<"$SC")"
+eq "L7b: base of an open PR excluded (CR-2)" 0 "$(grep -cF rb-5 <<<"$SC")"
+eq "L7b: develop and non-ticket branches excluded" 0 "$(grep -cE 'develop|nokey' <<<"$SC")"
 eq "L8: scan removed nothing" "yes yes yes 1" "$(yn test -d "$T/L-1") $(yn test -d "$T/empty-583") $(yn grep -q '^awaiting: merge' "$N1_HOME/memory/L-7/overview.md") $(git -C "$M" ls-remote origin refs/heads/rb-1 | wc -l | tr -d ' ')"
 
 echo "Passed: $PASS  Failed: $FAIL"
