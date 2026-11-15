@@ -1,4 +1,4 @@
-<!-- Purpose: contradiction gate, tiering, question batches, scope classification, readiness verdict (Steps 1-5). -->
+<!-- Purpose: contradiction gate, tiering, simple-ticket exit, question batches, scope classification, readiness verdict (Steps 1-5). -->
 
 List mode (`00-list.md`): a **STOP**, "end refine" or "refine ends here" in this file ends only the current ticket; `00-list.md` Step 5 records the outcome and goes on with the next ticket.
 
@@ -30,6 +30,27 @@ Collect open points: `### Decision Points` in analysis.md, `### Ambiguities` in 
 Re-run: Decisions from the existing block stay unless the user changes them; its Assumptions are re-tiered with the rest.
 
 List mode with non-empty `PRIOR` (`00-list.md` Step 5): a `PRIOR` Decision that bears on this ticket is carried over as a Decision (`Why: decided in <KEY>`). When it conflicts with this ticket's own Decisions, its text or the code, it becomes an A-tier point for Step 3 that shows both sides with their sources; a conflict is never overridden silently in either direction.
+
+## Step 2b: Simple-Ticket Exit
+
+Checked once, after Step 2 and before any Step 3 question:
+
+```bash
+source ~/.n1/preamble.sh
+A="$N1_HOME/memory/<ID>/refine/analysis.md"
+B=$(n1_read_signal "$A" blast_radius); F=$(n1_read_signal "$A" files_changed); S=$(n1_read_signal "$A" security_relevant)
+case "$F" in ''|*[!0-9]*) F=99;; esac
+[ "$B" = low ] && [ "$S" = false ] && [ "$F" -lt 3 ] && echo "signals=simple" || echo "signals=not-simple"
+```
+
+Exit only when all hold (same thresholds as the n1-start simple path):
+- The output is `signals=simple`; a missing or unparseable signal prints `signals=not-simple` and means no exit.
+- `ISSUE_TYPE` is `task` or `bug`, and `CHILDREN` is empty (not `unknown`).
+- Step 1 found no contradicted claim, Step 2 found no A-tier point (asked or auto-decided), and no `PRIOR` Decision was carried over.
+- The Step 4 classification, run now without its Actions question, leaves `PROPOSED` and `CONVERT` empty.
+- This is not a re-run (`01-fetch.md` Step 2), and `INVESTIGATE` is not `true`.
+
+On exit: show each Step 1 `Unverified: <claim>` line again as `Unverified, not recorded: <claim>`, then say "Simple ticket: nothing to settle. Refine ends here and writes nothing to the ticket. Run /n1:n1-start <ID>." **STOP.** List mode: the outcome is `skipped: simple ticket`. Any condition unmet: go on to Step 3; Step 4 runs in full later.
 
 ## Step 3: Question Batches
 

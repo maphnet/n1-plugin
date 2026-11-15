@@ -414,4 +414,33 @@ line_has "N1-607: stop-list topics always asked" '**Always ask**' 'alwaysAskOn' 
 line_has "N1-607: preference points always asked" '**Always ask**' 'intent, preference or cost the code cannot show' "$L"
 has "N1-607: doubt means ask" 'When in doubt, ask.' "$L"
 
+# Catches: a simple Task/Bug still walked through the loop; an exit that writes or misses the n1-start pointer;
+# a missing or non-numeric signal treated as simple (must fail closed); thresholds drifting from lib/analysis.sh.
+before "N1-607: simple exit sits before the questions" '## Step 2b: Simple-Ticket Exit' '## Step 3: Question Batches' "$L"
+has "N1-607: exit writes nothing and points to n1-start" 'Simple ticket: nothing to settle. Refine ends here and writes nothing to the ticket. Run /n1:n1-start <ID>.' "$L"
+line_has "N1-607: exit only for Task or Bug with known empty children" '`ISSUE_TYPE` is `task` or `bug`' 'not `unknown`' "$L"
+line_has "N1-607: exit needs no A point and no contradiction" 'no contradicted claim' 'no A-tier point (asked or auto-decided)' "$L"
+has "N1-607: exit needs empty classification" 'leaves `PROPOSED` and `CONVERT` empty' "$L"
+line_has "N1-607: exit skipped on re-run and investigate" 'not a re-run' '`INVESTIGATE`' "$L"
+has "N1-607: unverified claims shown on exit" 'Unverified, not recorded: <claim>' "$L"
+has "N1-607: list mode records the simple skip" '(Redirect, nothing implementable, simple ticket)' skills/n1-refine/steps/00-list.md
+has "N1-607: SKILL.md names the exit" 'tiering, simple-ticket exit, question batches' skills/n1-refine/SKILL.md
+SNIP607=$(awk '/^## Step 2b/{i=1} i&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$L" | grep -v 'preamble.sh' | sed 's|<ID>|T|g')
+simple607() { # <analysis.md content, printf %b> -> snippet output
+    local d; d=$(mktemp -d -p "$PT"); mkdir -p "$d/memory/T/refine"
+    printf '%b' "$1" > "$d/memory/T/refine/analysis.md"
+    N1_HOME="$d" bash -c "source '$ROOT/lib/signals.sh'; $SNIP607" 2>&1
+}
+S607='<!-- n1:signals\nblast_radius: low\nsecurity_relevant: false\nfiles_changed: 2\n-->\n'
+[ "$(simple607 "$S607")" = "signals=simple" ] && echo "PASS: N1-607: low/false/2 is simple" || { echo "FAIL: N1-607: low/false/2 got: $(simple607 "$S607")"; FAIL=1; }
+for c607 in \
+    '<!-- n1:signals\nblast_radius: low\nsecurity_relevant: false\nfiles_changed: 3\n-->\n' \
+    '<!-- n1:signals\nblast_radius: medium\nsecurity_relevant: false\nfiles_changed: 1\n-->\n' \
+    '<!-- n1:signals\nblast_radius: low\nsecurity_relevant: true\nfiles_changed: 1\n-->\n' \
+    '<!-- n1:signals\nblast_radius: low\nfiles_changed: 1\n-->\n' \
+    '<!-- n1:signals\nblast_radius: low\nsecurity_relevant: false\nfiles_changed: ~2\n-->\n' \
+    '## Analysis\nno signals\n'; do
+    [ "$(simple607 "$c607")" = "signals=not-simple" ] && echo "PASS: N1-607: fails closed on $(printf '%b' "$c607" | tr '\n' ' ')" \
+        || { echo "FAIL: N1-607: not fail-closed on $(printf '%b' "$c607" | tr '\n' ' ')"; FAIL=1; }
+done
 exit $FAIL
