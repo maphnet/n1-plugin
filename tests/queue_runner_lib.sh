@@ -667,6 +667,21 @@ while [ $# -gt 0 ]; do [ "$1" = -o ] && { printf '%s\n' "$o" > "$2"; break; }; s
 CXEOF
     chmod +x "$tmp/bin/codex"
 }
+# queue_final_merge_fixture <tmp> <ticket:states>... — N1-462: final_merge_fixture as a list queue with integration:
+# queue (merge turned on mid-queue): the queue branch $QB starts at the story fixture's branch tip, children land in
+# $QB and the final PR 9 (head $QB) already exists (reused).
+queue_final_merge_fixture() {
+    local tmp="$1" n=0 spec; shift
+    final_merge_fixture "$tmp" "$@"
+    git -C "$tmp/origin" branch "$QB" story/S-1
+    sed -i '/^story_id: /d' "$tmp/queue.md"
+    n1_write_frontmatter "$tmp/queue.md" mode list
+    n1_write_frontmatter "$tmp/queue.md" integration queue
+    n1_queue_story_branch_set "$tmp/queue.md" "$tmp/repo" "$QB"
+    for spec in "$@"; do n=$((n + 1)); printf 'OPEN\t%s\t%s\n' "$QB" "$SM_PIN" > "$tmp/fake/gh-view.$n"; done
+    rm -f "$tmp/fake/final-create"
+    printf '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"%s","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]\n' "$QB" > "$tmp/fake/gh-final-list.main"
+}
 run_fm() { N1_STATE_DIR="$1/state" run_bg_queue "$1"; }   # <tmp> — Codex receipts under <tmp>, never in ~/.n1
 fin_note() { fin_row "$1" "$1/repo" | cut -f4; }            # <tmp>
 fm_merges() { [ -f "$1/fake/gh-merge" ] || { echo 0; return; }; grep -c -- "pull/$2 " "$1/fake/gh-merge" || true; }   # <tmp> <pr#>

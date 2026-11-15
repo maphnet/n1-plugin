@@ -1169,6 +1169,7 @@ test_final_pr_merged_when_authorized() {
     assert_eq "final-merge: note" merged "$(fin_note "$tmp")"
     assert_eq "final-merge: event" "merged|merged" "$(fm_event "$tmp")"
     assert_eq "final-merge: no n1-finish for the story" 0 "$(cat "$tmp"/fake/prompt.* | grep -cF 'n1-finish S-1' || true)"
+    assert_eq "final-merge: no n1-finish session for a story final PR (N1-462)" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-final-9-fin')"
     assert_eq "final-merge: one story session, the final one" "launch $s" "$(grep '^launch n1-sq-S-1-' "$tmp/fake/events")"
     rm -rf "$tmp"
     # no checks reported counts as passing (N1-289 D5) for a PR that existed before this run (reused: the fake session
@@ -1186,6 +1187,22 @@ test_final_pr_merged_when_authorized() {
     run_fm "$tmp" >/dev/null
     assert_eq "final-merge-skip: merged, skip noted" "1,merged; codex: skipped disabled" "$(fm_merges "$tmp" 9),$(fin_note "$tmp")"
     assert_eq "final-merge-skip: no review ran" no "$(has_file "$tmp/fake/codex-calls")"
+    rm -rf "$tmp"
+}
+
+# N1-462 AC: with fullAuto + mergeOnFinish the runner merges a queue final PR, then launches `n1-finish <PR#> chained`
+# for it and waits; the Note carries the finish outcome after the merged prefix.
+test_queue_final_merge_launches_finish() {
+    local tmp note; tmp=$(mktemp -d)
+    queue_final_merge_fixture "$tmp" "T-A:working done"
+    assert_eq "queue-final-finish: exit 0" 0 "$(run_fm "$tmp")"
+    assert_eq "queue-final-finish: merged" 1 "$(fm_merges "$tmp" 9)"
+    assert_eq "queue-final-finish: one finish session" 1 "$(count_x "$tmp/fake/events" 'launch n1-sq-final-9-fin')"
+    assert_eq "queue-final-finish: finish runs for the PR number, chained" yes \
+        "$(grep -qF '9 chained' "$tmp/fake/prompt.n1-sq-final-9-fin" && echo yes || echo no)"
+    note=$(fin_note "$tmp")
+    assert_eq "queue-final-finish: Note keeps merged prefix and adds the finish state" yes \
+        "$(case "$note" in "merged; finish: closed "*/*) echo yes ;; *) echo no ;; esac)"
     rm -rf "$tmp"
 }
 
@@ -1498,6 +1515,7 @@ test_final_pr_rows_open
 test_final_pr_halted
 test_final_pr_default_branch
 test_final_pr_merged_when_authorized
+test_queue_final_merge_launches_finish
 test_final_pr_head_moved
 test_final_pr_not_authorized
 test_final_pr_checks_gate

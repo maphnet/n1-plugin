@@ -3197,6 +3197,8 @@ test_queue_integration_wiring() {
         "$(grep -qF 'starts with `queue/`' "$REPO_ROOT/skills/n1-finish/steps/04-close-ticket.md" && echo yes || echo no)"
     assert_eq "queue-wiring: queue final PR reports deploy not watched" yes \
         "$(grep -qF 'Deploy: not watched; delivery not run (queue final PR)' "$REPO_ROOT/skills/n1-finish/steps/04-close-ticket.md" && grep -qF 'not watched; delivery not run (queue final PR)' "$REPO_ROOT/skills/n1-finish/steps/06-cleanup.md" && grep -qF 'delivery not run (queue final PR)' "$REPO_ROOT/skills/n1-queue/steps/run.md" && echo yes || echo no)"
+    assert_eq "queue-wiring: final_merge launches n1-finish for queue final PRs only (N1-462)" yes \
+        "$(grep -qF '[ "$RUN_MODE" = queue ] || return 0' "$r" && grep -qF 'final_finish "$REPO" "$url" "$N1H"' "$r" && grep -qF 'launch-failed (run /n1:n1-finish $num)' "$r" && echo yes || echo no)"
     assert_eq "queue-wiring: session-start skips queue-keyed deploy-pending dirs (N1-462)" yes \
         "$(grep -qF '[[ "$tid" == queue-* ]] && continue' "$REPO_ROOT/hooks/session-start.sh" && echo yes || echo no)"
     assert_eq "queue-wiring: n1-pr bump skip names queue children" yes \
