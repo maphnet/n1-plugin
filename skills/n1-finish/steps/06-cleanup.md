@@ -10,7 +10,7 @@
    ## Finish
    - **Merged:** <sha> (<method>, by <reviewer|n1-finish (mergeOnFinish)|local merge>)
    - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | unverified, user approved merge | n/a (already merged) | n/a (local merge)>
-   - **Deploy:** <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <evidence>) | none triggered | skipped (local merge) | not watched; delivery not run (queue final PR)>
+   - **Deploy:** <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <evidence>) | none triggered | skipped (local merge)>
    - **Verification:** <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
    - **Verification details:** only when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`: the table per Step 3b's `post-deploy-verification.md` § Steps 4 and 6; otherwise omit this line.
    - **Delivery:** <pending (runbook: memory/<ID>/runbook.md) | succeeded (<verified | not verified>) | succeeded (covered by <owner ID> at <sha>) | not needed (repo-only paths) | n/a (delivery.mode is not ssh)>
@@ -66,8 +66,8 @@ Finish complete: <ID> (<ticket title>)
 Done: <1-2 lines from ticket title + PR summary>
 Ticket: <ID> → <done status | left open (<reason>) | tracker not configured> — <ticket URL | URL unavailable (<reason>)>
 PR: <url | none (prMode: skip — push it yourself: !git push origin <defaultBranch>)> — merged (<method>, by <reviewer|n1-finish (mergeOnFinish)|local merge>)
-Deploy: <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <evidence>) | none triggered | skipped (local merge) | not watched; delivery not run (queue final PR)>
-Verification: <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
+Deploy: <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <evidence>) | none triggered | skipped (local merge)>
+Verification: <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | skipped (queue final PR) | n/a>
 Verification details: <this invocation's validated per-criterion table when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`; otherwise omitted>
 Deferred to release (n1-release walks these before the tag push): <items> (PR #<n>)   ← only when Step 4 § Parse printed `deferred:<M>` with M > 0
 Deployment actions: <ticked <item> (evidence: "<quoted line>"); skipped <item>; failed <item> (<why>); left in runbook <item>>   ← only when Step 4 ran § Walk or § Check; non-empty parts only

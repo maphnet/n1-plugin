@@ -1169,6 +1169,7 @@ test_final_pr_merged_when_authorized() {
     assert_eq "final-merge: note" merged "$(fin_note "$tmp")"
     assert_eq "final-merge: event" "merged|merged" "$(fm_event "$tmp")"
     assert_eq "final-merge: no n1-finish for the story" 0 "$(cat "$tmp"/fake/prompt.* | grep -cF 'n1-finish S-1' || true)"
+    assert_eq "final-merge: no n1-finish session for a story final PR (N1-462)" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-final-9-fin')"
     assert_eq "final-merge: one story session, the final one" "launch $s" "$(grep '^launch n1-sq-S-1-' "$tmp/fake/events")"
     rm -rf "$tmp"
     # no checks reported counts as passing (N1-289 D5) for a PR that existed before this run (reused: the fake session
@@ -1186,6 +1187,33 @@ test_final_pr_merged_when_authorized() {
     run_fm "$tmp" >/dev/null
     assert_eq "final-merge-skip: merged, skip noted" "1,merged; codex: skipped disabled" "$(fm_merges "$tmp" 9),$(fin_note "$tmp")"
     assert_eq "final-merge-skip: no review ran" no "$(has_file "$tmp/fake/codex-calls")"
+    rm -rf "$tmp"
+}
+
+# N1-462 AC: with fullAuto + mergeOnFinish the runner merges a queue final PR, then launches `n1-finish <PR#> chained`
+# for it and waits; the Note carries the finish outcome after the merged prefix.
+test_queue_final_merge_launches_finish() {
+    local tmp url=https://github.com/o/r/pull/9; tmp=$(mktemp -d)
+    queue_final_merge_fixture "$tmp" "T-A:working done"
+    printf 'MERGED\t%s\t%s\n' "$QB" "$SM_PIN" > "$tmp/fake/gh-view.1"   # the child landed in the queue branch
+    assert_eq "queue-final-finish: exit 0" 0 "$(run_fm "$tmp")"
+    assert_eq "queue-final-finish: merged" 1 "$(fm_merges "$tmp" 9)"
+    assert_eq "queue-final-finish: one finish session" 1 "$(count_x "$tmp/fake/events" 'launch n1-sq-final-9-fin')"
+    assert_eq "queue-final-finish: finish runs for the PR number, chained" yes \
+        "$(grep -qF '9 chained' "$tmp/fake/prompt.n1-sq-final-9-fin" && echo yes || echo no)"
+    assert_eq "queue-final-finish: landed child not yet closed" "merged; finish: closed 0/1" "$(fin_note "$tmp")"
+    rm -rf "$tmp"
+    # the finish session closes the child: its overview ## Finish names the final PR
+    tmp=$(mktemp -d); queue_final_merge_fixture "$tmp" "T-A:working done"
+    printf 'MERGED\t%s\t%s\n' "$QB" "$SM_PIN" > "$tmp/fake/gh-view.1"; echo "$url" > "$tmp/fake/fin-closes.9.T-A"
+    run_fm "$tmp" >/dev/null
+    assert_eq "queue-final-finish: finish closed the child" "merged; finish: closed 1/1" "$(fin_note "$tmp")"
+    rm -rf "$tmp"
+    # a refused launch is recorded with the resume hint; the merge still counts
+    tmp=$(mktemp -d); queue_final_merge_fixture "$tmp" "T-A:working done"; touch "$tmp/fake/refuse-fin"
+    run_fm "$tmp" >/dev/null
+    assert_eq "queue-final-finish: launch failure keeps the merge and names the resume" "1,merged; finish: launch-failed (run /n1:n1-finish 9)" \
+        "$(fm_merges "$tmp" 9),$(fin_note "$tmp")"
     rm -rf "$tmp"
 }
 
@@ -1498,6 +1526,7 @@ test_final_pr_rows_open
 test_final_pr_halted
 test_final_pr_default_branch
 test_final_pr_merged_when_authorized
+test_queue_final_merge_launches_finish
 test_final_pr_head_moved
 test_final_pr_not_authorized
 test_final_pr_checks_gate

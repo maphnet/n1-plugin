@@ -897,7 +897,32 @@ final_merge() {
         ev escalated ticket="$RUN_STORY_ID" reason="runner merge landed on $base, not $def"
         fm_end waits "waits: merged-off-default"; return 0
     fi
-    fm_end merged "merged$sfx"
+    final_finish "$REPO" "$url" "$N1H"
+    fm_end merged "merged$sfx${FIN:+; finish: $FIN}"
+}
+
+# final_finish <repo> <final-pr-url> <n1-home> — N1-462: after final_merge merged a queue final PR (RUN_MODE queue; a
+# story final PR is closed by /n1:n1-finish <STORY_ID>), launch one background `n1-finish <PR#> chained` in <repo> and
+# wait for it: deploy watch on the merge commit, delivery gate (headless: recorded pending), landed-children close. No
+# marker: a resumed run keeps a recorded MERGED final PR in final_pr and never reaches final_merge again. Sets FIN to
+# the Note suffix: "closed <N>/<M>" (n1_queue_final_finish_state), "<AWAIT_WHY> (run /n1:n1-finish <PR#>)" or
+# "launch-failed (run /n1:n1-finish <PR#>)". It never changes the merge result.
+FIN=""
+final_finish() {
+    local num="${2##*/}" out sid
+    FIN=""
+    [ "$RUN_MODE" = queue ] || return 0
+    [[ "$num" =~ ^[0-9]+$ ]] || return 0
+    if out=$(bash -c "$(n1_queue_finish_cmd "$1" "$num" sonnet "$RUN_ID" "n1-${QUEUE_ID}-final-$num-fin")" </dev/null 2>&1) \
+        && sid=$(n1_queue_parse_launch "$out") && [ -n "$sid" ]; then
+        echo "final PR: $1 n1-finish launched ($sid)"
+        await_bg "$sid" "$RUN_STORY_ID" "$3"
+        if [ "$AWAIT_WHY" = done ]; then FIN=$(N1_HOME="$3" n1_queue_final_finish_state "$2")
+        else FIN="$AWAIT_WHY (run /n1:n1-finish $num)"; fi
+    else
+        FIN="launch-failed (run /n1:n1-finish $num)"
+    fi
+    echo "final PR: $1 finish: $FIN"
 }
 
 # final_pr <row#> <repo> <n1-home> — N1-293 (N1-289 D4/D6/D7): the final PR of one repo, from <kind>/<id> (story, or N1-446 queue) into the repo's
@@ -908,7 +933,8 @@ final_merge() {
 # did not land), waits for it and removes the worktree. The PR is then re-derived through gh, never taken from session
 # output, and its mergeable state is read (no sync from the default branch, D6).
 # The row is then passed to final_merge (N1-424): with autonomy.fullAuto and finishWork.mergeOnFinish on, the runner
-# merges the PR once its gates pass; otherwise the Note says why it waits for a human. No finish is launched for it.
+# merges the PR once its gates pass; otherwise the Note says why it waits for a human. After a runner merge of a queue
+# final PR, final_finish launches n1-finish for it (N1-462); a story final PR gets none.
 final_pr() {
     local NUM="$1" REPO="$2" N1H="$3" SB="" SBID="" def="" nwo="" counts="" nl=0 nr=0 draft=0 mst="" found="" url="" isd=""
     local why=not-created mg="" mss="" dcell="" note="" out="" sid="" ended=1 reused=1 old="" odc="" omg="" onote="" ost="" obase="" ohead="" pst="" pnote=""

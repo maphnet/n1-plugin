@@ -602,6 +602,8 @@ n1_delivery_runbook() {
     # that already ran are never offered again.
     local id="$1" sha="${2:-}" first="${3:-0}" dir ov cmd verify multi
     case "$first" in ''|*[!0-9]*) first=0 ;; esac
+    local res="$id"
+    case "$id" in queue-*) res='<final PR number>' ;; esac   # N1-462: n1-finish refuses a queue- ID
     dir="$N1_HOME/memory/$id"; ov="$dir/overview.md"
     mkdir -p "$dir"
     cmd=$(n1_config_val '.delivery.command')
@@ -612,15 +614,15 @@ n1_delivery_runbook() {
         if [ -n "$sha" ]; then
             printf 'Merged at `%s`. The deploy is pending.\n\n' "$sha"
         else
-            printf 'Not merged yet. `n1-finish %s` confirms (or performs) the merge first, then deploys.\n\n' "$id"
+            printf 'Not merged yet. `n1-finish %s` confirms (or performs) the merge first, then deploys.\n\n' "$res"
         fi
         if [ "$multi" = "true" ]; then
-            printf 'Run interactively: `n1-finish %s`. It asks before each step, starting at step %s, runs the verify command, and closes the ticket on success.\n\n' "$id" "$((first + 1))"
+            printf 'Run interactively: `n1-finish %s`. It asks before each step, starting at step %s, runs the verify command, and closes the ticket on success.\n\n' "$res" "$((first + 1))"
             printf 'Deploy steps (`Manual:` steps are done by hand; the others are shell commands):\n\n'
             jq -r --argjson f "$first" '.delivery.steps | to_entries[] | select(.key >= $f)
                 | "\(.key + 1). \(.value | if type == "string" then . else tojson end)"' "$(n1_config_file)" 2>/dev/null
         else
-            printf 'Run interactively: `n1-finish %s`. It asks to confirm, runs the deploy, runs the verify command, and closes the ticket on success.\n\n' "$id"
+            printf 'Run interactively: `n1-finish %s`. It asks to confirm, runs the deploy, runs the verify command, and closes the ticket on success.\n\n' "$res"
             if [ -n "$cmd" ]; then
                 printf 'Deploy command:\n\n```\n%s\n```\n' "$cmd"
             else
@@ -654,7 +656,7 @@ n1_delivery_covered() {
     for ov in "$N1_HOME"/memory/*/overview.md; do
         [ -f "$ov" ] || continue
         id="${ov%/overview.md}"; id="${id##*/}"
-        case "$id" in ''|*-old|*[!A-Za-z0-9_-]*) continue ;; esac
+        case "$id" in ''|*-old|queue-*|*[!A-Za-z0-9_-]*) continue ;; esac   # N1-462: queue-<key> is queue final PR state, not a ticket
         [ "$id" = "$ex" ] && continue
         [ "$(n1_read_frontmatter "$ov" deploy_pending)" = true ] || continue
         sha=$(n1_read_frontmatter "$ov" deploy_merge_sha)
@@ -672,6 +674,16 @@ n1_delivery_covered() {
         fi
     done
     return 0
+}
+
+n1_finish_queue_key() {
+    # N1-462. Usage: n1_finish_queue_key <headRefName>. A queue final PR head queue/<rest> prints the n1-finish
+    # state key queue-<rest> (rc 0). The runner builds <rest> with tr -c 'A-Za-z0-9\n' '-' (n1-queue-run.sh), so a
+    # runner-made head always passes the <ID> grammar; the queue.md id (may contain dots) is never the source.
+    # Not a queue/ head: no output, rc 1. A queue/ head outside [A-Za-z0-9_-]+: no output, rc 2 (n1-finish STOPs).
+    case "${1:-}" in queue/*) ;; *) return 1 ;; esac
+    [[ "${1#queue/}" =~ ^[A-Za-z0-9_-]+$ ]] || return 2
+    printf 'queue-%s\n' "${1#queue/}"
 }
 
 n1_review_narrow_threshold() {

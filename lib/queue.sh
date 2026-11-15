@@ -315,27 +315,41 @@ n1_queue_final_landed() {
 }
 
 n1_queue_finish_child() {
-    # Usage: n1_queue_finish_child <ticket> <child-pr-url> <final-pr-url> <ticket-line> — N1-532: after n1-finish moved a
-    # landed queue child to done, upserts its overview "## Finish" (as n1-finish Step 6 item 4), clears the awaiting-merge
+    # Usage: n1_queue_finish_child <ticket> <child-pr-url> <final-pr-url> <ticket-line> [<deploy-result>] — N1-532: after n1-finish moved a
+    # landed queue child to done, upserts its overview "## Finish" (as n1-finish Step 6 item 4; N1-462: Deploy is the final PR's deploy result), clears the awaiting-merge
     # marker, sets step done, then removes its worktree and branch (n1_clean_ticket <T> queue, queue env unset, as
     # n1_queue_close does). Run it in the row's repo. Safe to re-run.
-    local t="$1" ov tmp line
+    local t="$1" ov tmp line dep
     [[ "$t" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "$t: skipped (invalid ticket id)"; return 1; }
     # SEC-2: both URLs are written to overview.md; the Ticket line is one bounded line.
     [[ "$2" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] \
         && [[ "$3" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || { echo "$t: skipped (invalid PR url)"; return 1; }
     line=$(_n1_queue_sanitize_cell "$4"); line=${line:0:80}
+    dep=$(_n1_queue_sanitize_cell "${5:-not watched; delivery not run (queue final PR)}"); dep=${dep:0:160}
     ov="$N1_HOME/memory/$t/overview.md"
     if [ -f "$ov" ]; then
         tmp=$(mktemp "$ov.XXXXXX") || { echo "$t: memory:failed"; return 1; }
         # A failed write returns before cleanup so the worktree and branch survive and a re-run redoes the upsert.
         { awk '/^## /{s=/^## Finish\r?$/} !s' "$ov" > "$tmp" && mv "$tmp" "$ov"; } || { echo "$t: memory:failed"; rm -f "$tmp"; return 1; }
-        printf '\n## Finish\n- **Merged:** via queue final PR %s\n- **Deploy:** not watched; delivery not run (queue final PR)\n- **Ticket:** %s\npr_url: %s\n' \
-            "$3" "$line" "$2" >> "$ov" || { echo "$t: memory:failed"; return 1; }
+        printf '\n## Finish\n- **Merged:** via queue final PR %s\n- **Deploy:** %s\n- **Ticket:** %s\npr_url: %s\n' \
+            "$3" "$dep" "$line" "$2" >> "$ov" || { echo "$t: memory:failed"; return 1; }
         { n1_pending_clear "$ov" && n1_write_frontmatter "$ov" step done; } || { echo "$t: memory:failed"; return 1; }
         echo "$t: memory:done"
     else echo "$t: memory:none"; fi
     ( unset N1_QUEUE_DIR N1_QUEUE_RUN_ID N1_RUN_ID; n1_clean_ticket "$t" queue </dev/null 2>&1 )
+}
+
+n1_queue_final_finish_state() {
+    # Usage: n1_queue_final_finish_state <final-pr-url> — N1-462: the runner's Note after its n1-finish of a queue final
+    # PR. Prints "closed <N>/<M>": M landed children (n1_queue_final_landed), N of them whose overview ## Finish names
+    # this final PR (written by n1_queue_finish_child). No matching queue prints "closed 0/0". Reads only.
+    local k t n=0 m=0
+    while IFS=$'\t' read -r k t _; do
+        [ "$k" = landed ] || continue
+        m=$((m + 1))
+        grep -qxF -- "- **Merged:** via queue final PR $1" "$N1_HOME/memory/$t/overview.md" 2>/dev/null && n=$((n + 1))
+    done < <(n1_queue_final_landed "$1")
+    echo "closed $n/$m"
 }
 
 n1_queue_final_cmd() {

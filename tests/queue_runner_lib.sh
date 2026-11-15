@@ -127,7 +127,7 @@ case "$1" in
         printf '%s\n' "$all" > "$D/args.$name"
         printf '%s\n' "$settings" > "$D/settings.$name"
         pwd > "$D/cwd.$name"   # N1-293: the final PR session runs in the runner's worktree
-        if [ -f "$D/refuse" ] || { [ -f "$D/refuse-clean" ] && [ "${name%-clean}" != "$name" ]; } || { [ -f "$D/refuse-done" ] && [ "${name%-done}" != "$name" ]; }; then
+        if [ -f "$D/refuse" ] || { [ -f "$D/refuse-clean" ] && [ "${name%-clean}" != "$name" ]; } || { [ -f "$D/refuse-done" ] && [ "${name%-done}" != "$name" ]; } || { [ -f "$D/refuse-fin" ] && [ "${name%-fin}" != "$name" ]; }; then
             echo "Bypass Permissions mode requires accepting the disclaimer first. Run claude --dangerously-skip-permissions once."
             exit 1
         fi
@@ -165,6 +165,10 @@ case "$1" in
             # relay.<t>: an answer relay in flight; lands as the runner's marker (mtime kept) when
             # the fake first reports the session stopped, i.e. after the runner saw the first block.
             [ "$st" = stopped ] && [ -f "$D/relay.$t" ] && mv "$D/relay.$t" "$D/../.relay-$t"
+            # N1-462: fin-closes.<pr#>.<ticket> makes the chained finish of a queue final PR write that child's "## Finish" line.
+            case "$name" in *-final-*-fin) for f in "$D/fin-closes.$t".*; do
+                [ "$st" = done ] && [ -f "$f" ] && printf '\n## Finish\n- **Merged:** via queue final PR %s\n' "$(cat "$f")" >> "$FAKE_N1H/memory/${f##*.}/overview.md"
+            done ;; esac
             if [ "${name%-done}" != "$name" ] || [ "${name#*-final-}" != "$name" ]; then :   # N1-292/N1-293: Done and final sessions never write a child overview
             elif [ "${name%-fin}" != "$name" ]; then
                 # N1-185: fin-merge.<t> makes the chained finish merge the PR when it is done.
@@ -666,6 +670,22 @@ o='No findings.'; [ "$m" = findings ] && o=$'[P1] x is wrong\n[P2] y'
 while [ $# -gt 0 ]; do [ "$1" = -o ] && { printf '%s\n' "$o" > "$2"; break; }; shift; done
 CXEOF
     chmod +x "$tmp/bin/codex"
+}
+# queue_final_merge_fixture <tmp> <ticket:states>... — N1-462: final_merge_fixture as a list queue with integration:
+# queue (merge turned on mid-queue): the queue branch $QB starts at the story fixture's branch tip, children land in
+# $QB and the final PR 9 (head $QB) already exists (reused).
+queue_final_merge_fixture() {
+    local tmp="$1" n=0 spec; shift
+    final_merge_fixture "$tmp" "$@"
+    git -C "$tmp/origin" branch "$QB" story/S-1
+    sed -i '/^story_id: /d' "$tmp/queue.md"
+    n1_write_frontmatter "$tmp/queue.md" mode list
+    n1_write_frontmatter "$tmp/queue.md" integration queue
+    n1_queue_story_branch_set "$tmp/queue.md" "$tmp/repo" "$QB"
+    for spec in "$@"; do n=$((n + 1)); printf 'OPEN\t%s\t%s\n' "$QB" "$SM_PIN" > "$tmp/fake/gh-view.$n"; done
+    mkdir -p "$tmp/n1home/queue"; ln -s "$tmp" "$tmp/n1home/queue/sq"   # n1_queue_final_landed reads queue.md under $N1_HOME/queue/*/
+    rm -f "$tmp/fake/final-create"
+    printf '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"%s","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]\n' "$QB" > "$tmp/fake/gh-final-list.main"
 }
 run_fm() { N1_STATE_DIR="$1/state" run_bg_queue "$1"; }   # <tmp> — Codex receipts under <tmp>, never in ~/.n1
 fin_note() { fin_row "$1" "$1/repo" | cut -f4; }            # <tmp>

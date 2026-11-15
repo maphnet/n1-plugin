@@ -110,4 +110,44 @@ n1_queue_finish_child T-1 "$U/1" "$U/9" "moved
 awaiting: merge" >/dev/null
 eq "F4: newline cannot plant a marker" 0 "$(grep -c '^awaiting:' "$OV")"
 
+# K (N1-462): queue final PR state key from the head ref
+out=$(n1_finish_queue_key queue/list-589f8a21-20261115T070604Z); rc=$?
+eq "K1: queue head -> key" "queue-list-589f8a21-20261115T070604Z|0" "$out|$rc"
+out=$(n1_finish_queue_key feature/N1-1-x); rc=$?
+eq "K2: not a queue head" "|1" "$out|$rc"
+out=$(n1_finish_queue_key queue/a.b); rc=$?
+eq "K3: dotted queue head refused" "|2" "$out|$rc"
+out=$(n1_finish_queue_key queue/); rc=$?
+eq "K4: empty queue rest refused" "|2" "$out|$rc"
+out=$(n1_finish_queue_key 'queue/../x'); rc=$?
+eq "K5: traversal refused" "|2" "$out|$rc"
+
+# C (N1-462): a queue-keyed pending delivery is never a covered ticket
+G="$T/g"; git init -q "$G"
+git -C "$G" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m "Queue q1-x: queued tickets (queue-q1-x, N1-9)"
+S=$(git -C "$G" rev-parse HEAD)
+for d in queue-q1-x N1-9; do mkdir -p "$N1_HOME/memory/$d"; printf -- '---\ndeploy_pending: true\ndeploy_merge_sha: %s\n---\n' "$S" > "$N1_HOME/memory/$d/overview.md"; done
+eq "C1: only the ticket is covered, never the queue key" "N1-9 $S ok" "$(cd "$G" && n1_delivery_covered "$S")"
+rm -rf "$N1_HOME/memory/queue-q1-x" "$N1_HOME/memory/N1-9"
+
+# F5 (N1-462): the deploy result reaches the child's ## Finish; default and one-line sanitizing
+echo MERGED > "$T/gh/state.1"; rm -f "$T/gh/base.1"
+OV="$N1_HOME/memory/T-1/overview.md"
+printf -- '---\nstep: pr\nawaiting: merge\n---\n# T-1\n' > "$OV"
+n1_queue_finish_child T-1 "$U/1" "$U/9" "moved to Done" "succeeded https://github.com/o/r/actions/runs/7" >/dev/null
+eq "F5: Deploy line carries the result" 1 "$(grep -cxF -- '- **Deploy:** succeeded https://github.com/o/r/actions/runs/7' "$OV")"
+eq "F5: one Finish" 1 "$(grep -cx '## Finish' "$OV")"
+n1_queue_finish_child T-1 "$U/1" "$U/9" "moved to Done" >/dev/null
+eq "F5: default Deploy line without the arg" 1 "$(grep -cxF -- '- **Deploy:** not watched; delivery not run (queue final PR)' "$OV")"
+n1_queue_finish_child T-1 "$U/1" "$U/9" "moved to Done" "failed x
+awaiting: merge" >/dev/null
+eq "F5: deploy result stays one line" 0 "$(grep -c '^awaiting:' "$OV")"
+
+# S (N1-462): runner Note state after the final PR finish
+n1_queue_finish_child T-1 "$U/1" "$U/9" "moved to Done" "none triggered" >/dev/null
+eq "S1: finished child counted" "closed 1/1" "$(n1_queue_final_finish_state "$U/9")"
+printf -- '---\nstep: pr\nawaiting: merge\n---\n# T-1\n' > "$OV"
+eq "S2: unfinished child not counted" "closed 0/1" "$(n1_queue_final_finish_state "$U/9")"
+eq "S3: unknown final PR" "closed 0/0" "$(n1_queue_final_finish_state "$U/99")"
+
 echo "Results: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
