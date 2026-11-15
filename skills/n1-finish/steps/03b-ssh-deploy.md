@@ -4,7 +4,7 @@ Entered from the top of Step 4 (`04-close-ticket.md`) only, after the merge (Ste
 
 `<SHA>` below is the merge SHA from Step 2 / 2b, or `deploy_merge_sha` on a resume (Step 1). It is empty when nothing has been merged yet.
 
-**Queue final PR (N1-462):** on the queue final PR path (`queue-key:<QK>` at entry, `<ID>` empty) read every `<ID>` in this file as `<QK>`: the pending flag, runbook and `## Finish` lines go to `memory/<QK>/`, never to `memory//`. Resume wording names `/n1:n1-finish <final PR number>` (the runbook's `n1-finish <QK>` line does not resolve; the entry refuses a `queue-` ID). Before the first frontmatter write, create the state:
+**Queue final PR (N1-462):** on the queue final PR path (`queue-key:<QK>` at entry, `<ID>` empty) read every `<ID>` in this file as `<QK>`: the pending flag, runbook and `## Finish` lines go to `memory/<QK>/`, never to `memory//`. Resume wording names `/n1:n1-finish <final PR number>` (for a `queue-` ID the runbook prints `n1-finish <final PR number>`; the entry refuses a `queue-` ID). Before the first frontmatter write, create the state:
 ```bash
 source ~/.n1/preamble.sh
 QK="<QK>"; case "$QK" in queue-*) ;; *) echo qk:invalid; exit 1;; esac

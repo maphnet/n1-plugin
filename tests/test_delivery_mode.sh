@@ -128,6 +128,11 @@ test_runbook_never_executes() {
     assert_eq "runbook-unmerged: overview created + flag set" "true" "$(n1_read_frontmatter "$ov2" deploy_pending)"
     assert_eq "runbook-unmerged: no merge sha" "" "$(n1_read_frontmatter "$ov2" deploy_merge_sha)"
     assert_eq "runbook-unmerged: not-merged note" "yes" "$(grep -qF 'Not merged yet' "$out" && echo yes || echo no)"
+
+    # N1-462: a queue final PR key is not a valid n1-finish argument.
+    out=$(n1_delivery_runbook queue-r1 abc123)
+    assert_eq "runbook-queue: no queue- resume arg" "no" "$(grep -qF 'n1-finish queue-' "$out" && echo yes || echo no)"
+    assert_eq "runbook-queue: final PR resume arg" "yes" "$(grep -qF 'n1-finish <final PR number>' "$out" && echo yes || echo no)"
     assert_eq "runbook-unmerged: no verify section" "0" "$(grep -c 'Verify command' "$out" || true)"
 }
 

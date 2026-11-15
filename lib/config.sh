@@ -602,6 +602,8 @@ n1_delivery_runbook() {
     # that already ran are never offered again.
     local id="$1" sha="${2:-}" first="${3:-0}" dir ov cmd verify multi
     case "$first" in ''|*[!0-9]*) first=0 ;; esac
+    local res="$id"
+    case "$id" in queue-*) res='<final PR number>' ;; esac   # N1-462: n1-finish refuses a queue- ID
     dir="$N1_HOME/memory/$id"; ov="$dir/overview.md"
     mkdir -p "$dir"
     cmd=$(n1_config_val '.delivery.command')
@@ -612,15 +614,15 @@ n1_delivery_runbook() {
         if [ -n "$sha" ]; then
             printf 'Merged at `%s`. The deploy is pending.\n\n' "$sha"
         else
-            printf 'Not merged yet. `n1-finish %s` confirms (or performs) the merge first, then deploys.\n\n' "$id"
+            printf 'Not merged yet. `n1-finish %s` confirms (or performs) the merge first, then deploys.\n\n' "$res"
         fi
         if [ "$multi" = "true" ]; then
-            printf 'Run interactively: `n1-finish %s`. It asks before each step, starting at step %s, runs the verify command, and closes the ticket on success.\n\n' "$id" "$((first + 1))"
+            printf 'Run interactively: `n1-finish %s`. It asks before each step, starting at step %s, runs the verify command, and closes the ticket on success.\n\n' "$res" "$((first + 1))"
             printf 'Deploy steps (`Manual:` steps are done by hand; the others are shell commands):\n\n'
             jq -r --argjson f "$first" '.delivery.steps | to_entries[] | select(.key >= $f)
                 | "\(.key + 1). \(.value | if type == "string" then . else tojson end)"' "$(n1_config_file)" 2>/dev/null
         else
-            printf 'Run interactively: `n1-finish %s`. It asks to confirm, runs the deploy, runs the verify command, and closes the ticket on success.\n\n' "$id"
+            printf 'Run interactively: `n1-finish %s`. It asks to confirm, runs the deploy, runs the verify command, and closes the ticket on success.\n\n' "$res"
             if [ -n "$cmd" ]; then
                 printf 'Deploy command:\n\n```\n%s\n```\n' "$cmd"
             else
