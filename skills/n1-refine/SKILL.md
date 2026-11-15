@@ -54,7 +54,7 @@ Execute steps in order. Read each step file and follow its instructions before p
 1. **Fetch** — tracker gate, fetch, existing children, codebase analysis, optional investigation
    Read `<N1_ROOT>/skills/n1-refine/steps/01-fetch.md`
 
-2. **Loop** — contradictions, tiering, question batches, scope classification, readiness verdict
+2. **Loop** — contradictions, tiering, simple-ticket exit, question batches, scope classification, readiness verdict
    Read `<N1_ROOT>/skills/n1-refine/steps/02-loop.md`
 
 3. **Write** — draft block, show it with actions, write or comment, then create confirmed children, handoff

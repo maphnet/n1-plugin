@@ -1,4 +1,4 @@
-<!-- Purpose: list mode (2+ tickets): order by links among the listed tickets, confirm, refine each in turn with earlier Refined blocks as context, report (Steps 1-6). -->
+<!-- Purpose: list mode (2+ tickets): order by links among the listed tickets, show the order, refine each in turn with earlier Refined blocks as context, report (Steps 1-6). -->
 
 List mode runs when the Input step resolved two or more IDs into `IDS` (user order, duplicates dropped). More than 10: say "n1-refine takes at most 10 tickets per run; split the list." **STOP.** Hold `IDS`, `AFTER`, `ORDER`, `PRIOR` and `OUTCOMES` in this session; write no file for them.
 
@@ -40,16 +40,9 @@ No recommendation. The options are equivalent given the available evidence; sele
 
 Cancel: say "Nothing refined." **STOP.**
 
-## Step 4: Confirm
+## Step 4: Order
 
-Before the first refine, show the order, one line per ticket as `<n>. <T> (after <AFTER(T)>)` (omit the note when empty), then any Step 2 "links ... unread" notes and any "<input>: ignored (not a ticket)" lines. Ask the user:
-
-No recommendation. The options are equivalent given the available evidence; select based on team preference.
-1 — Start: refine in this order; works when the order matches the real dependencies
-2 — Change order: type every key of `IDS` once, in order; works when a dependency is missing from the tracker
-3 — Cancel: refine nothing; works when the list is wrong
-
-Change order: set `ORDER`, show this step again. Cancel: say "Nothing refined." **STOP.** After Start, `ORDER` is fixed: children created during the run are not added to it.
+Before the first refine, show the order, one line per ticket as `<n>. <T> (after <AFTER(T)>)` (omit the note when empty), then any Step 2 "links ... unread" notes and any "<input>: ignored (not a ticket)" lines. Ask nothing (a cycle already asked in Step 3) and go to Step 5. To use another order, stop and re-run with the keys in that order (tracker links still decide). `ORDER` is fixed: children created during the run are not added to it.
 
 ## Step 5: Refine Each Ticket
 
@@ -59,7 +52,7 @@ For each ticket in `ORDER`: set `<ID>` to it, reset `INVESTIGATE` to the Input f
 - **PRIOR:** the earlier tickets' written Scope, Decisions and Assumptions (`03-write.md` Step 3 appends to it). `01-fetch.md` Step 4 passes it to the solution-architect and `02-loop.md` Step 2 carries its Decisions over. A ticket with no written block adds nothing.
 - **Handoff:** `03-write.md` Step 4 prints only its `Refined`, `Actions` and `Listed, not run` lines, makes no Sub-task offer, and returns here.
 
-Record one `OUTCOMES` row per ticket: `refined (description|comment)`, `skipped: <reason>` (Redirect, nothing implementable) or `failed: <reason>` (tracker error, description changed again, failed check), plus the Sub-task keys `03-write.md` Step 3c created.
+Record one `OUTCOMES` row per ticket: `refined (description|comment)`, `skipped: <reason>` (Redirect, nothing implementable, simple ticket) or `failed: <reason>` (tracker error, description changed again, failed check), plus the Sub-task keys `03-write.md` Step 3c created.
 
 ## Step 6: Report
 

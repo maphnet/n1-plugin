@@ -335,7 +335,7 @@ has "N1-516: closed blockers still order" 'Status is ignored' "$Q"
 has "N1-516: listed parent orders before its child" 'A listed parent is a blocker of `T`' "$Q"
 has "N1-516: edges only among listed tickets" 'an edge is kept only when both ends are in `IDS`' "$Q"
 has "N1-516: cycle lets the user pick the order" '1 — Keep listed order' "$Q"
-before "N1-516: order confirmed before the first refine" '## Step 4: Confirm' '## Step 5: Refine Each Ticket' "$Q"
+before "N1-607: order shown before the first refine" '## Step 4: Order' '## Step 5: Refine Each Ticket' "$Q"
 has "N1-516: INVESTIGATE reset per ticket" 'reset `INVESTIGATE` to the Input flag value' "$Q"
 has "N1-516: per-ticket held state cleared between tickets" 'clear every value those files hold for one ticket (`DESC_ORIG`, `CHILDREN`, `PARENT`, `GRANDPARENT`, `SIBLINGS`, `LINKS`, `CONVERT`, `PROPOSED`, `DUP_LINKS`); only `IDS`, `AFTER`, `ORDER`, `PRIOR` and `OUTCOMES` carry over' "$Q"
 has "N1-516: a stopped ticket does not stop the rest" 'does not stop the rest' "$Q"
@@ -383,13 +383,13 @@ has "N1-557: handoff lists unrun items" 'Listed, not run:' "$W"
 has "N1-557: handoff offers a re-run" 'Re-run /n1:n1-refine <ID> to change the block.' "$W"
 
 # --- N1-557: Actions confirmation question in 02-loop Step 4 (D2)
-# Catches: PROPOSED/CONVERT written without the user confirming them; a confirmation asked when both are empty;
+# Catches: PROPOSED written without the user confirming it; a confirmation asked when PROPOSED is empty;
 # the question presented as a write approval.
 L=skills/n1-refine/steps/02-loop.md
 has "N1-557: loop asks one Actions question" 'ask exactly one Actions question' "$L"
 has "N1-557: Actions question confirm option" '1 — Confirm all (Recommended):' "$L"
 has "N1-557: Actions question is not a write approval" 'This is a scope question, not a write approval' "$L"
-has "N1-557: no question when both are empty" 'Both empty: ask nothing.' "$L"
+has "N1-607: no question when PROPOSED is empty" '`PROPOSED` empty: ask nothing; a `CONVERT` is listed in the handoff' "$L"
 has "N1-557: dropping A1 drops Sub-tasks" 'Dropping `A1` when `CONVERT=Story` also drops every Sub-task' "$L"
 lacks "N1-557: loop no longer carries draft lists" 'the draft lists' "$L"
 
@@ -402,5 +402,65 @@ lacks "N1-557: list mode records no adopted keys" 'created or adopted' skills/n1
 has "N1-557: list handoff names the listed line" '`Refined`, `Actions` and `Listed, not run` lines' skills/n1-refine/steps/00-list.md
 lacks "N1-557: architecture has no refine approval" 'on approval writes the refined block' references/architecture.md
 lacks "N1-557: architecture row has no picked actions" 'only for actions the user picks' references/architecture.md
+
+# --- N1-607: fewer refine questions
+# Catches: a clearly-right A point still asked; an auto-decided Decision indistinguishable from a human answer;
+# stop-list or preference points auto-decided.
+L=skills/n1-refine/steps/02-loop.md
+line_has "N1-607: auto-decide uses the question-format test" '"which one is right?"' 'question-format.md' "$L"
+has "N1-607: auto-decided Decision carries the marker" 'Why: (auto-decided) <file:line or ticket statement>. Rejected: <alt>.' "$L"
+line_has "N1-607: auto-decide needs no other option to hold" '"which one is right?"' "no other option's works-when condition holds" "$L"
+line_has "N1-607: stop-list topics always asked" '**Always ask**' 'alwaysAskOn' "$L"
+line_has "N1-607: preference points always asked" '**Always ask**' 'intent, preference or cost the code cannot show' "$L"
+has "N1-607: doubt means ask" 'When in doubt, ask.' "$L"
+
+# Catches: a simple Task/Bug still walked through the loop; an exit that writes or misses the n1-start pointer;
+# a missing or non-numeric signal treated as simple (must fail closed); thresholds drifting from lib/analysis.sh.
+before "N1-607: simple exit sits before the questions" '## Step 2b: Simple-Ticket Exit' '## Step 3: Question Batches' "$L"
+has "N1-607: exit writes nothing and points to n1-start" 'Simple ticket: nothing to settle. Refine ends here and writes nothing to the ticket. Run /n1:n1-start <ID>.' "$L"
+line_has "N1-607: exit only for Task or Bug with known empty children" '`ISSUE_TYPE` is `task` or `bug`' 'not `unknown`' "$L"
+line_has "N1-607: exit needs no A point and no contradiction" 'no contradicted claim' 'no A-tier point (asked or auto-decided)' "$L"
+has "N1-607: exit needs empty classification" 'leaves `PROPOSED` and `CONVERT` empty' "$L"
+line_has "N1-607: exit skipped on re-run and investigate" 'not a re-run' '`INVESTIGATE`' "$L"
+has "N1-607: unverified claims shown on exit" 'Unverified, not recorded: <claim>' "$L"
+has "N1-607: list mode records the simple skip" '(Redirect, nothing implementable, simple ticket)' skills/n1-refine/steps/00-list.md
+has "N1-607: SKILL.md names the exit" 'tiering, simple-ticket exit, question batches' skills/n1-refine/SKILL.md
+SNIP607=$(awk '/^## Step 2b/{i=1} i&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$L" | grep -v 'preamble.sh' | sed 's|<ID>|T|g')
+simple607() { # <analysis.md content, printf %b> -> snippet output
+    local d; d=$(mktemp -d -p "$PT"); mkdir -p "$d/memory/T/refine"
+    printf '%b' "$1" > "$d/memory/T/refine/analysis.md"
+    N1_HOME="$d" bash -c "source '$ROOT/lib/signals.sh'; $SNIP607" 2>&1
+}
+S607='<!-- n1:signals\nblast_radius: low\nsecurity_relevant: false\nfiles_changed: 2\n-->\n'
+[ "$(simple607 "$S607")" = "signals=simple" ] && echo "PASS: N1-607: low/false/2 is simple" || { echo "FAIL: N1-607: low/false/2 got: $(simple607 "$S607")"; FAIL=1; }
+for c607 in \
+    '<!-- n1:signals\nblast_radius: low\nsecurity_relevant: false\nfiles_changed: 3\n-->\n' \
+    '<!-- n1:signals\nblast_radius: medium\nsecurity_relevant: false\nfiles_changed: 1\n-->\n' \
+    '<!-- n1:signals\nblast_radius: low\nsecurity_relevant: true\nfiles_changed: 1\n-->\n' \
+    '<!-- n1:signals\nblast_radius: low\nfiles_changed: 1\n-->\n' \
+    '<!-- n1:signals\nblast_radius: low\nsecurity_relevant: false\nfiles_changed: ~2\n-->\n' \
+    '## Analysis\nno signals\n'; do
+    [ "$(simple607 "$c607")" = "signals=not-simple" ] && echo "PASS: N1-607: fails closed on $(printf '%b' "$c607" | tr '\n' ' ')" \
+        || { echo "FAIL: N1-607: not fail-closed on $(printf '%b' "$c607" | tr '\n' ' ')"; FAIL=1; }
+done
+# Catches: a conversion-only Story still asked an Actions question; 03-write claiming a lone conversion was confirmed.
+W=skills/n1-refine/steps/03-write.md
+has "N1-607: Actions question only with proposed children" 'when `PROPOSED` is non-empty, ask exactly one Actions question' "$L"
+lacks "N1-607: conversion alone no longer triggers the question" 'when `PROPOSED` or `CONVERT` is non-empty' "$L"
+has "N1-607: write knows a lone conversion is not asked" 'a lone `CONVERT` is never asked' "$W"
+has "N1-607: write says the question may not have run" 'Step 4 question, when asked, already confirmed the Actions' "$W"
+# Catches: a reintroduced order confirmation prompt in list mode; the cycle prompt removed with it.
+Q=skills/n1-refine/steps/00-list.md
+lacks "N1-607: no Start prompt in list mode" 'Start: refine in this order' "$Q"
+lacks "N1-607: no Change order option" 'Change order' "$Q"
+has "N1-607: order shown without asking" 'Ask nothing (a cycle already asked in Step 3)' "$Q"
+has "N1-607: cycle still asks" 'The listed tickets block each other in a loop.' "$Q"
+
+# Catches: architecture still describing the removed order prompt or a conversion-only Actions question.
+has "N1-607: architecture names auto-decide and the simple exit" 'ends early with no write on a simple Task or Bug' references/architecture.md
+has "N1-607: architecture names the auto-decided marker" 'auto-decides clearly-right points (marked `(auto-decided)`' references/architecture.md
+has "N1-607: architecture says a lone conversion is not asked" 'a conversion alone is listed, not asked' references/architecture.md
+lacks "N1-607: architecture drops the order confirmation" 'the user confirms the order' references/architecture.md
+lacks "N1-607: architecture drops the conversion confirmation" 'confirms the proposed children and conversion' references/architecture.md
 
 exit $FAIL

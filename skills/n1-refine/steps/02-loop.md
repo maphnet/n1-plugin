@@ -1,4 +1,4 @@
-<!-- Purpose: contradiction gate, tiering, question batches, scope classification, readiness verdict (Steps 1-5). -->
+<!-- Purpose: contradiction gate, tiering, simple-ticket exit, question batches, scope classification, readiness verdict (Steps 1-5). -->
 
 List mode (`00-list.md`): a **STOP**, "end refine" or "refine ends here" in this file ends only the current ticket; `00-list.md` Step 5 records the outcome and goes on with the next ticket.
 
@@ -24,11 +24,33 @@ Every `unable to verify` line (match case-insensitively) in `### Ticket Validati
 Collect open points: `### Decision Points` in analysis.md, `### Ambiguities` in refine/ticket.md, and `<!-- n1:unknown -->` markers in investigation.md when present, except those answered under its `### Clarifications` (a deferred one becomes an Assumption). Resolve before asking:
 - **C** — decide by convention; record as an Assumption.
 - **B** — decide from the cited evidence; record as a Decision whose Why names the file:line, or as an Assumption when the user may still overturn it.
-- **A** — ask in Step 3.
+- **A** — ask in Step 3. Exception: decide it here, without asking, when all hold: its recommended option passes the "which one is right?" test of `<N1_ROOT>/references/question-format.md` § What earns the label, its evidence is a file:line or a ticket statement, and no other option's works-when condition holds. Record it as a Decision whose Why starts with the marker, `D<n> <topic>: <chosen>. Why: (auto-decided) <file:line or ticket statement>. Rejected: <alt>.`, so readers downstream see that no human answered it. An auto-decided point never reaches Step 3.
+- **Always ask** (never auto-decided): a point whose answer depends on intent, preference or cost the code cannot show, and a point on a stop-list topic (`n1_escalation_val alwaysAskOn`: security, architecture, public API). When in doubt, ask.
 
 Re-run: Decisions from the existing block stay unless the user changes them; its Assumptions are re-tiered with the rest.
 
 List mode with non-empty `PRIOR` (`00-list.md` Step 5): a `PRIOR` Decision that bears on this ticket is carried over as a Decision (`Why: decided in <KEY>`). When it conflicts with this ticket's own Decisions, its text or the code, it becomes an A-tier point for Step 3 that shows both sides with their sources; a conflict is never overridden silently in either direction.
+
+## Step 2b: Simple-Ticket Exit
+
+Checked once, after Step 2 and before any Step 3 question:
+
+```bash
+source ~/.n1/preamble.sh
+A="$N1_HOME/memory/<ID>/refine/analysis.md"
+B=$(n1_read_signal "$A" blast_radius); F=$(n1_read_signal "$A" files_changed); S=$(n1_read_signal "$A" security_relevant)
+case "$F" in ''|*[!0-9]*) F=99;; esac
+[ "$B" = low ] && [ "$S" = false ] && [ "$F" -lt 3 ] && echo "signals=simple" || echo "signals=not-simple"
+```
+
+Exit only when all hold (same thresholds as the n1-start simple path):
+- The output is `signals=simple`; a missing or unparseable signal prints `signals=not-simple` and means no exit.
+- `ISSUE_TYPE` is `task` or `bug`, and `CHILDREN` is empty (not `unknown`).
+- Step 1 found no contradicted claim, Step 2 found no A-tier point (asked or auto-decided), and no `PRIOR` Decision was carried over.
+- The Step 4 classification, run now without its Actions question, leaves `PROPOSED` and `CONVERT` empty.
+- This is not a re-run (`01-fetch.md` Step 2), and `INVESTIGATE` is not `true`.
+
+On exit: show each Step 1 `Unverified: <claim>` line again as `Unverified, not recorded: <claim>`, then say "Simple ticket: nothing to settle. Refine ends here and writes nothing to the ticket. Run /n1:n1-start <ID>." **STOP.** List mode: the outcome is `skipped: simple ticket`. Any condition unmet: go on to Step 3; Step 4 runs in full later.
 
 ## Step 3: Question Batches
 
@@ -54,7 +76,7 @@ Results, carried into `03-write.md`:
 
 `ISSUE_TYPE` other than `epic`, `story` or `task` (bug, sub-task, ...): `PROPOSED` and `CONVERT` stay empty; refine writes the block only. `CHILDREN` non-empty: show it first (key, type, summary) and flag gaps (scope no child covers) and overlaps (two children, or a child and the ticket's Out list, covering the same deliverable); a Story with children is never offered Task conversion, and a Task with children is never offered Story conversion. `CHILDREN=unknown`: `PROPOSED` and `CONVERT` stay empty; say "Existing children unknown; refine proposes no children or conversion this run." Nothing is written in this step.
 
-**Actions question:** when `PROPOSED` or `CONVERT` is non-empty, ask exactly one Actions question per ticket (format: `<N1_ROOT>/references/question-format.md`); it counts toward the Step 3 limit of 4 questions per message. Both empty: ask nothing. This is a scope question, not a write approval: `03-write.md` writes the block right after this step without asking again. List `A1 Convert <ID> to <CONVERT>` first (refine lists the conversion for the user and never runs it), then each `C<n> <child type>: <summary>`, then:
+**Actions question:** when `PROPOSED` is non-empty, ask exactly one Actions question per ticket (format: `<N1_ROOT>/references/question-format.md`); it counts toward the Step 3 limit of 4 questions per message. `PROPOSED` empty: ask nothing; a `CONVERT` is listed in the handoff (`03-write.md` Step 3b) and never asked, since refine never runs it. This is a scope question, not a write approval: `03-write.md` writes the block right after this step without asking again. List `A1 Convert <ID> to <CONVERT>` first (refine lists the conversion for the user and never runs it), then each `C<n> <child type>: <summary>`, then:
 
 ```
 Actions Q: confirm the children and the conversion before the block is written
@@ -69,4 +91,4 @@ Edit or Drop items: apply it, then ask this question again until Confirm all or 
 
 ## Step 5: Readiness Verdict
 
-N = A-tier points the user parked. N = 0: `Executable without questions: yes`. Otherwise `Executable without questions: no — N open`, followed by the parked points. Carry the verdict, the Step 2-4 results, and `PROPOSED` and `CONVERT` as confirmed in Step 4 into `03-write.md`.
+N = A-tier points the user parked. N = 0: `Executable without questions: yes`. Otherwise `Executable without questions: no — N open`, followed by the parked points. Carry the verdict, the Step 2-4 results, and `PROPOSED` and `CONVERT` as left by Step 4 into `03-write.md`: a lone `CONVERT` is no longer confirmed by a question.

@@ -30,9 +30,9 @@ The last line closes the block; text outside the two marker lines belongs to peo
 
 ## Step 2: Actions and Display
 
-**Actions** come from `PROPOSED` and `CONVERT` as confirmed in `02-loop.md` Step 4: `A1 Convert <ID> to <CONVERT>` first, then one `C<n> <child type>: <summary>` per child with its description and acceptance criteria (child type per Step 3c). Drop the actions that cannot run and print each under the block with its reason: every child when `CREATE_ISSUE_OP` is empty ("no create op configured"); Jira children when `CREATE_ISSUE_OP` does not start with `jcm_` and `VERSION_MCP` is empty ("no parent link without jc-mcp"); YouTrack children when `LINK_OP` is empty ("no link op configured"). `A1` is never run: Step 3b lists it for the user.
+**Actions** come from `PROPOSED` and `CONVERT` as left by `02-loop.md` Step 4 (confirmed by its Actions question when `PROPOSED` is non-empty; a lone `CONVERT` is never asked): `A1 Convert <ID> to <CONVERT>` first, then one `C<n> <child type>: <summary>` per child with its description and acceptance criteria (child type per Step 3c). Drop the actions that cannot run and print each under the block with its reason: every child when `CREATE_ISSUE_OP` is empty ("no create op configured"); Jira children when `CREATE_ISSUE_OP` does not start with `jcm_` and `VERSION_MCP` is empty ("no parent link without jc-mcp"); YouTrack children when `LINK_OP` is empty ("no link op configured"). `A1` is never run: Step 3b lists it for the user.
 
-Print the verdict line from `02-loop.md` Step 5, then the block, then the Actions list when it is non-empty, and go to Step 3 without asking; the `02-loop.md` Step 4 question already confirmed the Actions.
+Print the verdict line from `02-loop.md` Step 5, then the block, then the Actions list when it is non-empty, and go to Step 3 without asking; the `02-loop.md` Step 4 question, when asked, already confirmed the Actions.
 
 ## Step 3: Write
 
