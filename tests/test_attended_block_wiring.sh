@@ -28,6 +28,18 @@ check "failed move never delays the question" 'go straight to the question' "$P"
 check "stop leaves the ticket Blocked" 'stays Blocked' "$P"
 absent "never writes step frontmatter (no step: escalated)" 'n1_write_frontmatter[^`]*"step"' "$P"
 
+# In-scope ask sites point at the procedure
+check "SKILL routes attended guard-class questions" 'would escalate.*procedures/attended-block\.md' "$D/SKILL.md"
+check "SKILL Gate 2 row wraps plan approval" '^\| Gate 2 \|.*procedures/attended-block\.md' "$D/SKILL.md"
+check "analysis contradiction gate" 'Contradiction gate.*procedures/attended-block\.md' "$D/steps/analysis.md"
+check "fix Exhausted ask" 'Exhausted.*procedures/attended-block\.md' "$D/steps/fix.md"
+check "developer needs-decision ask" '^A `needs-decision` line.*procedures/attended-block\.md' "$D/procedures/review-fix-budget.md"
+check "brainstorm A-tier question" 'A-tier.*procedures/attended-block\.md' "$D/steps/brainstorm.md"
+
+# AC2: resume moves an attended-stopped ticket back to In Progress
+check "resume reads blocked_wait and moves to inProgress" 'blocked_wait.*inProgress' "$D/procedures/resume.md"
+check "resume clears blocked_wait" 'blocked_wait.*false' "$D/procedures/resume.md"
+
 # AC4: headless and ask-mode text untouched
 for f in autonomy-headless.md autonomy-headless-ask.md; do
     absent "headless $f untouched (no blocked_wait)" 'blocked_wait|attended-block' "$D/procedures/$f"

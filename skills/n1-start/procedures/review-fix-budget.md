@@ -24,7 +24,7 @@ The persona that raised a `disputed` finding rules on it inside the next increme
 
 ## Needs decision
 
-A `needs-decision` line whose question falls in a stop-list category (`procedures/autonomy-headless.md § Headless Guard`: security, architecture, public API) is asked in this cycle, not at the budget end: ask the user the developer's question (format: `<N1_ROOT>/references/question-format.md`), add an `[asked]` ledger row in step `fix`, then dispatch the developer once more in this cycle (no counter increment) with the answer for those IDs. Headless: § Headless Guard (stop list: pause or escalate). Any other category: add an `[auto]` ledger row naming the ID, no ask and no re-dispatch; the finding stays open and § Gate decides the next cycle.
+A `needs-decision` line whose question falls in a stop-list category (`procedures/autonomy-headless.md § Headless Guard`: security, architecture, public API) is asked in this cycle, not at the budget end: wrap the ask in `procedures/attended-block.md` and ask the user the developer's question (format: `<N1_ROOT>/references/question-format.md`), add an `[asked]` ledger row in step `fix`, then dispatch the developer once more in this cycle (no counter increment) with the answer for those IDs. Headless: § Headless Guard (stop list: pause or escalate). Any other category: add an `[auto]` ledger row naming the ID, no ask and no re-dispatch; the finding stays open and § Gate decides the next cycle.
 
 ## Status lines
 

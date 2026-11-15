@@ -39,7 +39,7 @@ n1_analysis_finalize < "$N1_HOME/memory/$ID/sa-return.md"
 ```
 Output, each only when it applies: `Snapshot persistence failed.`, `Project map persistence failed.`, `SNAPSHOT_DRIFT:<desc>` (snapshot already deleted), `LITE_ESCALATED:<reason>`, `Ticket contradictions found: N`, `Simple-path: skipping brainstorm and plan`; always `SELF_RESOLVED=N SIMPLE_PATH=true|false`; the SA context block between `CONTEXT_BLOCK<<` and `CONTEXT_BLOCK>>`.
 
-**Contradiction gate:** `CONTRADICTIONS > 0`: show `### Ticket Validation`; 1=Continue 2=Redirect(Recommended): cite the contradicting file:line; Continue works when every contradiction is minor (format: <N1_ROOT>/references/question-format.md); log `[asked]` ledger row. Zero or all unverifiable: skip. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+**Contradiction gate:** `CONTRADICTIONS > 0`: show `### Ticket Validation`; 1=Continue 2=Redirect(Recommended): cite the contradicting file:line; Continue works when every contradiction is minor (format: <N1_ROOT>/references/question-format.md); wrap the ask in `procedures/attended-block.md` (Unblock on any answer, Redirect included); log `[asked]` ledger row. Zero or all unverifiable: skip. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 Missing/empty: re-prompt once; fallback. SNAPSHOT_DRIFT printed: snapshot already deleted. Write frontmatter; the lines between `CONTEXT_BLOCK<<` and `CONTEXT_BLOCK>>` → replace `## Context`. **Print Gate 1** (`SIMPLE_PATH=true`: `analysis → developer → qa → review → pr`). `SELF_RESOLVED>0`: `[auto]` ledger. Then `procedures/ticket-watch.md § Seed`. Headless: continue immediately past Gate 1 into the next step — do not end the turn.
 
