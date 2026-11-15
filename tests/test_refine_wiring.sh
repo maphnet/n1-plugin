@@ -403,4 +403,15 @@ has "N1-557: list handoff names the listed line" '`Refined`, `Actions` and `List
 lacks "N1-557: architecture has no refine approval" 'on approval writes the refined block' references/architecture.md
 lacks "N1-557: architecture row has no picked actions" 'only for actions the user picks' references/architecture.md
 
+# --- N1-607: fewer refine questions
+# Catches: a clearly-right A point still asked; an auto-decided Decision indistinguishable from a human answer;
+# stop-list or preference points auto-decided.
+L=skills/n1-refine/steps/02-loop.md
+line_has "N1-607: auto-decide uses the question-format test" '"which one is right?"' 'question-format.md' "$L"
+has "N1-607: auto-decided Decision carries the marker" 'Why: (auto-decided) <file:line or ticket statement>. Rejected: <alt>.' "$L"
+line_has "N1-607: auto-decide needs no other option to hold" '"which one is right?"' "no other option's works-when condition holds" "$L"
+line_has "N1-607: stop-list topics always asked" '**Always ask**' 'alwaysAskOn' "$L"
+line_has "N1-607: preference points always asked" '**Always ask**' 'intent, preference or cost the code cannot show' "$L"
+has "N1-607: doubt means ask" 'When in doubt, ask.' "$L"
+
 exit $FAIL

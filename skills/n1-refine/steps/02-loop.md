@@ -24,7 +24,8 @@ Every `unable to verify` line (match case-insensitively) in `### Ticket Validati
 Collect open points: `### Decision Points` in analysis.md, `### Ambiguities` in refine/ticket.md, and `<!-- n1:unknown -->` markers in investigation.md when present, except those answered under its `### Clarifications` (a deferred one becomes an Assumption). Resolve before asking:
 - **C** — decide by convention; record as an Assumption.
 - **B** — decide from the cited evidence; record as a Decision whose Why names the file:line, or as an Assumption when the user may still overturn it.
-- **A** — ask in Step 3.
+- **A** — ask in Step 3. Exception: decide it here, without asking, when all hold: its recommended option passes the "which one is right?" test of `<N1_ROOT>/references/question-format.md` § What earns the label, its evidence is a file:line or a ticket statement, and no other option's works-when condition holds. Record it as a Decision whose Why starts with the marker, `D<n> <topic>: <chosen>. Why: (auto-decided) <file:line or ticket statement>. Rejected: <alt>.`, so readers downstream see that no human answered it. An auto-decided point never reaches Step 3.
+- **Always ask** (never auto-decided): a point whose answer depends on intent, preference or cost the code cannot show, and a point on a stop-list topic (`n1_escalation_val alwaysAskOn`: security, architecture, public API). When in doubt, ask.
 
 Re-run: Decisions from the existing block stay unless the user changes them; its Assumptions are re-tiered with the rest.
 
