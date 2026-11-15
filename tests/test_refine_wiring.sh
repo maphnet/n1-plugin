@@ -383,13 +383,13 @@ has "N1-557: handoff lists unrun items" 'Listed, not run:' "$W"
 has "N1-557: handoff offers a re-run" 'Re-run /n1:n1-refine <ID> to change the block.' "$W"
 
 # --- N1-557: Actions confirmation question in 02-loop Step 4 (D2)
-# Catches: PROPOSED/CONVERT written without the user confirming them; a confirmation asked when both are empty;
+# Catches: PROPOSED written without the user confirming it; a confirmation asked when PROPOSED is empty;
 # the question presented as a write approval.
 L=skills/n1-refine/steps/02-loop.md
 has "N1-557: loop asks one Actions question" 'ask exactly one Actions question' "$L"
 has "N1-557: Actions question confirm option" '1 — Confirm all (Recommended):' "$L"
 has "N1-557: Actions question is not a write approval" 'This is a scope question, not a write approval' "$L"
-has "N1-557: no question when both are empty" 'Both empty: ask nothing.' "$L"
+has "N1-607: no question when PROPOSED is empty" '`PROPOSED` empty: ask nothing; a `CONVERT` is listed in the handoff' "$L"
 has "N1-557: dropping A1 drops Sub-tasks" 'Dropping `A1` when `CONVERT=Story` also drops every Sub-task' "$L"
 lacks "N1-557: loop no longer carries draft lists" 'the draft lists' "$L"
 
@@ -443,4 +443,10 @@ for c607 in \
     [ "$(simple607 "$c607")" = "signals=not-simple" ] && echo "PASS: N1-607: fails closed on $(printf '%b' "$c607" | tr '\n' ' ')" \
         || { echo "FAIL: N1-607: not fail-closed on $(printf '%b' "$c607" | tr '\n' ' ')"; FAIL=1; }
 done
+# Catches: a conversion-only Story still asked an Actions question; 03-write claiming a lone conversion was confirmed.
+W=skills/n1-refine/steps/03-write.md
+has "N1-607: Actions question only with proposed children" 'when `PROPOSED` is non-empty, ask exactly one Actions question' "$L"
+lacks "N1-607: conversion alone no longer triggers the question" 'when `PROPOSED` or `CONVERT` is non-empty' "$L"
+has "N1-607: write knows a lone conversion is not asked" 'a lone `CONVERT` is never asked' "$W"
+has "N1-607: write says the question may not have run" 'Step 4 question, when asked, already confirmed the Actions' "$W"
 exit $FAIL

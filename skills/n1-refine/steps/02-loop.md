@@ -76,7 +76,7 @@ Results, carried into `03-write.md`:
 
 `ISSUE_TYPE` other than `epic`, `story` or `task` (bug, sub-task, ...): `PROPOSED` and `CONVERT` stay empty; refine writes the block only. `CHILDREN` non-empty: show it first (key, type, summary) and flag gaps (scope no child covers) and overlaps (two children, or a child and the ticket's Out list, covering the same deliverable); a Story with children is never offered Task conversion, and a Task with children is never offered Story conversion. `CHILDREN=unknown`: `PROPOSED` and `CONVERT` stay empty; say "Existing children unknown; refine proposes no children or conversion this run." Nothing is written in this step.
 
-**Actions question:** when `PROPOSED` or `CONVERT` is non-empty, ask exactly one Actions question per ticket (format: `<N1_ROOT>/references/question-format.md`); it counts toward the Step 3 limit of 4 questions per message. Both empty: ask nothing. This is a scope question, not a write approval: `03-write.md` writes the block right after this step without asking again. List `A1 Convert <ID> to <CONVERT>` first (refine lists the conversion for the user and never runs it), then each `C<n> <child type>: <summary>`, then:
+**Actions question:** when `PROPOSED` is non-empty, ask exactly one Actions question per ticket (format: `<N1_ROOT>/references/question-format.md`); it counts toward the Step 3 limit of 4 questions per message. `PROPOSED` empty: ask nothing; a `CONVERT` is listed in the handoff (`03-write.md` Step 3b) and never asked, since refine never runs it. This is a scope question, not a write approval: `03-write.md` writes the block right after this step without asking again. List `A1 Convert <ID> to <CONVERT>` first (refine lists the conversion for the user and never runs it), then each `C<n> <child type>: <summary>`, then:
 
 ```
 Actions Q: confirm the children and the conversion before the block is written
@@ -91,4 +91,4 @@ Edit or Drop items: apply it, then ask this question again until Confirm all or 
 
 ## Step 5: Readiness Verdict
 
-N = A-tier points the user parked. N = 0: `Executable without questions: yes`. Otherwise `Executable without questions: no — N open`, followed by the parked points. Carry the verdict, the Step 2-4 results, and `PROPOSED` and `CONVERT` as confirmed in Step 4 into `03-write.md`.
+N = A-tier points the user parked. N = 0: `Executable without questions: yes`. Otherwise `Executable without questions: no — N open`, followed by the parked points. Carry the verdict, the Step 2-4 results, and `PROPOSED` and `CONVERT` as left by Step 4 into `03-write.md`: a lone `CONVERT` is no longer confirmed by a question.
