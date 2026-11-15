@@ -24,11 +24,21 @@ Every `unable to verify` line (match case-insensitively) in `### Ticket Validati
 Collect open points: `### Decision Points` in analysis.md, `### Ambiguities` in refine/ticket.md, and `<!-- n1:unknown -->` markers in investigation.md when present, except those answered under its `### Clarifications` (a deferred one becomes an Assumption). Resolve before asking:
 - **C** — decide by convention; record as an Assumption.
 - **B** — decide from the cited evidence; record as a Decision whose Why names the file:line, or as an Assumption when the user may still overturn it.
-- **A** — ask in Step 3.
+- **A** — ask in Step 3, unless its recommended option is clearly right: it passes the "which one is right?" test of `<N1_ROOT>/references/question-format.md` § What earns the label, its evidence is a file:line or a ticket statement, and no other option's `works when` condition holds for this ticket. Then decide it without asking; record a Decision whose Why names the evidence and ends with `(auto-decided)`. The user sees it in the printed block and changes it with a re-run. Always ask when the right option depends on something the code and ticket cannot show (product intent, a preference, a cost the user owns), and for a topic in `n1_escalation_val 'alwaysAskOn'` (default: security, architecture, public-api).
 
 Re-run: Decisions from the existing block stay unless the user changes them; its Assumptions are re-tiered with the rest.
 
 List mode with non-empty `PRIOR` (`00-list.md` Step 5): a `PRIOR` Decision that bears on this ticket is carried over as a Decision (`Why: decided in <KEY>`). When it conflicts with this ticket's own Decisions, its text or the code, it becomes an A-tier point for Step 3 that shows both sides with their sources; a conflict is never overridden silently in either direction.
+
+**Simple-ticket exit:**
+
+```bash
+source ~/.n1/preamble.sh
+A="$N1_HOME/memory/<ID>/refine/analysis.md"
+echo "blast=$(n1_read_signal "$A" blast_radius) files=$(n1_read_signal "$A" files_changed) security=$(n1_read_signal "$A" security_relevant)"
+```
+
+When all of these hold, the ticket needs no refine: no A-tier point is left to ask, Step 1 found no contradicted claim, `ISSUE_TYPE` is not `epic` or `story`, `CHILDREN` is empty, this is not a re-run, `INVESTIGATE` is not `true`, `blast=low`, `files` below 3 and `security` not `true`. Say "<ID> is simple (<files> files, low blast radius) and has nothing to decide; refine writes nothing. Run `/n1:n1-start <ID>`." **STOP.**
 
 ## Step 3: Question Batches
 
@@ -54,7 +64,7 @@ Results, carried into `03-write.md`:
 
 `ISSUE_TYPE` other than `epic`, `story` or `task` (bug, sub-task, ...): `PROPOSED` and `CONVERT` stay empty; refine writes the block only. `CHILDREN` non-empty: show it first (key, type, summary) and flag gaps (scope no child covers) and overlaps (two children, or a child and the ticket's Out list, covering the same deliverable); a Story with children is never offered Task conversion, and a Task with children is never offered Story conversion. `CHILDREN=unknown`: `PROPOSED` and `CONVERT` stay empty; say "Existing children unknown; refine proposes no children or conversion this run." Nothing is written in this step.
 
-**Actions question:** when `PROPOSED` or `CONVERT` is non-empty, ask exactly one Actions question per ticket (format: `<N1_ROOT>/references/question-format.md`); it counts toward the Step 3 limit of 4 questions per message. Both empty: ask nothing. This is a scope question, not a write approval: `03-write.md` writes the block right after this step without asking again. List `A1 Convert <ID> to <CONVERT>` first (refine lists the conversion for the user and never runs it), then each `C<n> <child type>: <summary>`, then:
+**Actions question:** when `PROPOSED` is non-empty, ask exactly one Actions question per ticket (format: `<N1_ROOT>/references/question-format.md`); it counts toward the Step 3 limit of 4 questions per message. `PROPOSED` empty: ask nothing; a non-empty `CONVERT` is only listed in the handoff, which refine never runs. This is a scope question, not a write approval: `03-write.md` writes the block right after this step without asking again. List `A1 Convert <ID> to <CONVERT>` first (refine lists the conversion for the user and never runs it), then each `C<n> <child type>: <summary>`, then:
 
 ```
 Actions Q: confirm the children and the conversion before the block is written

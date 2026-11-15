@@ -335,7 +335,7 @@ has "N1-516: closed blockers still order" 'Status is ignored' "$Q"
 has "N1-516: listed parent orders before its child" 'A listed parent is a blocker of `T`' "$Q"
 has "N1-516: edges only among listed tickets" 'an edge is kept only when both ends are in `IDS`' "$Q"
 has "N1-516: cycle lets the user pick the order" '1 — Keep listed order' "$Q"
-before "N1-516: order confirmed before the first refine" '## Step 4: Confirm' '## Step 5: Refine Each Ticket' "$Q"
+before "N1-516: order shown before the first refine" '## Step 4: Show Order' '## Step 5: Refine Each Ticket' "$Q"
 has "N1-516: INVESTIGATE reset per ticket" 'reset `INVESTIGATE` to the Input flag value' "$Q"
 has "N1-516: per-ticket held state cleared between tickets" 'clear every value those files hold for one ticket (`DESC_ORIG`, `CHILDREN`, `PARENT`, `GRANDPARENT`, `SIBLINGS`, `LINKS`, `CONVERT`, `PROPOSED`, `DUP_LINKS`); only `IDS`, `AFTER`, `ORDER`, `PRIOR` and `OUTCOMES` carry over' "$Q"
 has "N1-516: a stopped ticket does not stop the rest" 'does not stop the rest' "$Q"
@@ -389,8 +389,14 @@ L=skills/n1-refine/steps/02-loop.md
 has "N1-557: loop asks one Actions question" 'ask exactly one Actions question' "$L"
 has "N1-557: Actions question confirm option" '1 — Confirm all (Recommended):' "$L"
 has "N1-557: Actions question is not a write approval" 'This is a scope question, not a write approval' "$L"
-has "N1-557: no question when both are empty" 'Both empty: ask nothing.' "$L"
+has "N1-557: no question without children to create" '`PROPOSED` empty: ask nothing' "$L"
 has "N1-557: dropping A1 drops Sub-tasks" 'Dropping `A1` when `CONVERT=Story` also drops every Sub-task' "$L"
+# Catches: refine asking questions whose recommendation is clearly right, or running a full loop on a simple ticket.
+line_has "auto-decides a clearly-right A-tier point" '**A** — ask in Step 3, unless' '(auto-decided)' "$L"
+line_has "auto-decide never covers stop-list topics" '**A** — ask in Step 3, unless' "n1_escalation_val 'alwaysAskOn'" "$L"
+has "simple ticket exits before questions" 'refine writes nothing. Run `/n1:n1-start <ID>`.' "$L"
+before "simple-ticket exit precedes question batches" '**Simple-ticket exit:**' '## Step 3: Question Batches' "$L"
+lacks "list mode asks no order confirmation" '1 — Start: refine in this order' skills/n1-refine/steps/00-list.md
 lacks "N1-557: loop no longer carries draft lists" 'the draft lists' "$L"
 
 lacks "N1-557: no draft helper in lib" 'n1_refine_draft_state' lib/config.sh
