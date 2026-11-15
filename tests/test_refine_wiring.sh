@@ -456,4 +456,11 @@ lacks "N1-607: no Change order option" 'Change order' "$Q"
 has "N1-607: order shown without asking" 'Ask nothing (a cycle already asked in Step 3)' "$Q"
 has "N1-607: cycle still asks" 'The listed tickets block each other in a loop.' "$Q"
 
+# Catches: architecture still describing the removed order prompt or a conversion-only Actions question.
+has "N1-607: architecture names auto-decide and the simple exit" 'ends early with no write on a simple Task or Bug' references/architecture.md
+has "N1-607: architecture names the auto-decided marker" 'auto-decides clearly-right points (marked `(auto-decided)`' references/architecture.md
+has "N1-607: architecture says a lone conversion is not asked" 'a conversion alone is listed, not asked' references/architecture.md
+lacks "N1-607: architecture drops the order confirmation" 'the user confirms the order' references/architecture.md
+lacks "N1-607: architecture drops the conversion confirmation" 'confirms the proposed children and conversion' references/architecture.md
+
 exit $FAIL
