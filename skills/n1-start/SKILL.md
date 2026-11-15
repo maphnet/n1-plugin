@@ -41,7 +41,7 @@ Telemetry Init: `procedures/telemetry.md` | Input Parsing: `procedures/input-par
 
 ## Pipeline Steps
 
-Step 3 runs autonomously (brainstormer, auto-confirmed acceptance gate). Gate 2 pauses for plan approval when `requirePlanApproval` is enabled, never under `N1_HEADLESS=1`.
+Step 3 runs autonomously (brainstormer, auto-confirmed acceptance gate). Gate 2 pauses for plan approval when `requirePlanApproval` is enabled, never under `N1_HEADLESS=1`. **Attended questions:** before a blocking question that `procedures/autonomy-headless.md § Headless Guard` would escalate (stop list or no recommended option) when not headless, run `procedures/attended-block.md` Block; after the answer, its Unblock.
 
 **Ticket watch:** before Step 10 (PR creation) run `source ~/.n1/preamble.sh; source "$N1_ROOT/lib/ticket-watch.sh"; n1_tw_check_http "$ID"`. No output: continue without reading the procedure. Any output, an error or a timeout: read `procedures/ticket-watch.md § Check` and act on that output as it says (do not re-run the call).
 
@@ -57,7 +57,7 @@ Step 3 runs autonomously (brainstormer, auto-confirmed acceptance gate). Gate 2 
 | Planning Need Routing | — | `plan` → Step 4; `direct` → Step 5 |
 | 4. PLAN | `steps/plan.md` | plan path only; skipped on simple-path |
 | 4b. PLAN REVIEW | `steps/plan-review.md` | skipped on simple-path |
-| Gate 2 | — | emit Gate 2; if `n1_plan_approval_required`: await user approval |
+| Gate 2 | — | emit Gate 2; if `n1_plan_approval_required`: `procedures/attended-block.md` Block, await user approval, Unblock on any reply |
 | 5. IMPLEMENT | `steps/implementation.md` | emit `<ID> · implementing — <N> files` |
 | 5b. RUNTIME CROSS-REPO | `procedures/cross-repo.md §5b` | |
 | 6. QA | `steps/qa.md` | |
