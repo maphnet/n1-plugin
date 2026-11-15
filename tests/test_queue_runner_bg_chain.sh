@@ -1193,16 +1193,27 @@ test_final_pr_merged_when_authorized() {
 # N1-462 AC: with fullAuto + mergeOnFinish the runner merges a queue final PR, then launches `n1-finish <PR#> chained`
 # for it and waits; the Note carries the finish outcome after the merged prefix.
 test_queue_final_merge_launches_finish() {
-    local tmp note; tmp=$(mktemp -d)
+    local tmp url=https://github.com/o/r/pull/9; tmp=$(mktemp -d)
     queue_final_merge_fixture "$tmp" "T-A:working done"
+    printf 'MERGED\t%s\t%s\n' "$QB" "$SM_PIN" > "$tmp/fake/gh-view.1"   # the child landed in the queue branch
     assert_eq "queue-final-finish: exit 0" 0 "$(run_fm "$tmp")"
     assert_eq "queue-final-finish: merged" 1 "$(fm_merges "$tmp" 9)"
     assert_eq "queue-final-finish: one finish session" 1 "$(count_x "$tmp/fake/events" 'launch n1-sq-final-9-fin')"
     assert_eq "queue-final-finish: finish runs for the PR number, chained" yes \
         "$(grep -qF '9 chained' "$tmp/fake/prompt.n1-sq-final-9-fin" && echo yes || echo no)"
-    note=$(fin_note "$tmp")
-    assert_eq "queue-final-finish: Note keeps merged prefix and adds the finish state" yes \
-        "$(case "$note" in "merged; finish: closed "*/*) echo yes ;; *) echo no ;; esac)"
+    assert_eq "queue-final-finish: landed child not yet closed" "merged; finish: closed 0/1" "$(fin_note "$tmp")"
+    rm -rf "$tmp"
+    # the finish session closes the child: its overview ## Finish names the final PR
+    tmp=$(mktemp -d); queue_final_merge_fixture "$tmp" "T-A:working done"
+    printf 'MERGED\t%s\t%s\n' "$QB" "$SM_PIN" > "$tmp/fake/gh-view.1"; echo "$url" > "$tmp/fake/fin-closes.9.T-A"
+    run_fm "$tmp" >/dev/null
+    assert_eq "queue-final-finish: finish closed the child" "merged; finish: closed 1/1" "$(fin_note "$tmp")"
+    rm -rf "$tmp"
+    # a refused launch is recorded with the resume hint; the merge still counts
+    tmp=$(mktemp -d); queue_final_merge_fixture "$tmp" "T-A:working done"; touch "$tmp/fake/refuse-fin"
+    run_fm "$tmp" >/dev/null
+    assert_eq "queue-final-finish: launch failure keeps the merge and names the resume" "1,merged; finish: launch-failed (run /n1:n1-finish 9)" \
+        "$(fm_merges "$tmp" 9),$(fin_note "$tmp")"
     rm -rf "$tmp"
 }
 
