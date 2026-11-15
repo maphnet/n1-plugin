@@ -335,7 +335,7 @@ has "N1-516: closed blockers still order" 'Status is ignored' "$Q"
 has "N1-516: listed parent orders before its child" 'A listed parent is a blocker of `T`' "$Q"
 has "N1-516: edges only among listed tickets" 'an edge is kept only when both ends are in `IDS`' "$Q"
 has "N1-516: cycle lets the user pick the order" '1 — Keep listed order' "$Q"
-before "N1-516: order confirmed before the first refine" '## Step 4: Confirm' '## Step 5: Refine Each Ticket' "$Q"
+before "N1-607: order shown before the first refine" '## Step 4: Order' '## Step 5: Refine Each Ticket' "$Q"
 has "N1-516: INVESTIGATE reset per ticket" 'reset `INVESTIGATE` to the Input flag value' "$Q"
 has "N1-516: per-ticket held state cleared between tickets" 'clear every value those files hold for one ticket (`DESC_ORIG`, `CHILDREN`, `PARENT`, `GRANDPARENT`, `SIBLINGS`, `LINKS`, `CONVERT`, `PROPOSED`, `DUP_LINKS`); only `IDS`, `AFTER`, `ORDER`, `PRIOR` and `OUTCOMES` carry over' "$Q"
 has "N1-516: a stopped ticket does not stop the rest" 'does not stop the rest' "$Q"
@@ -449,4 +449,11 @@ has "N1-607: Actions question only with proposed children" 'when `PROPOSED` is n
 lacks "N1-607: conversion alone no longer triggers the question" 'when `PROPOSED` or `CONVERT` is non-empty' "$L"
 has "N1-607: write knows a lone conversion is not asked" 'a lone `CONVERT` is never asked' "$W"
 has "N1-607: write says the question may not have run" 'Step 4 question, when asked, already confirmed the Actions' "$W"
+# Catches: a reintroduced order confirmation prompt in list mode; the cycle prompt removed with it.
+Q=skills/n1-refine/steps/00-list.md
+lacks "N1-607: no Start prompt in list mode" 'Start: refine in this order' "$Q"
+lacks "N1-607: no Change order option" 'Change order' "$Q"
+has "N1-607: order shown without asking" 'Ask nothing (a cycle already asked in Step 3)' "$Q"
+has "N1-607: cycle still asks" 'The listed tickets block each other in a loop.' "$Q"
+
 exit $FAIL
