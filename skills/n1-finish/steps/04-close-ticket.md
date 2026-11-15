@@ -1,6 +1,6 @@
 # Step 4: Close Ticket
 
-**Queue final PR (N1-446):** head branch (`headRefName`) starts with `queue/` → no ticket, even when the name holds a ticket-like id: skip this step (the delivery gate below included) and Step 5; go to Step 6, which reports `Deploy: not watched; delivery not run (queue final PR)`; the user deploys by hand. Step 7 closes the queue's landed child tickets (N1-532); its cleanup deletes the local queue branch.
+**Queue final PR (N1-446, N1-462):** head branch (`headRefName`) starts with `queue/` → no ticket, even when the name holds a ticket-like id. Run only the delivery gate below with `<ID>` read as `<QK>` (`03b-ssh-deploy.md` § Queue final PR), the after-deploy actions for the final PR number, and covered-close with `<QK>` as `<ID>`; skip the Hard-skip gate, runtime recovery, Move status, Add comment and Step 5. An exit that skips the ticket close (delivery pending, declined or failed) goes to Step 6 with the children open; an exit that would continue to the ticket close or Step 5 returns to `steps/07-queue-chain.md` § Close landed children instead. Step 7's cleanup deletes the local queue branch.
 
 **Delivery gate (before anything else in this step):** follow `<N1_ROOT>/skills/n1-finish/steps/03b-ssh-deploy.md` (read at entry when `delivery.mode` is `"ssh"`). Continue below only when it says to return to Step 4; a successful delivery continues with the rest of Step 4, then Step 5 and Step 6, in this same run. It is a no-op unless `delivery.mode` is `"ssh"`.
 

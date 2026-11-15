@@ -4,6 +4,8 @@
 
 **Local-merge path (Step 2b):** skip this entire file — deploy `skipped (local merge)`, verification `n/a`. Go to Step 4.
 
+**Queue final PR (N1-462):** watch exactly as below with the final PR's merge SHA. The outcome actions follow `steps/07-queue-chain.md` § Queue deploy: a failure comment goes to each landed child (no ticket of its own), resume wording names `/n1:n1-finish <final PR number>`, and `succeeded` never dispatches post-deploy verification: verification is `skipped (queue final PR)` (do not read `post-deploy-verification.md`).
+
 **Pre-check (no deploy workflow).** Fill `<workflowName>` from the entry's `finishWork.deployWatch.workflowName` (empty when unset) and `<sha>` with the merge commit SHA. Workflows are read at that commit, not the checkout:
 ```bash
 WN='<workflowName>'; S='<sha>'

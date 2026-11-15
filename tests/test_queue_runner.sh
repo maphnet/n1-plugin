@@ -3170,8 +3170,8 @@ test_queue_chain_wiring() {
     assert_eq "chain-wiring: final_prs runs the chain for a queue" 1 "$(grep -cF 'scripts/n1-queue-chain.sh" --own "queue/$RUN_STORY_ID" "$QUEUE"' "$REPO_ROOT/scripts/n1-queue-run.sh")"
     assert_eq "chain-wiring: n1-finish queue path points to step 7" yes \
         "$(grep -qF 'steps/07-queue-chain.md' "$REPO_ROOT/skills/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
-    assert_eq "chain-wiring: step 7 runs before the Step 6 summary" yes \
-        "$(grep -qF 'before Step 6 prints the summary' "$f7" && grep -qF 'then Step 6' "$REPO_ROOT/skills/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
+    assert_eq "chain-wiring: step 7 runs before the deploy watch and the Step 6 summary (N1-462)" yes \
+        "$(grep -qF 'before Step 3' "$f7" && grep -qF 'then Step 6' "$REPO_ROOT/skills/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
     assert_eq "chain-wiring: step 7 runs --all and ignores its exit" yes \
         "$(grep -qF 'scripts/n1-queue-chain.sh" --pred "<merged final PR url>" --all || true' "$f7" && echo yes || echo no)"
     assert_eq "chain-wiring: run.md documents it" yes \
@@ -3183,7 +3183,7 @@ test_queue_chain_wiring() {
     assert_eq "close-wiring: step 7 finishes each child after the tracker move" yes \
         "$(grep -qF 'n1_queue_finish_child "<T>" "<child PR url>" "<merged final PR url>"' "$f7" && echo yes || echo no)"
     assert_eq "close-wiring: step 1 names the child close" yes \
-        "$(grep -qF 'closes the landed children' "$REPO_ROOT/skills/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
+        "$(grep -qF '§ Close landed children' "$REPO_ROOT/skills/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
     assert_eq "close-wiring: a closed final PR lists children left open" yes \
         "$(grep -qF 'left open:' "$REPO_ROOT/skills/n1-finish/steps/02-merge.md" && echo yes || echo no)"
 }
@@ -3195,8 +3195,13 @@ test_queue_integration_wiring() {
     assert_eq "queue-wiring: final_pr passes the kind to body and cmd" 2 "$(grep -c '"\$body" "\$draft" "\$RUN_MODE")\|"\$SBID" "\$body" "\$RUN_MODE")' "$r" || true)"
     assert_eq "queue-wiring: n1-finish close step skips queue/ heads" yes \
         "$(grep -qF 'starts with `queue/`' "$REPO_ROOT/skills/n1-finish/steps/04-close-ticket.md" && echo yes || echo no)"
-    assert_eq "queue-wiring: queue final PR reports deploy not watched" yes \
-        "$(grep -qF 'Deploy: not watched; delivery not run (queue final PR)' "$REPO_ROOT/skills/n1-finish/steps/04-close-ticket.md" && grep -qF 'not watched; delivery not run (queue final PR)' "$REPO_ROOT/skills/n1-finish/steps/06-cleanup.md" && grep -qF 'delivery not run (queue final PR)' "$REPO_ROOT/skills/n1-queue/steps/run.md" && echo yes || echo no)"
+    assert_eq "queue-wiring: queue final PR watches the deploy and gates the child close (N1-462)" yes \
+        "$(F="$REPO_ROOT/skills/n1-finish/steps"; ! grep -qF 'not watched; delivery not run (queue final PR)' "$F/04-close-ticket.md" "$F/06-cleanup.md" "$REPO_ROOT/skills/n1-queue/steps/run.md" \
+            && grep -qF '## Queue deploy (N1-462)' "$F/07-queue-chain.md" \
+            && grep -qF 'Deployment failed after merging <merged final PR url>: <run URL>' "$F/07-queue-chain.md" \
+            && grep -qF 'skipped (queue final PR)' "$F/03-deploy.md" && grep -qF 'skipped (queue final PR)' "$F/06-cleanup.md" \
+            && grep -qF '**Queue final PR (N1-462):**' "$F/03b-ssh-deploy.md" \
+            && grep -qF 'watches the deploy on the merge commit' "$REPO_ROOT/skills/n1-queue/steps/run.md" && echo yes || echo no)"
     assert_eq "queue-wiring: final_merge launches n1-finish for queue final PRs only (N1-462)" yes \
         "$(grep -qF '[ "$RUN_MODE" = queue ] || return 0' "$r" && grep -qF 'final_finish "$REPO" "$url" "$N1H"' "$r" && grep -qF 'launch-failed (run /n1:n1-finish $num)' "$r" && echo yes || echo no)"
     assert_eq "queue-wiring: session-start skips queue-keyed deploy-pending dirs (N1-462)" yes \
