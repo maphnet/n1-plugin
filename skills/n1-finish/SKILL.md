@@ -21,19 +21,19 @@ Fill `ID` (argument, else derived from the PR or branch) , `PR` (digits of a `#1
 source ~/.n1/preamble.sh
 [ -n "$N1_HOME" ] || { echo N1_NOT_CONFIGURED; exit 1; }
 POST_DEPLOY_VERIFICATION_ARTIFACT=false
-ID="<ID>"; PR="<PR>"; CH="<CH>"; c() { n1_config_val ".$*"; }; S="$N1_ROOT/skills/n1-finish"
+ID="<ID>"; PR="<PR>"; CH="<CH>"; Q=; c() { n1_config_val ".$*"; }; S="$N1_ROOT/skills/n1-finish"
 [[ "$PR" =~ ^[0-9]*$ ]] || PR=
 TP=$(c tracker.prefix); B=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); F=number,state,mergedAt,mergeCommit,url,headRefName,baseRefName
 tid() { grep -oiE "$TP-[0-9]+" | head -1 | tr a-z A-Z; }
 [ -n "$ID" ] || [ -n "$PR" ] || [ -z "$TP" ] || ID=$(tid <<<"$B")
-case "$ID" in *[!A-Za-z0-9_-]*) echo id:invalid; exit 1;; esac
+case "$ID" in *[!A-Za-z0-9_-]*|queue-*) echo id:invalid; exit 1;; esac
 gh auth status >/dev/null 2>&1 && G=ok || G=unauthenticated; R=false
 look() { X="(^|[^a-z0-9])${ID,,}([^0-9]|$)"
   if [ -z "$PR" ] && [ -n "$ID" ] && ! [[ ${B,,} =~ $X ]]; then J=$(gh pr list --state all --limit 300 --json $F | jq -rc --arg x "$X" 'map(select(.headRefName|ascii_downcase|test($x)))|map(select(.state=="OPEN")) as $o|map(select(.state=="MERGED")) as $m|if length==1 then .[0] elif ($o|length)==1 then $o[0] elif ($o|length)==0 and ($m|length)==1 then $m[0] elif length==0 then empty else "pr:ambiguous "+(map(.number|tostring)|join(" ")) end')
   else J=$(gh pr view ${PR:+"$PR"} --json $F); fi; echo "${J:-pr:none}"; }
-[ -z "$PR" ] || [ "$G" != ok ] || { look; [ -n "$ID" ] || [ -z "$TP" ] || ID=$(jq -r '.headRefName//empty' <<<"$J" 2>/dev/null | tid); }
-M="$N1_HOME/memory/$ID"
-if [ -n "$ID" ]; then
+[ -z "$PR" ] || [ "$G" != ok ] || { look; HR=$(jq -r '.headRefName//empty' <<<"$J" 2>/dev/null); Q=$(n1_finish_queue_key "$HR"); [ $? = 2 ] && { echo queue-key:invalid; exit 1; }; [ -n "$ID$Q" ] || [ -z "$TP" ] || ID=$(tid <<<"$HR"); }
+K=${ID:-$Q}; M="$N1_HOME/memory/$K"
+if [ -n "$K" ]; then
   DP=$(n1_read_frontmatter "$M/overview.md" deploy_pending); SHA=$(n1_read_frontmatter "$M/overview.md" deploy_merge_sha); DB=$(c git.defaultBranch); V=false
   [[ "$SHA" =~ ^[0-9a-f]{7,40}$ ]] && git merge-base --is-ancestor "$SHA" "${DB:-main}" 2>/dev/null && V=true
   echo "deploy-pending:$DP sha:$SHA sha-valid:$V"; [ "$DP$V" = truetrue ] && R=true
@@ -41,7 +41,7 @@ fi
 [ -n "$PR" ] || [ "$R$G" != falseok ] || look
 echo "gh:$G branch=$B"
 P=$(c git.prMode); [ -n "$P" ] || { [ "$(c git.draftPR)" = false ] && P=ready || P=draft; }
-echo "id=$ID prMode=$P"
+echo "id=$ID prMode=$P${Q:+ queue-key:$Q}"
 for k in finishWork.{mergeMethod,deployWatch.workflowName} delivery.mode git.{defaultBranch,branchPattern} tracker.{mcp,versionMcp,statuses.done} release.enabled; do echo "$k=$(c $k)"; done
 echo "tracker.operations=$(n1_config_ops .tracker.operations)"
 [ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes
@@ -49,12 +49,13 @@ echo "tracker.operations=$(n1_config_ops .tracker.operations)"
 RA=(); H=no; [ "$R" = false ] && [ "$(n1_post_deploy_verification_enabled)" = false ] && H=yes
 [ "$(c delivery.mode)" = ssh ] && RA+=("$S/steps/03b-ssh-deploy.md") && H=no
 [ -n "$(c tracker.mcp)" ] && [ -z "$(c tracker.statuses.done)" ] && RA+=("$S/references/done-status-recovery.md") && H=no
+[ -z "$Q" ] || { H=no; RA+=("$S/steps/07-queue-chain.md"); }
 [ $H = yes ] && RA+=("$S/steps/handoff.md") || RA+=("$S"/steps/0[3-6]-*.md); echo handoff:$H
-[ -z "$ID" ] || for f in ticket overview; do [ -f "$M/$f.md" ] && RA+=("$M/$f.md"); done
+[ -z "$K" ] || for f in ticket overview; do [ -f "$M/$f.md" ] && RA+=("$M/$f.md"); done
 echo "read-also: ${RA[*]}"
 ```
 
-`N1_NOT_CONFIGURED` → warn and STOP. `id:invalid` → STOP. Empty `id=` → resolve it from `git.branchPattern`, then run Step 1's check.
+`N1_NOT_CONFIGURED` → warn and STOP. `id:invalid` or `queue-key:invalid` → STOP. Empty `id=` → resolve it from `git.branchPattern`, then run Step 1's check (not on the queue path: `queue-key:` printed).
 
 ## Config Read
 

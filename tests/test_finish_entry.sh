@@ -253,4 +253,26 @@ has "no args: id derived from branch" "id=T-1"
 # Self-check: the empty-$1 substitution used above really rewrites a $1 reference.
 if [[ $(sed 's/\$1//g' <<<'c() { n1_config_val ".$1"; }') != *'$1'* ]]; then ok "substitution helper rewrites \$1"; else no "substitution helper rewrites \$1"; fi
 
+# 17. N1-462: queue final PR entry: state key from the head, no ticket ID, no hand-off, 07 read
+QH=queue/list-a-20261115T000000Z
+# `run` defaults the ID argument to T-1 (`${TID-T-1}`), so every queue case sets `TID=` (no ID argument, as `/n1:n1-finish <PR#>`).
+QD="$T/home/memory/queue-list-a-20261115T000000Z"; mkdir -p "$QD"; printf -- '---\ndeploy_pending: true\ndeploy_merge_sha: %s\n---\n' "$SHA" > "$QD/overview.md"
+TID= TPR=12 GHHEAD=$QH run '{"git":{"defaultBranch":"main"},"tracker":{"prefix":"T"},"finishWork":{"postDeployVerification":{"enabled":false}}}' 'deploy_pending: false'
+has "queue: key printed" "queue-key:queue-list-a-20261115T000000Z"
+has "queue: no ticket id" "id= prMode="
+ho no "queue: handoff forced off"
+has "queue: 07 read at entry" "steps/07-queue-chain.md"
+has "queue: 03-deploy read at entry" "steps/03-deploy.md"
+lacks "queue: no hand-off worker" "steps/handoff.md"
+has "queue: pending delivery read from the queue key, not T-1" "deploy-pending:true"
+rm -rf "$QD"
+TID= TPR=12 GHHEAD=queue/T-1-20261115T000000Z run '{"git":{"defaultBranch":"main"},"tracker":{"prefix":"T"}}' 'deploy_pending: false'
+has "queue: ticket-like queue name derives no ID" "id= prMode="
+TID= TPR=12 GHHEAD=queue/a.b run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
+has "queue: invalid key stops" "queue-key:invalid"
+TPR=12 run '{"git":{"defaultBranch":"main"},"finishWork":{"postDeployVerification":{"enabled":false}}}' 'deploy_pending: false'
+lacks "ticket: no queue key on a ticket head" "queue-key:"
+TID=queue-q1-x run '{"tracker":{"prefix":"T"}}' 'deploy_pending: false'
+has "id: explicit queue key rejected" "id:invalid"
+
 exit $FAIL
