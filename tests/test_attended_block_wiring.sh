@@ -34,7 +34,6 @@ check "SKILL Gate 2 row wraps plan approval" '^\| Gate 2 \|.*procedures/attended
 check "analysis contradiction gate" 'Contradiction gate.*procedures/attended-block\.md' "$D/steps/analysis.md"
 check "fix Exhausted ask" 'Exhausted.*procedures/attended-block\.md' "$D/steps/fix.md"
 check "developer needs-decision ask" '^A `needs-decision` line.*procedures/attended-block\.md' "$D/procedures/review-fix-budget.md"
-check "brainstorm A-tier question" 'A-tier.*procedures/attended-block\.md' "$D/steps/brainstorm.md"
 
 # AC2: resume moves an attended-stopped ticket back to In Progress
 check "resume reads blocked_wait and moves to inProgress" 'blocked_wait.*inProgress' "$D/procedures/resume.md"

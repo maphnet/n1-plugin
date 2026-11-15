@@ -14,7 +14,7 @@ HAS_INVESTIGATION=false; [ -s "$N1_HOME/memory/$ID/investigation.md" ] && HAS_IN
 
 Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 
-Dispatch the **brainstormer** agent — Inputs: ticket.md, analysis.md{if HAS_INVESTIGATION: , investigation.md}. Write `$N1_HOME/memory/$ID/brainstorm.md`. tier={TEST_TIER}. Batch A-tier questions 'Decide for me'. Report `planning_need`. Not headless and the brainstormer returns an unanswered A-tier question: wrap asking it in `procedures/attended-block.md`, then re-dispatch with the answer. Append `$RULES_BLOCK`. **Investigation:** same, investigation focus.
+Dispatch the **brainstormer** agent — Inputs: ticket.md, analysis.md{if HAS_INVESTIGATION: , investigation.md}. Write `$N1_HOME/memory/$ID/brainstorm.md`. tier={TEST_TIER}. Batch A-tier questions 'Decide for me'. Report `planning_need`. The brainstormer asks A-tier questions itself and gets no Blocked move (known gap). Append `$RULES_BLOCK`. **Investigation:** same, investigation focus.
 
 Bug: use root cause findings. Investigation: explore question. Append `$RULES_BLOCK`.
 **ORCHESTRATOR GUARDRAIL (experiments):** do not run ad-hoc experiments, benchmarks, or probes inline — delegate to the developer or qa-engineer agent.
