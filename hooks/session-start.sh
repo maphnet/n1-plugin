@@ -423,6 +423,7 @@ if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ]; then
         tid=$(basename "$(dirname "$ov")")
         [[ "$tid" =~ ^[A-Za-z0-9_-]+$ ]] || continue
         [[ "$tid" =~ ^[A-Z][A-Z0-9_]*-[0-9]+-old(-[0-9]+)?$ ]] && continue
+        [[ "$tid" == queue-* ]] && continue   # N1-462: queue final PR delivery state resumes via /n1:n1-finish <PR#>, not <tid>
         case "$pending_context" in *"
 - ${tid}: "*) continue;; esac
         [ "$(n1_read_frontmatter "$ov" deploy_pending 2>/dev/null)" = "true" ] || continue

@@ -654,7 +654,7 @@ n1_delivery_covered() {
     for ov in "$N1_HOME"/memory/*/overview.md; do
         [ -f "$ov" ] || continue
         id="${ov%/overview.md}"; id="${id##*/}"
-        case "$id" in ''|*-old|*[!A-Za-z0-9_-]*) continue ;; esac
+        case "$id" in ''|*-old|queue-*|*[!A-Za-z0-9_-]*) continue ;; esac   # N1-462: queue-<key> is queue final PR state, not a ticket
         [ "$id" = "$ex" ] && continue
         [ "$(n1_read_frontmatter "$ov" deploy_pending)" = true ] || continue
         sha=$(n1_read_frontmatter "$ov" deploy_merge_sha)
@@ -672,6 +672,16 @@ n1_delivery_covered() {
         fi
     done
     return 0
+}
+
+n1_finish_queue_key() {
+    # N1-462. Usage: n1_finish_queue_key <headRefName>. A queue final PR head queue/<rest> prints the n1-finish
+    # state key queue-<rest> (rc 0). The runner builds <rest> with tr -c 'A-Za-z0-9\n' '-' (n1-queue-run.sh), so a
+    # runner-made head always passes the <ID> grammar; the queue.md id (may contain dots) is never the source.
+    # Not a queue/ head: no output, rc 1. A queue/ head outside [A-Za-z0-9_-]+: no output, rc 2 (n1-finish STOPs).
+    case "${1:-}" in queue/*) ;; *) return 1 ;; esac
+    [[ "${1#queue/}" =~ ^[A-Za-z0-9_-]+$ ]] || return 2
+    printf 'queue-%s\n' "${1#queue/}"
 }
 
 n1_review_narrow_threshold() {

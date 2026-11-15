@@ -110,4 +110,24 @@ n1_queue_finish_child T-1 "$U/1" "$U/9" "moved
 awaiting: merge" >/dev/null
 eq "F4: newline cannot plant a marker" 0 "$(grep -c '^awaiting:' "$OV")"
 
+# K (N1-462): queue final PR state key from the head ref
+out=$(n1_finish_queue_key queue/list-589f8a21-20261115T070604Z); rc=$?
+eq "K1: queue head -> key" "queue-list-589f8a21-20261115T070604Z|0" "$out|$rc"
+out=$(n1_finish_queue_key feature/N1-1-x); rc=$?
+eq "K2: not a queue head" "|1" "$out|$rc"
+out=$(n1_finish_queue_key queue/a.b); rc=$?
+eq "K3: dotted queue head refused" "|2" "$out|$rc"
+out=$(n1_finish_queue_key queue/); rc=$?
+eq "K4: empty queue rest refused" "|2" "$out|$rc"
+out=$(n1_finish_queue_key 'queue/../x'); rc=$?
+eq "K5: traversal refused" "|2" "$out|$rc"
+
+# C (N1-462): a queue-keyed pending delivery is never a covered ticket
+G="$T/g"; git init -q "$G"
+git -C "$G" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m "Queue q1-x: queued tickets (queue-q1-x, N1-9)"
+S=$(git -C "$G" rev-parse HEAD)
+for d in queue-q1-x N1-9; do mkdir -p "$N1_HOME/memory/$d"; printf -- '---\ndeploy_pending: true\ndeploy_merge_sha: %s\n---\n' "$S" > "$N1_HOME/memory/$d/overview.md"; done
+eq "C1: only the ticket is covered, never the queue key" "N1-9 $S ok" "$(cd "$G" && n1_delivery_covered "$S")"
+rm -rf "$N1_HOME/memory/queue-q1-x" "$N1_HOME/memory/N1-9"
+
 echo "Results: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
