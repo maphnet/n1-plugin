@@ -181,6 +181,7 @@ Auto-map detected statuses to N1 workflow slots by matching common names:
 - **done**: "Done", "Closed", "Resolved", "Fixed", "Complete", "Completed" — if no match found, run the **Done Fallback Picker** after the main confirmation (see below)
 - **blocked**: "Blocked", "On Hold", "Waiting", "Impeded" — if no match found, fall back to the `inProgress` value
 - **released**: "Released", "Deployed", "Live" — if no match found, omit from config (runtime falls back to `done`)
+- **deployed** (optional): not auto-detected, set manually in config (for example `QA`); empty = unset. A blocker in this status counts as done for blocker checks, and a queue ticket in it or in `released` is done-class.
 
 Show the detected mapping for confirmation. When `done` was not auto-matched, omit it from the table:
 ```
