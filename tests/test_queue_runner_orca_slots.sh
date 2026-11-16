@@ -260,6 +260,8 @@ test_orca_stop_notice_deferral_survives_restart() {
     rm -rf "$tmp"
 }
 
+
+n1_only_filter
 test_orca_owed_holds_slot
 test_orca_failed_row_keeps_slots
 test_orca_event_drain_keeps_events

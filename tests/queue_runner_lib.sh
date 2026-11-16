@@ -13,6 +13,19 @@ assert_eq() {
     fi
 }
 
+# N1-621: N1_TEST_ONLY=<fn>[,<fn>] runs only the named test functions. Each queue file calls this once, after all
+# definitions and right above its bare call list; the other test_* functions become no-ops.
+n1_only_filter() {
+    [ -n "${N1_TEST_ONLY:-}" ] || return 0
+    local f keep=",${N1_TEST_ONLY},"
+    for f in ${N1_TEST_ONLY//,/ }; do
+        declare -F "$f" >/dev/null || { echo "N1_TEST_ONLY: unknown test $f" >&2; exit 2; }
+    done
+    for f in $(declare -F | awk '$3 ~ /^test_/ { print $3 }'); do
+        case "$keep" in *",$f,"*) ;; *) eval "$f() { :; }" ;; esac
+    done
+}
+
 plan_cell() { # <queue.md> <row#> <col: 8=Status 9=Reason>
     awk -F'|' -v n="$2" -v c="$3" '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) } $2 == n && NF >= 9 { print $c }' "$1"
 }
