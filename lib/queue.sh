@@ -588,6 +588,18 @@ n1_queue_row_reason() {
     }' "$1"
 }
 
+n1_queue_review_failed_rows() {
+    # Usage: n1_queue_review_failed_rows <queue.md> — N1-616: one <ticket> per pr Plan row whose review FAILed at the fix
+    # cap (Reason exactly "finish:no-pin (review-failed)", written by the runner's story_merge) and whose Runs Outcome
+    # is not merged. Such a row waits for a human: the runner digest and --status count it as awaiting, not as PR. The
+    # Reason cell is child-writable; it only moves a row between two counts.
+    local num t
+    while IFS=$'\t' read -r num t _; do
+        [ "$(n1_queue_row_reason "$1" "$num")" = 'finish:no-pin (review-failed)' ] || continue
+        [ "$(_n1_queue_run_outcome "$1" "$t")" = merged ] || printf '%s\n' "$t"
+    done < <(n1_queue_pending_rows "$1" pr)
+}
+
 n1_queue_parked_rows() {
     # Usage: n1_queue_parked_rows <queue.md>
     # awaiting-human rows still parked on a live question (same columns as

@@ -2141,6 +2141,31 @@ test_status_reconcile_merged() {
     rm -rf "$tmp"
 }
 
+# N1-616: a pr row whose review FAILed at the fix cap (Reason finish:no-pin (review-failed), Runs Outcome not merged)
+# waits for a human. Other no-pin reasons, a bare pr row, a non-pr status and a recorded merge do not count.
+test_review_failed_rows() {
+    local tmp; tmp=$(mktemp -d)
+    cat > "$tmp/queue.md" <<'EOF'
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|---|---|---|---|---|---|---|
+| 1 | T-A | a | /r | /h | sonnet | pr | finish:no-pin (review-failed) |
+| 2 | T-B | b | /r | /h | sonnet | pr | finish:no-pin (no-ci) |
+| 3 | T-C | c | /r | /h | sonnet | pr | |
+| 4 | T-D | d | /r | /h | sonnet | failed | finish:no-pin (review-failed) |
+| 5 | T-E | e | /r | /h | sonnet | pr | finish:no-pin (review-failed) |
+| 6 | T-F | f | /r | /h | sonnet | pr | finish:no-pin (review-failed) |
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|---|---|---|---|---|---|
+| T-A | x | 0 | pr | https://github.com/o/r/pull/1 | s1 |
+| T-E | x | 0 | merged | https://github.com/o/r/pull/5 | s5 |
+EOF
+    assert_eq "review-failed rows: pr + review-failed + not merged only" "T-A,T-F" \
+        "$(n1_queue_review_failed_rows "$tmp/queue.md" | paste -sd, -)"
+    rm -rf "$tmp"
+}
+
 # N1-481: the runner's Done section reconciles merges while its own pid is still set (force).
 test_queue_reconcile_force() {
     local tmp q; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
@@ -2793,6 +2818,7 @@ test_escalated_step_fallback
 test_queue_event
 test_escalation_text
 test_status_reconcile_merged
+test_review_failed_rows
 test_tag_is_service_label
 test_n1_339_cleanup_helpers
 test_pr_view

@@ -493,6 +493,7 @@ test_lifecycle_wiring() {
     assert_eq "wiring: resume keeps the run id" yes "$(has 'if [ "<RESUME>" = 1 ]' "$s/steps/run.md")"
     assert_eq "wiring: --status reports interrupted runs" yes "$(has 'n1_queue_interrupted_note "$QUEUE_FILE"' "$s/steps/report.md")"
     assert_eq "wiring: --status reports dispatch skips (N1-309)" yes "$(has 'n1_queue_dispatch_skips' "$s/steps/report.md")"
+    assert_eq "wiring: --status lists review-FAIL rows as awaiting (N1-616)" yes "$(has 'n1_queue_review_failed_rows "$QUEUE_FILE"' "$s/steps/report.md")"
     assert_eq "wiring: run.md streams the session watch (N1-359)" yes "$(has "the watch command's output lines to this session" "$s/steps/run.md")"
     assert_eq "wiring: report.md streams the adopted watch (N1-359)" yes "$(has "the watch command's output lines to this session" "$s/steps/report.md")"
     assert_eq "wiring: run.md re-arms the watch at the deadline (N1-359)" yes "$(has "start the identical command again" "$s/steps/run.md")"

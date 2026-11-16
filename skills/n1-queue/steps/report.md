@@ -63,6 +63,8 @@ L=$(n1_queue_cleanup_left "$QUEUE_DIR/events.jsonl")
 if [ -n "$L" ]; then echo "Worktrees not removed:"; sed 's/^/  - /' <<<"$L"; else echo "Worktrees not removed: none"; fi
 F=$(n1_queue_final_prs "$QUEUE_FILE")
 if [ -n "$F" ]; then echo "Final PRs (repo, PR, draft, mergeable, note):"; sed 's/^/  /' <<<"$F"; fi
+R=$(n1_queue_review_failed_rows "$QUEUE_FILE" | paste -sd, -)
+if [ -n "$R" ]; then echo "Awaiting human review (review FAIL at the fix cap): $R"; fi
 ```
 
 For each row under "Worktrees not removed", resolve the reason, then run /n1:n1-clean --ticket <ticket>. The `Cleanup` column is empty until a cleanup ran.

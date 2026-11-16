@@ -674,6 +674,8 @@ test_story_no_pin_reason() {
     assert_eq "no-pin-reason: dependent never launched" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-B-2')"
     assert_eq "no-pin-reason: runner points to review.md" 1 \
         "$(grep -cF 'T-A review FAILed at the fix cap; open findings are in review.md (not a CI or PR comment issue)' "$tmp/output.txt" || true)"
+    assert_eq "no-pin-reason: digest counts the review-FAIL child as awaiting (N1-616)" "0 PR / 1 awaiting / 0 failed" \
+        "$(jq -r 'select(.event=="queue_done") | .reason' "$tmp/events.jsonl")"
     rm -rf "$tmp"
 }
 

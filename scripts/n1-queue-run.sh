@@ -2074,7 +2074,9 @@ if [ -n "$RUN_MODE" ]; then final_prs; fi
 if [ -z "$RUN_MODE" ]; then n1_queue_reconcile "$QUEUE" force || true; fi
 count_rows() { n1_queue_pending_rows "$QUEUE" "$1" | wc -l | tr -d ' '; }
 NOPR=$(count_rows no-pr)
-DIGEST="$(count_rows pr) PR / $([ "$NOPR" = 0 ] || printf '%s no-PR / ' "$NOPR")$(count_rows 'awaiting-human|escalated') awaiting / $(count_rows failed) failed"
+# N1-616: a pr row whose review FAILed at the fix cap waits for a human: count it as awaiting, not as PR.
+RF=$(n1_queue_review_failed_rows "$QUEUE" | wc -l | tr -d ' ')
+DIGEST="$(( $(count_rows pr) - RF )) PR / $([ "$NOPR" = 0 ] || printf '%s no-PR / ' "$NOPR")$(( $(count_rows 'awaiting-human|escalated') + RF )) awaiting / $(count_rows failed) failed"
 # N1-270: close the runner's coordinator terminal unless a row still waits on an answer (--answer replies from it,
 # and the waiting worker's next message must still land in a terminal that discards the nudge). A crash or halt
 # leaves it open on purpose.
