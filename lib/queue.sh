@@ -284,7 +284,7 @@ n1_queue_final_landed() {
     # after the runner exited gets Runs Outcome merged and its ticket_finished event (queue.md and events.jsonl writes).
     # SEC-1: that reconcile and the checks below bind the queue branch to the final PR's own headRefName (runner-attested
     # URL; one gh read, none -> every row unlanded) instead of the child-writable Story Branches cell alone.
-    local pr="$1" f q="" repo="" r n=0 num t h st url pst pbase br rid evf head dup
+    local pr="$1" f q="" repo="" r n=0 num t h st url pst pbase br rid evf head dup fmerged=""
     [[ "$pr" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || { echo queue:none; return 1; }
     for f in "$N1_HOME"/queue/*/queue.md; do
         { [ -f "$f" ] && [ "$(n1_read_frontmatter "$f" integration)" = queue ]; } || continue
@@ -298,8 +298,8 @@ n1_queue_final_landed() {
     echo "queue $q"
     # N1-616: record hand merges first. Reconcile applies the N1-609 checks (MERGED, base == the Story Branches branch,
     # n1_queue_pr_in_repo, Runs row); every check below still applies to what it wrote. Its lines are not our output.
-    head=$(timeout 30 gh pr view --json headRefName -q .headRefName -- "$pr" </dev/null 2>/dev/null) || head=""
-    [ -z "$head" ] || n1_queue_reconcile "$q" "" "$head" >/dev/null || true   # best-effort: a failed record leaves the row unlanded (fail closed); never aborts a set -e caller
+    IFS=$'\t' read -r head fmerged <<< "$(timeout 30 gh pr view --json headRefName,mergedAt -q '[.headRefName,.mergedAt]|@tsv' -- "$pr" </dev/null 2>/dev/null)" || head=""
+    [ -z "$head" ] || n1_queue_reconcile "$q" "" "$head" "$fmerged" >/dev/null || true   # best-effort: a failed record leaves the row unlanded (fail closed); never aborts a set -e caller
     # SEC-1: bind children to this queue: base must be the queue branch of the final PR's repo AND the final PR's head
     # branch ($head, not child-writable), and ticket_finished merged must exist for the same ticket and PR. N1-616: that
     # event may have been written by the reconcile above, so it records the reconcile result and is not an independent
@@ -2323,7 +2323,9 @@ n1_queue_reconcile() {
     # N1-481: `force` skips the live-runner check; only the runner's own Done section passes it (its pid is still set).
     # N1-616 SEC-1: <expected-branch> (3rd arg, n1_queue_final_landed passes the final PR's headRefName) additionally
     # requires the repo's Story Branches branch to equal it and skips a PR URL claimed by more than one Plan row.
-    local q="$1" want="${3:-}" evf qid rid num ticket repo n1h model status url sb pst pbase dup=""
+    # Codex: <final-merged-at> (4th arg) is the final PR's mergedAt when it already merged; a child then counts only if
+    # its own mergedAt is known and not later (a child merged into the retained queue branch afterwards is not in it).
+    local q="$1" want="${3:-}" fm="${4:-}" cm evf qid rid num ticket repo n1h model status url sb pst pbase dup=""
     if [ "${2:-}" != force ] && n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then return 0; fi
     evf="$(dirname "$q")/events.jsonl"; qid=$(n1_read_frontmatter "$q" queue_id); rid=$(n1_read_frontmatter "$q" run_id)
     [ -z "$want" ] || dup=$(n1_queue_pending_rows "$q" '.*' | while IFS=$'\t' read -r _ ticket repo n1h _; do n1_queue_attested_pr "$q" "$ticket" "$n1h"; done | sort | uniq -d)
@@ -2338,6 +2340,10 @@ n1_queue_reconcile() {
             [ "$pst" = MERGED ] && [ "$pbase" = "$sb" ] || continue
         else
             [ "$(n1_queue_pr_state "$url")" = MERGED ] || continue
+        fi
+        if [ -n "$fm" ]; then
+            cm=$(timeout 30 gh pr view --json mergedAt -q .mergedAt -- "$url" </dev/null 2>/dev/null) || cm=""
+            [ -n "$cm" ] && [[ ! "$cm" > "$fm" ]] || continue
         fi
         n1_queue_pr_in_repo "$url" "$repo" || continue   # SEC-1: a merged PR of another repo never counts
         n1_queue_runs_outcome "$q" "$ticket" merged "$url" || continue

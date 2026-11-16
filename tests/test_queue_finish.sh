@@ -14,7 +14,8 @@ cat > "$T/bin/gh" <<EOF
 #!/usr/bin/env bash
 if [ "\$1" = repo ]; then [ -f "$T/gh/nwo" ] || exit 1; cat "$T/gh/nwo"; exit 0; fi
 u="\${@: -1}"; n="\${u##*/}"; f="$T/gh/state.\$n"; [ -f "\$f" ] || exit 1
-if [[ "\$*" == *headRefName* ]]; then h=queue/q1-x; [ -f "$T/gh/head.\$n" ] && h=\$(cat "$T/gh/head.\$n"); echo "\$h"; exit 0; fi
+if [[ "\$*" == *headRefName* ]]; then h=queue/q1-x; [ -f "$T/gh/head.\$n" ] && h=\$(cat "$T/gh/head.\$n"); m=; [ -f "$T/gh/merged.\$n" ] && m=\$(cat "$T/gh/merged.\$n"); printf '%s\t%s\n' "\$h" "\$m"; exit 0; fi
+if [[ "\$*" == *mergedAt* ]]; then cat "$T/gh/merged.\$n" 2>/dev/null; exit 0; fi
 if [[ "\$*" == *baseRefName* ]]; then b=queue/q1-x; [ -f "$T/gh/base.\$n" ] && b=\$(cat "$T/gh/base.\$n"); printf '%s\t%s\toid\n' "\$(cat "\$f")" "\$b"; else cat "\$f"; fi
 EOF
 chmod +x "$T/bin/gh"; export PATH="$T/bin:$PATH"
@@ -238,4 +239,39 @@ printf -- '---\nstep: pr\nawaiting: merge\n---\n# T-1\n' > "$OV"
 eq "S2: unfinished child not counted" "closed 0/1" "$(n1_queue_final_finish_state "$U/9")"
 eq "S3: unknown final PR" "closed 0/0" "$(n1_queue_final_finish_state "$U/99")"
 
+# H5 (Codex): final PR already merged at T2; a child merged at T3 (after it) is not in the final PR and stays unlanded,
+# one merged at T1 lands.
+mkdir -p "$N1_HOME/queue/q5"; Q5="$N1_HOME/queue/q5/queue.md"
+cat > "$Q5" <<EOF
+---
+queue_id: q5
+run_id: R5
+integration: queue
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|---|---|---|---|---|---|---|
+| 1 | H-1 | a | $T/repo | $N1_HOME | sonnet | pr | finish:no-pin (review-failed) |
+| 2 | H-2 | b | $T/repo | $N1_HOME | sonnet | pr | finish:no-pin (review-failed) |
+## Story Branches
+| Repo | Branch |
+|------|--------|
+| $T/repo | queue/q5-x |
+## Final PRs
+| Repo | PR | Draft | Mergeable | Note |
+|---|---|---|---|---|
+| $T/repo | $U/50 | ready | MERGEABLE | - |
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|---|---|---|---|---|---|
+| H-1 | x | 0 | pr | $U/51 | s1 |
+| H-2 | x | 0 | pr | $U/52 | s2 |
+EOF
+echo "{\"event\":\"final_pr_opened\",\"run_id\":\"R5\",\"pr\":\"$U/50\"}" > "$N1_HOME/queue/q5/events.jsonl"
+echo MERGED > "$T/gh/state.50"; echo queue/q5-x > "$T/gh/head.50"; echo 2026-01-01T00:00:02Z > "$T/gh/merged.50"
+echo MERGED > "$T/gh/state.51"; echo queue/q5-x > "$T/gh/base.51"; echo 2026-01-01T00:00:01Z > "$T/gh/merged.51"
+echo MERGED > "$T/gh/state.52"; echo queue/q5-x > "$T/gh/base.52"; echo 2026-01-01T00:00:03Z > "$T/gh/merged.52"
+out=$(n1_queue_final_landed "$U/50")
+eq "H5: child merged before the final PR lands, after it does not" "$(printf 'queue %s\nlanded\tH-1\t%s/51\nunlanded\tH-2\tpr' "$Q5" "$U")" "$out"
 echo "Results: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
+
