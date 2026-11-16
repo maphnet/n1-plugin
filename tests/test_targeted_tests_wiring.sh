@@ -22,7 +22,16 @@ for s in "" _bg _bg_chain _orca _orca_liveness _orca_slots; do
     if [ -f "$f" ]; then echo "PASS: $f exists"; else echo "FAIL: $f missing"; FAIL=1; fi
 done
 
-# Column-0 function definitions across the lib and every split file; ok/err/arg/msg live inside mk_orca's heredoc.
+# N1-621: run.sh runs only the named files and fails on a named file that does not exist (never a silent green).
+out=$(bash tests/run.sh tests/test_manifests.sh tests/test_n1621_missing.sh 2>&1); rc=$?
+if [ "$rc" = 1 ] && [ "$(grep -c '^== ' <<< "$out")" = 2 ] && grep -qxF '!! tests/test_n1621_missing.sh FAILED' <<< "$out" \
+    && ! grep -qF '!! tests/test_manifests.sh FAILED' <<< "$out"; then
+    echo "PASS: run.sh runs only the named files"
+else
+    echo "FAIL: run.sh file args (rc=$rc)"; FAIL=1
+fi
+
+# Column-0 function definitions across the lib and every split file;ok/err/arg/msg live inside mk_orca's heredoc.
 dups=$(grep -hoE '^[A-Za-z_][A-Za-z0-9_]*\(\) *\{' tests/queue_runner_lib.sh tests/test_queue_runner*.sh \
     | sed 's/(.*//' | grep -vxE 'ok|err|arg|msg' | LC_ALL=C sort | uniq -d)
 if [ -z "$dups" ]; then echo "PASS: each queue-runner function defined once"; else echo "FAIL: defined twice: $dups"; FAIL=1; fi
