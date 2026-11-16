@@ -2659,6 +2659,63 @@ test_gh_read_retries() {
     assert_eq "repo-nwo: missing dir prints nothing, no gh call" "|0" "$(rn "$tmp/nope")|$(cat "$tmp/fake/gh-repo-n" 2>/dev/null || echo 0)"
 }
 
+# N1-609 AC1/AC2: --run lists the story pr rows it can still land (no .chained marker, Outcome not merged) and records
+# hand merges before the release pass. An integration row counts as merged only into its story branch. Bugs caught: a
+# tag row relaunched on every --run; a final-refusal row (marker done) relaunched; a PR merged into the wrong base
+# recorded as landed; a duplicate Story Branches heading not failing closed.
+test_story_pr_reconcile() {
+    local tmp q d out; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q="$tmp/queue/qs/queue.md"; d="${q%/*}"; mkdir -p "$d" "$tmp/bin" "$tmp/h"
+    cat > "$q" <<EOQ
+---
+queue_id: qs
+run_id: R1
+step: done
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | /r | $tmp/h | sonnet | pr | finish:pr-state-unreadable |
+| 2 | T-2 | B | /r | $tmp/h | sonnet | pr | finish:no-pin |
+| 3 | T-3 | C | /r | $tmp/h | sonnet | pr | merged |
+| 4 | T-4 | D | /t | $tmp/h | sonnet | pr | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|---|---|---|---|---|---|
+| T-1 | s | 0 | pr | https://github.com/o/r/pull/1 | |
+| T-2 | s | 0 | pr | https://github.com/o/r/pull/2 | |
+| T-3 | s | 0 | merged | https://github.com/o/r/pull/3 | |
+| T-4 | s | 0 | pr | https://github.com/o/t/pull/4 | |
+EOQ
+    n1_queue_story_branch_set "$q" /r story/S-1
+    printf 'R1\ndone\n' > "$d/.chained-T-2"
+    : > "$d/events.jsonl"
+    assert_eq "pr-resume: only the unlanded story row without a marker" "$(printf '1\tT-1')" "$(n1_queue_pr_resume_rows "$q" | cut -f1,2)"
+    rm -f "$d/.chained-T-2"
+    assert_eq "pr-resume: marker removed lists the row" "T-1 T-2" "$(n1_queue_pr_resume_rows "$q" | cut -f2 | paste -sd' ')"
+    printf 'R1\ndone\n' > "$d/.chained-T-2"
+    # T-1 merged into main (wrong base: left), T-2 merged into story/S-1 (recorded), T-4 tag row (any base, as before).
+    cat > "$tmp/bin/gh" <<'GH'
+#!/bin/sh
+case "$*" in
+    *baseRefName*pull/1*) printf 'MERGED\tmain\tabc\n' ;;
+    *baseRefName*pull/2*) printf 'MERGED\tstory/S-1\tabc\n' ;;
+    *baseRefName*) exit 1 ;;
+    *pull/4*) echo MERGED ;;
+    *) exit 1 ;;
+esac
+GH
+    chmod +x "$tmp/bin/gh"
+    out=$(PATH="$tmp/bin:$PATH" n1_queue_reconcile "$q")
+    assert_eq "story-reconcile: story base and tag rows recorded" "$(printf 'reconciled: T-2 merged\nreconciled: T-4 merged')" "$out"
+    assert_eq "story-reconcile: wrong-base row left" "pr|merged|merged|merged" \
+        "$(_n1_queue_run_outcome "$q" T-1)|$(_n1_queue_run_outcome "$q" T-2)|$(_n1_queue_run_outcome "$q" T-3)|$(_n1_queue_run_outcome "$q" T-4)"
+    assert_eq "story-reconcile: recorded row no longer resumed" "T-1" "$(n1_queue_pr_resume_rows "$q" | cut -f2)"
+    printf '\n## Story Branches\n' >> "$q"
+    assert_eq "pr-resume: duplicate Story Branches heading fails closed" "" "$(n1_queue_pr_resume_rows "$q")"
+}
+
 # N1-481: --close verifies every row is settled, then removes worktrees, identity files and the queue dir.
 test_queue_close() {
     local tmp h q out rc t; source "$REPO_ROOT/lib/orca-queue.sh"   # before the RETURN trap: sourcing fires it
@@ -2858,6 +2915,7 @@ test_rerun_release
 test_rerun_release_pr_merged
 test_queue_reconcile_force
 test_gh_read_retries
+test_story_pr_reconcile
 test_queue_close
 test_discard_wiring
 test_write_plan_cells

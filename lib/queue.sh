@@ -2282,19 +2282,45 @@ n1_queue_reconcile() {
     # (queue_run_id == the queue's run_id: ticket memory outlives runs, so an older run's merged PR must not count),
     # else the Runs PR cell (overview.md final_outcome never says merged). Never merges, chains or releases tags; an
     # unreadable PR state, or a ticket without a Runs row, leaves the row.
+    # N1-609 (--run § Re-read): a row whose repo has a ## Story Branches branch counts only when its PR is MERGED into
+    # that branch (one n1_queue_pr_view read, the story_merge check); a duplicate Story Branches heading skips the row.
     # N1-481: `force` skips the live-runner check; only the runner's own Done section passes it (its pid is still set).
-    local q="$1" evf qid rid num ticket repo n1h model status url
+    local q="$1" evf qid rid num ticket repo n1h model status url sb pst pbase
     if [ "${2:-}" != force ] && n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then return 0; fi
     evf="$(dirname "$q")/events.jsonl"; qid=$(n1_read_frontmatter "$q" queue_id); rid=$(n1_read_frontmatter "$q" run_id)
     while IFS=$'\t' read -r -u 3 num ticket repo n1h model status; do
         [ "$(_n1_queue_run_outcome "$q" "$ticket")" = merged ] && continue
+        sb=$(n1_queue_story_branch_get "$q" "$repo") || continue
         url=$(n1_queue_attested_pr "$q" "$ticket" "$n1h")
-        [ "$(n1_queue_pr_state "$url")" = MERGED ] || continue
+        if [ -n "$sb" ]; then
+            IFS=$'\t' read -r pst pbase _ <<< "$(n1_queue_pr_view "$url")"
+            [ "$pst" = MERGED ] && [ "$pbase" = "$sb" ] || continue
+        else
+            [ "$(n1_queue_pr_state "$url")" = MERGED ] || continue
+        fi
         n1_queue_runs_outcome "$q" "$ticket" merged "$url" || continue
         [ "$status" = pr ] || n1_queue_row_status "$q" "$num" pr
         n1_queue_event "$evf" "$qid" "$rid" ticket_finished ticket="$ticket" outcome=merged pr="$url"
         printf 'reconciled: %s merged\n' "$ticket"
     done 3< <(n1_queue_pending_rows "$q" 'pr|failed|stopped')
+}
+
+n1_queue_pr_resume_rows() {
+    # Usage: n1_queue_pr_resume_rows <queue.md> — N1-609 (--run § Re-read LEFT): pr Plan rows (n1_queue_pending_rows
+    # lines) a relaunched runner can still land: the repo has a ## Story Branches branch, the Runs Outcome is not
+    # merged, and no .chained-<ticket> marker sits next to queue.md. A retryable story_merge refusal removes the marker;
+    # a final refusal or a recorded merge writes it. Tag rows (no story branch) never qualify, so --run does not relaunch
+    # for them. A duplicate Story Branches heading fails closed (row not listed). Reads queue.md only (no gh).
+    local q="$1" d line num t repo sb
+    d=$(dirname "$q")
+    while IFS= read -r line; do
+        IFS=$'\t' read -r num t repo _ <<< "$line"
+        [ -n "$num" ] || continue
+        sb=$(n1_queue_story_branch_get "$q" "$repo") && [ -n "$sb" ] || continue
+        [ "$(_n1_queue_run_outcome "$q" "$t")" = merged ] && continue
+        [ -e "$d/.chained-$t" ] && continue
+        printf '%s\n' "$line"
+    done <<< "$(n1_queue_pending_rows "$q" pr)"
 }
 
 _n1_queue_event_duration() {
