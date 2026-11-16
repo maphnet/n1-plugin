@@ -582,6 +582,17 @@ test_story_resume() {
     rm -rf "$tmp"
 }
 
+# N1-609 AC3: one transient gh repo view failure inside story_merge is retried, so a PR already merged into the story
+# branch is recorded in the same run instead of ending finish:pr-state-unreadable.
+test_story_repo_read_retry() {
+    local tmp; tmp=$(mktemp -d); story_restart_setup "$tmp" "" MERGED
+    echo 1 > "$tmp/fake/gh-repo-fail"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-repo-retry: recorded merged, marker done" "merged|done" \
+        "$(runs_outcome "$tmp/queue.md" T-A)|$(sed -n 2p "$tmp/.chained-T-A" 2>/dev/null || true)"
+    rm -rf "$tmp"
+}
+
 # N1-292 AC6: a held story child starts after the runner merged its blocker into story/S-1, without fullAuto.
 test_story_held_released_after_runner_merge() {
     local tmp done_a launch_b; tmp=$(mktemp -d)
@@ -1500,6 +1511,7 @@ test_story_merge_queued_not_recorded
 test_story_pending_marker_guarded
 test_story_mode_snapshot
 test_story_resume
+test_story_repo_read_retry
 test_story_held_released_after_runner_merge
 test_story_dependents_of_ci_red
 test_queue_merge_green

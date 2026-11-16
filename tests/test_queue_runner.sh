@@ -2601,6 +2601,28 @@ EOF
         "$(awk '/^if \[ -z "\$RUN_MODE" \]; then n1_queue_reconcile "\$QUEUE" force/ { r = NR } /^ev queue_done/ { d = NR } END { print (r && d && r < d) ? "yes" : "no" }' "$REPO_ROOT/scripts/n1-queue-run.sh")"
 }
 
+# N1-609 AC3: n1_queue_pr_view retries a transient read (N1-292) and the repo identity read used by story_merge now
+# retries the same way (3 attempts). Bugs caught: a dropped retry loop; one flaky gh repo view stranding a merged PR as
+# pr-state-unreadable; a missing checkout dir burning the backoff.
+test_gh_read_retries() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mk_bg "$tmp" pv "T-A:done"
+    printf 'MERGED\tstory/S-1\tabc\n' > "$tmp/fake/gh-view.1"
+    pv() { FAKE_DIR="$tmp/fake" PATH="$tmp/bin:$PATH" n1_queue_pr_view https://github.com/o/r/pull/1; }
+    rn() { FAKE_DIR="$tmp/fake" PATH="$tmp/bin:$PATH" n1_queue_repo_nwo "$1"; }
+    echo 2 > "$tmp/fake/gh-fail"
+    assert_eq "pr-view: two transient failures retried" "$(printf 'MERGED\tstory/S-1\tabc')" "$(pv)"
+    echo 3 > "$tmp/fake/gh-fail"
+    assert_eq "pr-view: three failures print nothing" "" "$(pv)"
+    echo o/r > "$tmp/fake/gh-repo"
+    echo 2 > "$tmp/fake/gh-repo-fail"
+    assert_eq "repo-nwo: two transient failures retried" "o/r" "$(rn "$tmp")"
+    echo 3 > "$tmp/fake/gh-repo-fail"
+    assert_eq "repo-nwo: three failures print nothing" "" "$(rn "$tmp")"
+    rm -f "$tmp/fake/gh-repo-n"
+    assert_eq "repo-nwo: missing dir prints nothing, no gh call" "|0" "$(rn "$tmp/nope")|$(cat "$tmp/fake/gh-repo-n" 2>/dev/null || echo 0)"
+}
+
 # N1-481: --close verifies every row is settled, then removes worktrees, identity files and the queue dir.
 test_queue_close() {
     local tmp h q out rc t; source "$REPO_ROOT/lib/orca-queue.sh"   # before the RETURN trap: sourcing fires it
@@ -2798,6 +2820,7 @@ test_row_status
 test_queue_retry
 test_rerun_release
 test_queue_reconcile_force
+test_gh_read_retries
 test_queue_close
 test_discard_wiring
 test_write_plan_cells

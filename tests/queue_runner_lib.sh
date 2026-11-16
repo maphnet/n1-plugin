@@ -94,7 +94,9 @@ case "$1 $2" in
         printf 'MERGED %s\n' "$b" > "$FAKE_DIR/gh-state"
         if [ -f "$FAKE_DIR/gh-view-gone-after" ]; then rm -f "$v"; fi ;;   # the post-merge base re-read then fails
     "repo view") # gh-repo-fail-from2: the 2nd and later repo reads fail (the pin lookup follows the repo identity check)
+        # N1-609: gh-repo-fail holds a count of repo reads to fail before answering (like gh-fail for pr view)
         n=$(cat "$FAKE_DIR/gh-repo-n" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_DIR/gh-repo-n"
+        if [ -s "$FAKE_DIR/gh-repo-fail" ]; then f=$(cat "$FAKE_DIR/gh-repo-fail"); if [ "$f" -gt 0 ]; then echo $((f - 1)) > "$FAKE_DIR/gh-repo-fail"; exit 1; fi; fi
         [ -f "$FAKE_DIR/gh-repo-fail-from2" ] && [ "$n" -ge 1 ] && exit 1
         cat "$FAKE_DIR/gh-repo" 2>/dev/null || exit 1 ;;
     *) exit 1 ;;

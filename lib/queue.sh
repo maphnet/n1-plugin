@@ -410,6 +410,20 @@ n1_queue_pr_view() {
     return 0
 }
 
+n1_queue_repo_nwo() {
+    # Usage: n1_queue_repo_nwo <repo-dir> — N1-609: "<owner>/<name>" of the checkout's GitHub repo. Retries like
+    # n1_queue_pr_state (3 attempts, 2s/4s backoff), so one flaky read does not end story_merge as pr-state-unreadable.
+    # Prints nothing for a missing dir (no gh call) or on a persistent gh error.
+    [ -d "$1" ] || return 0
+    local attempt out
+    for attempt in 1 2 3; do
+        out=$(cd "$1" 2>/dev/null && timeout -k 30 30 gh repo view --json nameWithOwner -q .nameWithOwner </dev/null 2>/dev/null) || out=""
+        [ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+        [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
+    done
+    return 0
+}
+
 _n1_queue_valid_branch() {
     # Usage: _n1_queue_valid_branch <name> — N1-293: 0 for a plain branch name (safe in a prompt command and gh args).
     [[ "$1" =~ ^[A-Za-z0-9._/-]+$ ]] && [[ "$1" != -* ]] && [[ "$1" != *..* ]] && git check-ref-format --branch "$1" >/dev/null 2>&1
