@@ -1758,7 +1758,7 @@ n1_queue_close() {
         echo "close refused: queue $id is running; nothing removed (let it end, or --stop it first)"; return 1
     fi
     declare -F n1_orca_sentinel_rm >/dev/null || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/orca-queue.sh" || return 1
-    # Integration queues skip the hand-merge reconcile: it accepts a PR merged into any base, but their rows merge only into the story branch.
+    # Integration queues skip the hand-merge reconcile: reconcile counts a story row only when its PR merged into the story branch (N1-609), and close keeps the conservative skip.
     # SEC-3: queue.md is child-writable, so fail closed: any integration marker (frontmatter, a Story Branches / Final PRs
     # section, or a runner-written final_pr_opened event) makes this an integration queue.
     integ=0

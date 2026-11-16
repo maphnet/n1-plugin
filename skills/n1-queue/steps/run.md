@@ -29,7 +29,7 @@ SRC=$(n1_read_frontmatter "$QUEUE_FILE" story_id 2>/dev/null); printf 'SRC=%s\n'
 
 input.md did not run in this session, so use this `SRC` (the story or Epic ID, else the tag) wherever preview.md prints `<SRC>`, e.g. the Hierarchy block on an Edit re-print.
 
-`STEP` is `done` or `halted`, or `INTERRUPTED=yes` (`STEP` is `run` but its runner is gone, N1-183): follow § Re-read at the end of this section, not the `STALE` paragraphs below. An interrupted run first prints "Resuming interrupted run of `<QUEUE_ID>`."; after the re-read the runner re-adopts `in-progress`/`awaiting-human` rows, runs any fullAuto chain still owed, continues `pending` rows, and never re-runs `pr`/`failed`/`skip` rows.
+`STEP` is `done` or `halted`, or `INTERRUPTED=yes` (`STEP` is `run` but its runner is gone, N1-183): follow § Re-read at the end of this section, not the `STALE` paragraphs below. An interrupted run first prints "Resuming interrupted run of `<QUEUE_ID>`."; after the re-read the runner re-adopts `in-progress`/`awaiting-human` rows, runs any fullAuto chain still owed, continues `pending` rows, and never re-launches `pr`/`failed`/`skip` rows (the re-read can still record a hand-merged `pr` row or re-evaluate a stranded story `pr` row, N1-609).
 
 Otherwise, `STEP` is not `planned` (queue.md is missing, or another step): print "No saved plan for `<QUEUE_ID>` (step: <STEP or none>). Run `/n1:n1-queue --plan` first." **STOP.**
 
