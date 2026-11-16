@@ -14,6 +14,7 @@ cat > "$T/bin/gh" <<EOF
 #!/usr/bin/env bash
 if [ "\$1" = repo ]; then [ -f "$T/gh/nwo" ] || exit 1; cat "$T/gh/nwo"; exit 0; fi
 u="\${@: -1}"; n="\${u##*/}"; f="$T/gh/state.\$n"; [ -f "\$f" ] || exit 1
+if [[ "\$*" == *headRefName* ]]; then h=queue/q1-x; [ -f "$T/gh/head.\$n" ] && h=\$(cat "$T/gh/head.\$n"); echo "\$h"; exit 0; fi
 if [[ "\$*" == *baseRefName* ]]; then b=queue/q1-x; [ -f "$T/gh/base.\$n" ] && b=\$(cat "$T/gh/base.\$n"); printf '%s\t%s\toid\n' "\$(cat "\$f")" "\$b"; else cat "\$f"; fi
 EOF
 chmod +x "$T/bin/gh"; export PATH="$T/bin:$PATH"
@@ -50,7 +51,7 @@ integration: queue
 EOF
 echo "{\"event\":\"final_pr_opened\",\"run_id\":\"R1\",\"pr\":\"$U/9\"}" > "$N1_HOME/queue/q1/events.jsonl"
 for n in 1 3 4 5; do echo "{\"event\":\"ticket_finished\",\"run_id\":\"R1\",\"ticket\":\"$(case $n in 1) echo T-1;; 3) echo T-3;; 4) echo T-4;; 5) echo ../e;; esac)\",\"outcome\":\"merged\",\"pr\":\"$U/$n\"}" >> "$N1_HOME/queue/q1/events.jsonl"; done
-for n in 1 3 4 5; do echo MERGED > "$T/gh/state.$n"; done
+for n in 1 3 4 5 9; do echo MERGED > "$T/gh/state.$n"; done
 
 # L1: landed / unlanded split for the final PR's repo only (T-3 is another repo's final PR)
 out=$(n1_queue_final_landed "$U/9"); rc=$?
@@ -85,7 +86,7 @@ eq "L6: story queue ignored" "queue:none|1" "$out|$rc"; sed -i 's/^mode: story$/
 # is recorded by the reconcile inside n1_queue_final_landed and lands. SEC-1: wrong base (H-2), OPEN (H-3), another
 # repo's PR (H-4) and a live runner stay unlanded and are not rewritten.
 mkdir -p "$N1_HOME/queue/q3" "$T/repo"; Q3="$N1_HOME/queue/q3/queue.md"; E3="$N1_HOME/queue/q3/events.jsonl"
-echo o/r > "$T/gh/nwo"
+echo o/r > "$T/gh/nwo"; echo MERGED > "$T/gh/state.30"; echo queue/q3-x > "$T/gh/head.30"   # final PR head (SEC-1 binding)
 cat > "$Q3" <<EOF
 ---
 queue_id: q3
@@ -138,6 +139,21 @@ eq "H2: same lines on rerun" "$out" "$(n1_queue_final_landed "$U/30")"
 eq "H2: still one event" 1 "$(jq -c 'select(.event == "ticket_finished")' "$E3" | wc -l | tr -d ' ')"
 # H3: the runner Note helper sees the same landed set
 eq "H3: finish state counts the hand-merged child" "closed 0/1" "$(n1_queue_final_finish_state "$U/30")"
+# H4 (SEC-1): a child merged into another queue's branch is not landed when the final PR's head is a different branch
+# (child-writable Story Branches cell edited to match); nothing is recorded.
+mkdir -p "$N1_HOME/queue/q4"; sed -e 's/q3/q4/g' -e 's/R3/R4/g' "$Q3" > "$N1_HOME/queue/q4/queue.md"; Q4="$N1_HOME/queue/q4/queue.md"; E4="$N1_HOME/queue/q4/events.jsonl"
+sed -i -e '/^| H-1 /,$ s/| merged |/| pr |/' -e '/^| H-1 | x/ s/| [a-z]* | https/| pr | https/' "$Q4"
+echo "{\"event\":\"final_pr_opened\",\"run_id\":\"R4\",\"pr\":\"$U/40\"}" > "$E4"
+sed -i "s#$U/30#$U/40#" "$Q4"; echo MERGED > "$T/gh/state.40"; echo queue/q-real > "$T/gh/head.40"
+eq "H4: story-branch cell != final PR head" "unlanded" "$(n1_queue_final_landed "$U/40" | awk -F'\t' '$2 == "H-1" { print $1 }')"
+eq "H4: no event recorded" 0 "$(jq -c 'select(.event == "ticket_finished")' "$E4" | wc -l | tr -d ' ')"
+# H5 (SEC-1): head matches again, but two rows claim the same child PR -> neither lands, nothing recorded
+echo queue/q4-x > "$T/gh/head.40"; sed -i "s#$U/32 | s2#$U/31 | s2#" "$Q4"; echo queue/q4-x > "$T/gh/base.31"
+eq "H5: duplicate PR rows" "unlanded unlanded" "$(n1_queue_final_landed "$U/40" | awk -F'\t' '$2 == "H-1" || $2 == "H-2" { printf "%s ", $1 }' | sed 's/ $//')"
+eq "H5: no event recorded" 0 "$(jq -c 'select(.event == "ticket_finished")' "$E4" | wc -l | tr -d ' ')"
+# H6: head matches and PRs are distinct -> the hand-merged child lands
+sed -i "s#$U/31 | s2#$U/32 | s2#" "$Q4"
+eq "H6: bound to final PR head" "landed" "$(n1_queue_final_landed "$U/40" | awk -F'\t' '$2 == "H-1" { print $1 }')"
 # F1: finish_child writes ## Finish, clears the marker, sets step done, runs the queue cleanup
 n1_clean_ticket() { echo "clean $1 $2 qdir=${N1_QUEUE_DIR:-}" >> "$T/clean.log"; echo "worktree:removed, branch:deleted"; }
 export N1_QUEUE_DIR=/leak
