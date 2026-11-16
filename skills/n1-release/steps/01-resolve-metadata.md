@@ -140,7 +140,7 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    GIT_IDS=$(n1_release_ticket_ids "$PREV_TAG" "$TAG")
    ```
 
-   Only the leading `[PREFIX-N]` tag counts: Source C takes it from the start of each release-note entry (after an optional `* ` or `- ` list marker), Source D from the start of each commit subject. IDs mentioned later in the line are ignored, and a subject without a leading tag (conventional-commit prefix, merge commit) contributes no ticket; Sources A and B still apply.
+   Only the leading `[PREFIX-N]` tag counts: Source C takes it from the start of each release-note entry (after an optional `* ` or `- ` list marker), and a release-note entry without one contributes no ticket. Source D scans full commit messages with three line-start rules: a leading `[PREFIX-N]` (optional `* ` or `- ` marker) on any message line, so squash bodies such as `* [PREFIX-N] title` count; `PREFIX-N:` at the start of the first line; and a `- PREFIX-N: https://...` Landed row. IDs mentioned later in a line, untagged lines (conventional-commit prefix, merge commit) and not-landed rows such as `- PREFIX-N: failed, PR https://...` contribute no ticket; Sources A and B still apply.
 
    **Merge all sources:**
    ```bash

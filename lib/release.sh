@@ -181,17 +181,17 @@ n1_release_obs_group() {
     return 0
 }
 
-# n1_release_ticket_ids <prev> <head-ref>: IDs from the leading [PREFIX-N] of each commit subject in prev..head
-# (all of head when prev is empty). IDs later in a subject and untagged subjects count for nothing.
-# --no-decorate: log.decorate would put "(tag: ..)" after the hash. PREFIX: env, else .tracker.prefix.
+# n1_release_ticket_ids <prev> <head-ref>: IDs from commit messages in prev..head (all of head when prev is empty).
+# Three line-start rules: (1) a leading [PREFIX-N] with an optional "* " or "- " marker on any message line (subject,
+# or a squash body line); (2) "PREFIX-N:" on the first line only; (3) a "- PREFIX-N: https://..." Landed row.
+# IDs later in a line, untagged lines and not-landed rows ("- ID: failed, PR ...") count for nothing.
+# %x01 marks each message start so rule 2 stays first-line-only. --no-decorate: log.decorate must not add "(tag: ..)".
+# PREFIX: env, else .tracker.prefix.
 n1_release_ticket_ids() {
-    local prev="${1:-}" head="${2:-HEAD}" prefix="${PREFIX:-$(n1_config_val '.tracker.prefix')}" log
-    if [ -n "$prev" ]; then
-        log=$(git log "${prev}..${head}" --oneline --no-decorate 2>/dev/null || true)
-    else
-        log=$(git log "${head}" --oneline --no-decorate 2>/dev/null || true)
-    fi
-    sed -nE "s/^[0-9a-f]+ \[(${prefix}-[0-9]+)\].*/\1/p" <<<"$log" | sort -u
+    local prev="${1:-}" head="${2:-HEAD}" prefix="${PREFIX:-$(n1_config_val '.tracker.prefix')}" range S=$'\001'
+    range="$head"; [ -n "$prev" ] && range="${prev}..${head}"
+    { git log "$range" --no-decorate --format='%x01%B' 2>/dev/null || true; } |
+        sed -nE "s/^${S}?([*-] +)?\[(${prefix}-[0-9]+)\].*/\2/p; s/^${S}(${prefix}-[0-9]+):.*/\1/p; s/^- (${prefix}-[0-9]+): https?:\/\/.*/\1/p" | sort -u
 }
 
 # n1_release_blockers <release-ids>: stdin lines <TICKET><TAB><jcm_getIssueLinks JSON array on one line>.

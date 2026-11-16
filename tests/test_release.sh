@@ -70,6 +70,38 @@ out=$(in_repo n1_release_ticket_ids v9.9.9 HEAD); rc=$?
 eq "bad range: empty output" "" "$out"
 eq "bad range: rc 0" "0" "$rc"
 
+# N1-611: squash-merged queue/story final PRs carry child IDs in the message body; separate repo keeps the sets above intact.
+Q="$T/squash"; git init -q "$Q"
+qcommit() { git -C "$Q" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "$1"; }
+q_ids() { (cd "$Q" && n1_release_ticket_ids "" HEAD); }
+qcommit 'Queue list-ab12: queued tickets (#93)
+
+* [VEL-11] First child
+* [VEL-12] Second child'
+eq "squash body: * [ID] child list returns each once" "VEL-11
+VEL-12" "$(q_ids)"
+qcommit 'VEL-20: Story title (#94)'
+qcommit 'Queue list-cd34: queued tickets (#95)
+
+### Landed
+- VEL-30: https://github.com/o/r/pull/7 (merged)'
+eq "first line ID: title and Landed URL row found" "VEL-11
+VEL-12
+VEL-20
+VEL-30" "$(q_ids)"
+qcommit 'chore: roll up VEL-40 [VEL-41] now
+
+fix: VEL-42
+VEL-43: note without url
+- VEL-44: failed, PR https://github.com/o/r/pull/8 (blocked)
+see [VEL-45] mid-line'
+eq "negatives: mid-line, untagged, body ID: text, not-landed row add nothing" "VEL-11
+VEL-12
+VEL-20
+VEL-30" "$(q_ids)"
+git -C "$Q" -c user.name=t -c user.email=t@t commit -q --allow-empty -F <(printf 'Queue x: y\r\n\r\n* [VEL-50] Crlf child\r\n')
+eq "CRLF commit message still yields the ID" "VEL-50" "$(q_ids | grep -x VEL-50)"
+
 # --- n1_release_page_results, pinned to literal jc-mcp 0.11.1 output
 SAMPLE='# Release test svc 1.2.0
 
