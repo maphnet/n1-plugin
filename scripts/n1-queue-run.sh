@@ -655,7 +655,7 @@ chain_reconcile() {
 # an escalation (a retarget between view and merge cannot be excluded here; protect the default branch).
 story_merge() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" marker="$N1_QUEUE_DIR/.chained-$2"
-    local url u nwo view st base head pin ci method err why=merged
+    local url u nwo view st base head pin ci method err why=merged rsn=
     sm_retry() { rm -f "$marker"; chain_note "$NUM" "$TICKET" "$1"; }
     sm_final() { printf '%s\ndone\n' "$RUN_ID" > "$marker"; chain_note "$NUM" "$TICKET" "$1"; }
     url=$(n1_queue_attested_pr "$QUEUE" "$TICKET" "$N1H")
@@ -681,7 +681,14 @@ story_merge() {
     [ "$base" = "$SB" ] || { sm_final wrong-base; return 0; }
     pin=$(cd "$REPO" 2>/dev/null && N1_HOME="$N1H" n1_review_pin get "${url##*/}")
     [ "$pin" = unavailable ] && { sm_retry pin-unavailable; return 0; }   # a failed pin lookup is not "no pin"
-    [[ "$pin" =~ ^[0-9a-f]{40}$ ]] || { sm_final no-pin; return 0; }
+    if ! [[ "$pin" =~ ^[0-9a-f]{40}$ ]]; then
+        # N1-612: name why the pin is missing. Only the [a-z-]+ token after `pin:refused ` in the child's
+        # pr-report.md reaches the Plan cell; no marker (inline route, missing file) keeps the bare no-pin.
+        [[ "$(cat "$N1H/memory/$TICKET/pr-report.md" 2>/dev/null)" =~ pin:refused\ ([a-z-]+) ]] && rsn=${BASH_REMATCH[1]}
+        [ "$rsn" = review-failed ] && \
+            echo "[$NUM] $TICKET review FAILed at the fix cap; open findings are in review.md (not a CI or PR comment issue)"
+        sm_final "no-pin${rsn:+ ($rsn)}"; return 0
+    fi
     [ "$head" = "$pin" ] || { sm_final head-moved; return 0; }
     ci=$(n1_queue_checks_class "$url")
     case "$ci" in
