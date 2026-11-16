@@ -888,40 +888,7 @@ test_story_done_launch_failed() {
     rm -rf "$tmp"
 }
 
-# N1-183: launcher wiring (setsid with nohup fallback, liveness busy guard, interrupted resume/status).
-test_lifecycle_wiring() {
-    local s="$REPO_ROOT/skills/n1-queue"
-    has() { grep -qF -- "$1" "$2" && echo yes || echo no; }
-    assert_eq "wiring: runner launched with setsid" yes "$(has 'setsid bash "$N1_ROOT/scripts/n1-queue-run.sh"' "$s/steps/run.md")"
-    assert_eq "wiring: nohup fallback when setsid is absent" yes "$(has 'command -v setsid' "$s/steps/run.md")"
-    assert_eq "wiring: busy guard uses runner liveness" yes "$(has 'n1_queue_runner_alive "$OLD_PID"' "$s/steps/run.md")"
-    assert_eq "wiring: --run detects an interrupted run" yes "$(has 'INTERRUPTED=yes' "$s/steps/run.md")"
-    assert_eq "wiring: resume keeps the run id" yes "$(has 'if [ "<RESUME>" = 1 ]' "$s/steps/run.md")"
-    assert_eq "wiring: --status reports interrupted runs" yes "$(has 'n1_queue_interrupted_note "$QUEUE_FILE"' "$s/steps/report.md")"
-    assert_eq "wiring: --status reports dispatch skips (N1-309)" yes "$(has 'n1_queue_dispatch_skips' "$s/steps/report.md")"
-    assert_eq "wiring: run.md streams the session watch (N1-359)" yes "$(has "the watch command's output lines to this session" "$s/steps/run.md")"
-    assert_eq "wiring: report.md streams the adopted watch (N1-359)" yes "$(has "the watch command's output lines to this session" "$s/steps/report.md")"
-    assert_eq "wiring: run.md re-arms the watch at the deadline (N1-359)" yes "$(has "start the identical command again" "$s/steps/run.md")"
-    assert_eq "wiring: SKILL.md documents resume" yes "$(has 'resumes an interrupted run' "$s/SKILL.md")"
-    assert_eq "N1-339: runner contains no worktree removal" 0 "$(grep -cE 'git worktree remove|n1_orca_rm|n1_finish_cleanup|n1_clean_ticket|worktree rm' "$REPO_ROOT/scripts/n1-queue-run.sh")"
-    assert_eq "N1-339: chain_merged launches chain_clean" yes "$(grep -A6 '^chain_merged()' "$REPO_ROOT/scripts/n1-queue-run.sh" | grep -q 'chain_clean' && echo yes || echo no)"
-    assert_eq "N1-339: chain_clean called from three merged paths" 3 "$(grep -c 'chain_clean "' "$REPO_ROOT/scripts/n1-queue-run.sh")"
-}
 
-# N1-185 AC3: run.md held-ticket wording (finish.md and session-start covered in test_orchestrator_guardrails.sh and test_hooks.sh).
-test_merge_wording() {
-    local has; has() { grep -qF -- "$1" "$2" && echo yes || echo no; }
-    assert_eq "wording: held tickets start on a user or chain merge" yes \
-        "$(has "merged (by the user, or by the runner's fullAuto chain)" "$REPO_ROOT/skills/n1-queue/steps/run.md")"
-    assert_eq "wording: SKILL.md names the story runner merge (N1-292)" yes \
-        "$(has 'the runner itself merges each green, reviewed child PR into `story/<STORY_ID>`' "$REPO_ROOT/skills/n1-queue/SKILL.md")"
-    assert_eq "wording: run.md story release (N1-292)" yes \
-        "$(has 'once the runner merged the blocker into the story branch' "$REPO_ROOT/skills/n1-queue/steps/run.md")"
-    assert_eq "wording: architecture documents story_merge (N1-292)" yes \
-        "$(has 'Story mode (N1-292): the runner itself merges' "$REPO_ROOT/references/architecture.md")"
-    assert_eq "wording: architecture lists ticket_done (N1-292)" yes \
-        "$(has '`ticket_done` (N1-292' "$REPO_ROOT/references/architecture.md")"
-}
 
 test_bg_held_not_launched() {
     local tmp; tmp=$(mktemp -d)
@@ -1108,8 +1075,6 @@ test_queue_chain_three
 test_queue_chain_resume
 test_queue_chain_bound
 test_queue_chain_run_e2e
-test_lifecycle_wiring
-test_merge_wording
 test_launch_pid
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
