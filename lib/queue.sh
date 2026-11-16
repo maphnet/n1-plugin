@@ -279,8 +279,12 @@ n1_queue_final_landed() {
     # event (n1_queue_final_prs with events), and prints "queue <queue.md>", then one line per Plan row of that row's Repo:
     # "landed\t<ticket>\t<child-pr-url>" (Runs Outcome merged, row N1 Home is this $N1_HOME, child PR re-read MERGED) or
     # "unlanded\t<ticket|->\t<why>". queue.md is child-writable: ids are checked, PR state comes from gh. No match prints
-    # queue:none, more than one queue:ambiguous (rc 1 both; nothing is guessed).
-    local pr="$1" f q="" repo="" r n=0 num t h st url pst pbase br rid evf
+    # queue:none, more than one queue:ambiguous (rc 1 both; nothing is guessed). N1-616: on a match it first runs
+    # n1_queue_reconcile on that queue (not while its runner is alive), so a child merged into the queue branch by hand
+    # after the runner exited gets Runs Outcome merged and its ticket_finished event (queue.md and events.jsonl writes).
+    # SEC-1: that reconcile and the checks below bind the queue branch to the final PR's own headRefName (runner-attested
+    # URL; one gh read, none -> every row unlanded) instead of the child-writable Story Branches cell alone.
+    local pr="$1" f q="" repo="" r n=0 num t h st url pst pbase br rid evf head dup fmerged=""
     [[ "$pr" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || { echo queue:none; return 1; }
     for f in "$N1_HOME"/queue/*/queue.md; do
         { [ -f "$f" ] && [ "$(n1_read_frontmatter "$f" integration)" = queue ]; } || continue
@@ -292,9 +296,17 @@ n1_queue_final_landed() {
     done
     [ "$n" = 1 ] || { if [ "$n" = 0 ]; then echo queue:none; else echo queue:ambiguous; fi; return 1; }
     echo "queue $q"
-    # SEC-1: bind children to this queue: base must be the queue branch of the final PR's repo, and the runner must have
-    # written ticket_finished merged for the same ticket and PR (events.jsonl is not child-writable).
-    br=$(n1_queue_story_branch_get "$q" "$repo"); rid=$(n1_read_frontmatter "$q" run_id); evf="$(dirname "$q")/events.jsonl"
+    # N1-616: record hand merges first. Reconcile applies the N1-609 checks (MERGED, base == the Story Branches branch,
+    # n1_queue_pr_in_repo, Runs row); every check below still applies to what it wrote. Its lines are not our output.
+    IFS=$'\t' read -r head fmerged <<< "$(timeout 30 gh pr view --json headRefName,mergedAt -q '[.headRefName,.mergedAt]|@tsv' -- "$pr" </dev/null 2>/dev/null)" || head=""
+    [ -z "$head" ] || n1_queue_reconcile "$q" "" "$head" "$fmerged" >/dev/null || true   # best-effort: a failed record leaves the row unlanded (fail closed); never aborts a set -e caller
+    # SEC-1: bind children to this queue: base must be the queue branch of the final PR's repo AND the final PR's head
+    # branch ($head, not child-writable), and ticket_finished merged must exist for the same ticket and PR. N1-616: that
+    # event may have been written by the reconcile above, so it records the reconcile result and is not an independent
+    # attestation; the binding is $head. A child PR URL claimed by two rows of the repo lands for neither.
+    br=$(n1_queue_story_branch_get "$q" "$repo"); [ "$br" = "$head" ] || br=""
+    dup=$(n1_queue_pending_rows "$q" '.*' | while IFS=$'\t' read -r num t r h _; do [ "$r" = "$repo" ] && n1_queue_attested_pr "$q" "$t" "$h"; done | sort | uniq -d)
+    rid=$(n1_read_frontmatter "$q" run_id); evf="$(dirname "$q")/events.jsonl"
     while IFS=$'\t' read -r num t r h _ st; do
         [ "$r" = "$repo" ] || continue
         [[ "$t" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { printf 'unlanded\t-\tinvalid ticket id\n'; continue; }
@@ -305,7 +317,8 @@ n1_queue_final_landed() {
         else
             url=$(n1_queue_attested_pr "$q" "$t" "$h")
             IFS=$'\t' read -r pst pbase _ <<< "$(n1_queue_pr_view "$url")"
-            if [ "$pst" != MERGED ]; then printf 'unlanded\t%s\tchild PR not merged\n' "$t"
+            if [ -n "$url" ] && grep -qxF -- "$url" <<< "$dup"; then printf 'unlanded\t%s\tchild PR claimed by more than one row\n' "$t"
+            elif [ "$pst" != MERGED ]; then printf 'unlanded\t%s\tchild PR not merged\n' "$t"
             elif ! { [[ "$br" == queue/* ]] && [ "$pbase" = "$br" ] \
                 && jq -e --arg r "$rid" --arg t "$t" --arg p "$url" 'select(.event == "ticket_finished" and .outcome == "merged" and .run_id == $r and .ticket == $t and .pr == $p)' "$evf" >/dev/null 2>&1; }; then
                 printf 'unlanded\t%s\tchild PR not in queue branch\n' "$t"
@@ -342,7 +355,8 @@ n1_queue_finish_child() {
 n1_queue_final_finish_state() {
     # Usage: n1_queue_final_finish_state <final-pr-url> — N1-462: the runner's Note after its n1-finish of a queue final
     # PR. Prints "closed <N>/<M>": M landed children (n1_queue_final_landed), N of them whose overview ## Finish names
-    # this final PR (written by n1_queue_finish_child). No matching queue prints "closed 0/0". Reads only.
+    # this final PR (written by n1_queue_finish_child). No matching queue prints "closed 0/0". Writes only what the
+    # reconcile in n1_queue_final_landed records (N1-616): queue.md and events.jsonl only.
     local k t n=0 m=0
     while IFS=$'\t' read -r k t _; do
         [ "$k" = landed ] || continue
@@ -580,6 +594,18 @@ n1_queue_row_reason() {
         gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
         if ($2 == num) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $9); print $9 }
     }' "$1"
+}
+
+n1_queue_review_failed_rows() {
+    # Usage: n1_queue_review_failed_rows <queue.md> — N1-616: one <ticket> per pr Plan row whose review FAILed at the fix
+    # cap (Reason exactly "finish:no-pin (review-failed)", written by the runner's story_merge) and whose Runs Outcome
+    # is not merged. Such a row waits for a human: the runner digest and --status count it as awaiting, not as PR. The
+    # Reason cell is child-writable; it only moves a row between two counts.
+    local num t
+    while IFS=$'\t' read -r num t _; do
+        [ "$(n1_queue_row_reason "$1" "$num")" = 'finish:no-pin (review-failed)' ] || continue
+        [ "$(_n1_queue_run_outcome "$1" "$t")" = merged ] || printf '%s\n' "$t"
+    done < <(n1_queue_pending_rows "$1" pr)
 }
 
 n1_queue_parked_rows() {
@@ -2295,18 +2321,29 @@ n1_queue_reconcile() {
     # N1-609 (--run § Re-read): a row whose repo has a ## Story Branches branch counts only when its PR is MERGED into
     # that branch (one n1_queue_pr_view read, the story_merge check); a duplicate Story Branches heading skips the row.
     # N1-481: `force` skips the live-runner check; only the runner's own Done section passes it (its pid is still set).
-    local q="$1" evf qid rid num ticket repo n1h model status url sb pst pbase
+    # N1-616 SEC-1: <expected-branch> (3rd arg, n1_queue_final_landed passes the final PR's headRefName) additionally
+    # requires the repo's Story Branches branch to equal it and skips a PR URL claimed by more than one Plan row.
+    # Codex: <final-merged-at> (4th arg) is the final PR's mergedAt when it already merged; a child then counts only if
+    # its own mergedAt is known and not later (a child merged into the retained queue branch afterwards is not in it).
+    local q="$1" want="${3:-}" fm="${4:-}" cm evf qid rid num ticket repo n1h model status url sb pst pbase dup=""
     if [ "${2:-}" != force ] && n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then return 0; fi
     evf="$(dirname "$q")/events.jsonl"; qid=$(n1_read_frontmatter "$q" queue_id); rid=$(n1_read_frontmatter "$q" run_id)
+    [ -z "$want" ] || dup=$(n1_queue_pending_rows "$q" '.*' | while IFS=$'\t' read -r _ ticket repo n1h _; do n1_queue_attested_pr "$q" "$ticket" "$n1h"; done | sort | uniq -d)
     while IFS=$'\t' read -r -u 3 num ticket repo n1h model status; do
         [ "$(_n1_queue_run_outcome "$q" "$ticket")" = merged ] && continue
         sb=$(n1_queue_story_branch_get "$q" "$repo") || continue
+        [ -z "$want" ] || [ "$sb" = "$want" ] || continue
         url=$(n1_queue_attested_pr "$q" "$ticket" "$n1h")
+        [ -z "$want" ] || ! grep -qxF -- "$url" <<< "$dup" || continue
         if [ -n "$sb" ]; then
             IFS=$'\t' read -r pst pbase _ <<< "$(n1_queue_pr_view "$url")"
             [ "$pst" = MERGED ] && [ "$pbase" = "$sb" ] || continue
         else
             [ "$(n1_queue_pr_state "$url")" = MERGED ] || continue
+        fi
+        if [ -n "$fm" ]; then
+            cm=$(timeout 30 gh pr view --json mergedAt -q .mergedAt -- "$url" </dev/null 2>/dev/null) || cm=""
+            [ -n "$cm" ] && [[ ! "$cm" > "$fm" ]] || continue
         fi
         n1_queue_pr_in_repo "$url" "$repo" || continue   # SEC-1: a merged PR of another repo never counts
         n1_queue_runs_outcome "$q" "$ticket" merged "$url" || continue
