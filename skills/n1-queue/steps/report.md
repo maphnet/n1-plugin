@@ -47,6 +47,7 @@ n1_queue_awaiting_hints "$QUEUE_FILE"
 n1_queue_dispatch_skips "$(dirname "$QUEUE_FILE")/events.jsonl" "$(n1_read_frontmatter "$QUEUE_FILE" run_id)"
 ```
 - The full transition history (starts, escalations, outcomes with wall-clock durations, halts) is in `<queue-dir>/events.jsonl`, one JSON object per line. Read it when the merged status table below does not explain what happened.
+- A Plan Reason `finish:no-pin (<reason>)` means the runner did not merge the child because its review pin was refused for `<reason>`; dependents show the same suffix (`blocked by <ID> (finish:no-pin (<reason>))`). For `review-failed`, tell the user the child's review FAILed at the fix cap and point to the open findings in `$N1_HOME_COL/memory/<TICKET>/review.md`; it is not a CI, PR comment or Codex review issue. A bare `finish:no-pin` has no recorded reason.
 
 Print a merged status table (deterministic; print its output verbatim, no reformatting):
 ```bash
