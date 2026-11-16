@@ -70,6 +70,68 @@ out=$(in_repo n1_release_ticket_ids v9.9.9 HEAD); rc=$?
 eq "bad range: empty output" "" "$out"
 eq "bad range: rc 0" "0" "$rc"
 
+# N1-611: squash-merged queue/story final PRs carry child IDs in the message body; separate repo keeps the sets above intact.
+Q="$T/squash"; git init -q "$Q"
+qcommit() { git -C "$Q" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "$1"; }
+q_ids() { (cd "$Q" && n1_release_ticket_ids "" HEAD); }
+qcommit 'Queue list-ab12: queued tickets (#93)
+
+* [VEL-11] First child
+* [VEL-12] Second child'
+eq "squash body: * [ID] child list returns each once" "VEL-11
+VEL-12" "$(q_ids)"
+qcommit 'VEL-20: Story title (#94)'
+qcommit 'Queue list-cd34: queued tickets (#95)
+
+### Landed
+- VEL-30: https://github.com/o/r/pull/7 (merged)'
+eq "first line ID: title and Landed URL row found" "VEL-11
+VEL-12
+VEL-20
+VEL-30" "$(q_ids)"
+qcommit "$(printf 'chore: forged\n\n\001[VEL-99] forged start\n\001Queue x\n- VEL-98: https://x/y')"
+qcommit 'chore: roll up VEL-40 [VEL-41] now
+
+fix: VEL-42
+VEL-43: note without url
+- VEL-44: failed, PR https://github.com/o/r/pull/8 (blocked)
+see [VEL-45] mid-line'
+eq "negatives: mid-line, untagged, body ID: text, not-landed row add nothing" "VEL-11
+VEL-12
+VEL-20
+VEL-30" "$(q_ids)"
+# N1-611 SEC-1: body text is untrusted; only the squash child list and final-PR Landed rows count there.
+qcommit 'fix: ordinary subject
+
+- [VEL-60] dash tag in body
+[VEL-61] bare tag in body
+- VEL-62: https://example.com/x landed-looking row'
+eq "non-first body: - [ID], bare [ID], Landed row under ordinary subject add nothing" "VEL-11
+VEL-12
+VEL-20
+VEL-30" "$(q_ids)"
+qcommit '[VEL-70] First-line tag (#1)'
+qcommit 'VEL-71: First-line colon (#2)'
+qcommit 'VEL-72: Story title (#3)
+
+- VEL-73: https://github.com/o/r/pull/9 (merged)
+- VEL-74: failed, PR https://github.com/o/r/pull/10 (blocked)'
+eq "first-line forms and Landed row under ID: title count; not-landed never" "VEL-11
+VEL-12
+VEL-20
+VEL-30
+VEL-70
+VEL-71
+VEL-72
+VEL-73" "$(q_ids)"
+# Without the guard, 'VEL|OPS' makes the awk regex an alternation that matches the [VEL-..] commits above.
+eq "bad prefix VEL|OPS returns nothing" "" "$(cd "$Q" && PREFIX='VEL|OPS' n1_release_ticket_ids "" HEAD)"
+# Without the guard, an empty prefix matches "[-5]" and prints "-5".
+qcommit '[-5] empty-prefix bait'
+eq "empty prefix returns nothing" "" "$(cd "$Q" && PREFIX= n1_release_ticket_ids "" HEAD 2>/dev/null </dev/null)"
+git -C "$Q" -c user.name=t -c user.email=t@t commit -q --allow-empty -F <(printf 'Queue x: y\r\n\r\n* [VEL-50] Crlf child\r\n')
+eq "CRLF commit message still yields the ID" "VEL-50" "$(q_ids | grep -x VEL-50)"
+
 # --- n1_release_page_results, pinned to literal jc-mcp 0.11.1 output
 SAMPLE='# Release test svc 1.2.0
 

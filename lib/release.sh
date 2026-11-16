@@ -181,17 +181,27 @@ n1_release_obs_group() {
     return 0
 }
 
-# n1_release_ticket_ids <prev> <head-ref>: IDs from the leading [PREFIX-N] of each commit subject in prev..head
-# (all of head when prev is empty). IDs later in a subject and untagged subjects count for nothing.
-# --no-decorate: log.decorate would put "(tag: ..)" after the hash. PREFIX: env, else .tracker.prefix.
+# n1_release_ticket_ids <prev> <head-ref>: IDs from commit messages in prev..head (all of head when prev is empty).
+# Body text is untrusted (a squash body copies PR text), so rules are narrow (N1-611): (1) a leading [PREFIX-N] with an
+# optional "* " or "- " marker on the first line, or "* [PREFIX-N]" (the squash child list) on any later line;
+# (2) "PREFIX-N:" on the first line; (3) a "- PREFIX-N: https://..." Landed row, only in a message whose first line is a
+# queue or story final PR title ("Queue ..." or "PREFIX-N: ..."; lib/queue.sh). IDs later in a line, untagged lines and
+# not-landed rows ("- ID: failed, PR ...") count for nothing. A prefix outside ^[A-Z][A-Z0-9_]*$ yields nothing.
+# A per-call random marker (unguessable by commit text) marks each message start. --no-decorate: log.decorate must not add "(tag: ..)". PREFIX: env, else .tracker.prefix.
 n1_release_ticket_ids() {
-    local prev="${1:-}" head="${2:-HEAD}" prefix="${PREFIX:-$(n1_config_val '.tracker.prefix')}" log
-    if [ -n "$prev" ]; then
-        log=$(git log "${prev}..${head}" --oneline --no-decorate 2>/dev/null || true)
-    else
-        log=$(git log "${head}" --oneline --no-decorate 2>/dev/null || true)
-    fi
-    sed -nE "s/^[0-9a-f]+ \[(${prefix}-[0-9]+)\].*/\1/p" <<<"$log" | sort -u
+    local prev="${1:-}" head="${2:-HEAD}" prefix="${PREFIX:-$(n1_config_val '.tracker.prefix')}" range
+    local mark="N1MSG${$}x${RANDOM}${RANDOM}${RANDOM}x"
+    [[ "$prefix" =~ ^[A-Z][A-Z0-9_]*$ ]] || return 0
+    range="$head"; [ -n "$prev" ] && range="${prev}..${head}"
+    { git log "$range" --no-decorate --format="${mark}%B" 2>/dev/null || true; } |
+        awk -v p="$prefix" -v m="$mark" '
+            function id() { match($0, p "-[0-9]+"); print substr($0, RSTART, RLENGTH) }
+            index($0, m) == 1 { $0 = substr($0, length(m) + 1); first = 1; land = ($0 ~ "^Queue " || $0 ~ "^" p "-[0-9]+: ") }
+            first && ($0 ~ "^([*-] +)?\\[" p "-[0-9]+\\]" || $0 ~ "^" p "-[0-9]+:") { id() }
+            !first && $0 ~ "^\\* +\\[" p "-[0-9]+\\]" { id() }
+            land && !first && $0 ~ "^- " p "-[0-9]+: https?://" { id() }
+            { first = 0 }
+        ' | sort -u
 }
 
 # n1_release_blockers <release-ids>: stdin lines <TICKET><TAB><jcm_getIssueLinks JSON array on one line>.
