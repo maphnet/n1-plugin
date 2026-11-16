@@ -8,8 +8,14 @@ export N1_HOME="$T/home"; mkdir -p "$N1_HOME/queue/q1" "$T/other" "$T/bin" "$T/g
 source "$R/lib/config.sh"; source "$R/lib/frontmatter.sh"; source "$R/lib/queue.sh"
 PASS=0; FAIL=0
 eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS + 1)); else echo "FAIL: $1 (expected='$2' actual='$3')"; FAIL=$((FAIL + 1)); fi; }
-# fake gh: "gh pr view --json state -q .state -- <url>" prints $T/gh/state.<num>; no file -> exit 1
-printf '#!/usr/bin/env bash\nu="${@: -1}"; n="${u##*/}"; f="%s/gh/state.$n"; [ -f "$f" ] || exit 1\nif [[ "$*" == *baseRefName* ]]; then b=queue/q1-x; [ -f "%s/gh/base.$n" ] && b=$(cat "%s/gh/base.$n"); printf "%%s\\t%%s\\toid\\n" "$(cat "$f")" "$b"; else cat "$f"; fi\n' "$T" "$T" "$T" > "$T/bin/gh"
+# fake gh: "gh repo view ..." prints $T/gh/nwo (no file -> exit 1); "gh pr view ... -- <url>" prints $T/gh/state.<num>
+# (with baseRefName: "<state>\t<base>\toid", base from $T/gh/base.<num>, default queue/q1-x); no state file -> exit 1
+cat > "$T/bin/gh" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = repo ]; then [ -f "$T/gh/nwo" ] || exit 1; cat "$T/gh/nwo"; exit 0; fi
+u="\${@: -1}"; n="\${u##*/}"; f="$T/gh/state.\$n"; [ -f "\$f" ] || exit 1
+if [[ "\$*" == *baseRefName* ]]; then b=queue/q1-x; [ -f "$T/gh/base.\$n" ] && b=\$(cat "$T/gh/base.\$n"); printf '%s\t%s\toid\n' "\$(cat "\$f")" "\$b"; else cat "\$f"; fi
+EOF
 chmod +x "$T/bin/gh"; export PATH="$T/bin:$PATH"
 U=https://github.com/o/r/pull; Q="$N1_HOME/queue/q1/queue.md"
 cat > "$Q" <<EOF
@@ -75,6 +81,63 @@ eq "L5: ambiguous" "queue:ambiguous|1" "$out|$rc"; rm -rf "$N1_HOME/queue/q2"
 sed -i 's/^integration: queue$/mode: story/' "$Q"; out=$(n1_queue_final_landed "$U/9"); rc=$?
 eq "L6: story queue ignored" "queue:none|1" "$out|$rc"; sed -i 's/^mode: story$/integration: queue/' "$Q"
 
+# H (N1-616): a child merged into the queue branch by hand after the runner exited (row pr, Runs Outcome pr, no event)
+# is recorded by the reconcile inside n1_queue_final_landed and lands. SEC-1: wrong base (H-2), OPEN (H-3), another
+# repo's PR (H-4) and a live runner stay unlanded and are not rewritten.
+mkdir -p "$N1_HOME/queue/q3" "$T/repo"; Q3="$N1_HOME/queue/q3/queue.md"; E3="$N1_HOME/queue/q3/events.jsonl"
+echo o/r > "$T/gh/nwo"
+cat > "$Q3" <<EOF
+---
+queue_id: q3
+run_id: R3
+integration: queue
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|---|---|---|---|---|---|---|
+| 1 | H-1 | a | $T/repo | $N1_HOME | sonnet | pr | finish:no-pin (review-failed) |
+| 2 | H-2 | b | $T/repo | $N1_HOME | sonnet | pr | finish:no-pin (review-failed) |
+| 3 | H-3 | c | $T/repo | $N1_HOME | sonnet | pr | finish:no-pin (review-failed) |
+| 4 | H-4 | d | $T/repo | $N1_HOME | sonnet | pr | finish:no-pin (review-failed) |
+## Story Branches
+| Repo | Branch |
+|------|--------|
+| $T/repo | queue/q3-x |
+## Final PRs
+| Repo | PR | Draft | Mergeable | Note |
+|---|---|---|---|---|
+| $T/repo | $U/30 | ready | MERGEABLE | - |
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|---|---|---|---|---|---|
+| H-1 | x | 0 | pr | $U/31 | s1 |
+| H-2 | x | 0 | pr | $U/32 | s2 |
+| H-3 | x | 0 | pr | $U/33 | s3 |
+| H-4 | x | 0 | pr | https://github.com/o/other/pull/34 | s4 |
+EOF
+echo "{\"event\":\"final_pr_opened\",\"run_id\":\"R3\",\"pr\":\"$U/30\"}" > "$E3"
+for n in 31 32 34; do echo MERGED > "$T/gh/state.$n"; done; echo OPEN > "$T/gh/state.33"
+for n in 31 33 34; do echo queue/q3-x > "$T/gh/base.$n"; done; echo main > "$T/gh/base.32"
+# H0: a live runner records merges itself, so the reconcile is skipped and nothing lands
+bash -c 'sleep 30; :' scripts/n1-queue-run.sh "$Q3" & P=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do grep -qa n1-queue-run "/proc/$P/cmdline" 2>/dev/null && break; sleep 0.1; done
+n1_write_frontmatter "$Q3" pid "$P"
+eq "H0: live runner, no reconcile" "$(printf 'unlanded\tH-1\tpr')" "$(n1_queue_final_landed "$U/30" | grep H-1)"
+eq "H0: no event written" 0 "$(jq -c 'select(.event == "ticket_finished")' "$E3" | wc -l | tr -d ' ')"
+kill "$P" 2>/dev/null; wait "$P" 2>/dev/null; sed -i '/^pid: /d' "$Q3"
+# H1: runner gone: the hand-merged child lands; the others stay unlanded
+out=$(n1_queue_final_landed "$U/30"); rc=$?
+eq "H1: rc 0" 0 "$rc"
+eq "H1: lines" "$(printf 'queue %s\nlanded\tH-1\t%s/31\nunlanded\tH-2\tpr\nunlanded\tH-3\tpr\nunlanded\tH-4\tpr' "$Q3" "$U")" "$out"
+eq "H1: Outcome merged for H-1 only" "merged pr pr pr" \
+    "$(for t in H-1 H-2 H-3 H-4; do _n1_queue_run_outcome "$Q3" "$t"; done | paste -sd' ' -)"
+eq "H1: one runner-format event, H-1 only" "H-1|R3|$U/31" \
+    "$(jq -r 'select(.event == "ticket_finished" and .outcome == "merged") | "\(.ticket)|\(.run_id)|\(.pr)"' "$E3")"
+# H2: re-running is idempotent
+eq "H2: same lines on rerun" "$out" "$(n1_queue_final_landed "$U/30")"
+eq "H2: still one event" 1 "$(jq -c 'select(.event == "ticket_finished")' "$E3" | wc -l | tr -d ' ')"
+# H3: the runner Note helper sees the same landed set
+eq "H3: finish state counts the hand-merged child" "closed 0/1" "$(n1_queue_final_finish_state "$U/30")"
 # F1: finish_child writes ## Finish, clears the marker, sets step done, runs the queue cleanup
 n1_clean_ticket() { echo "clean $1 $2 qdir=${N1_QUEUE_DIR:-}" >> "$T/clean.log"; echo "worktree:removed, branch:deleted"; }
 export N1_QUEUE_DIR=/leak

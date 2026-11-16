@@ -279,7 +279,9 @@ n1_queue_final_landed() {
     # event (n1_queue_final_prs with events), and prints "queue <queue.md>", then one line per Plan row of that row's Repo:
     # "landed\t<ticket>\t<child-pr-url>" (Runs Outcome merged, row N1 Home is this $N1_HOME, child PR re-read MERGED) or
     # "unlanded\t<ticket|->\t<why>". queue.md is child-writable: ids are checked, PR state comes from gh. No match prints
-    # queue:none, more than one queue:ambiguous (rc 1 both; nothing is guessed).
+    # queue:none, more than one queue:ambiguous (rc 1 both; nothing is guessed). N1-616: on a match it first runs
+    # n1_queue_reconcile on that queue (not while its runner is alive), so a child merged into the queue branch by hand
+    # after the runner exited gets Runs Outcome merged and its ticket_finished event (queue.md and events.jsonl writes).
     local pr="$1" f q="" repo="" r n=0 num t h st url pst pbase br rid evf
     [[ "$pr" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || { echo queue:none; return 1; }
     for f in "$N1_HOME"/queue/*/queue.md; do
@@ -292,6 +294,9 @@ n1_queue_final_landed() {
     done
     [ "$n" = 1 ] || { if [ "$n" = 0 ]; then echo queue:none; else echo queue:ambiguous; fi; return 1; }
     echo "queue $q"
+    # N1-616: record hand merges first. Reconcile applies the N1-609 checks (MERGED, base == the Story Branches branch,
+    # n1_queue_pr_in_repo, Runs row); every check below still applies to what it wrote. Its lines are not our output.
+    n1_queue_reconcile "$q" >/dev/null || true   # best-effort: a failed record leaves the row unlanded (fail closed); never aborts a set -e caller
     # SEC-1: bind children to this queue: base must be the queue branch of the final PR's repo, and the runner must have
     # written ticket_finished merged for the same ticket and PR (events.jsonl is not child-writable).
     br=$(n1_queue_story_branch_get "$q" "$repo"); rid=$(n1_read_frontmatter "$q" run_id); evf="$(dirname "$q")/events.jsonl"
@@ -342,7 +347,8 @@ n1_queue_finish_child() {
 n1_queue_final_finish_state() {
     # Usage: n1_queue_final_finish_state <final-pr-url> — N1-462: the runner's Note after its n1-finish of a queue final
     # PR. Prints "closed <N>/<M>": M landed children (n1_queue_final_landed), N of them whose overview ## Finish names
-    # this final PR (written by n1_queue_finish_child). No matching queue prints "closed 0/0". Reads only.
+    # this final PR (written by n1_queue_finish_child). No matching queue prints "closed 0/0". Writes only what the
+    # reconcile in n1_queue_final_landed records (N1-616).
     local k t n=0 m=0
     while IFS=$'\t' read -r k t _; do
         [ "$k" = landed ] || continue
