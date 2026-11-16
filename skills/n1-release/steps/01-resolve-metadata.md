@@ -140,11 +140,11 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    GIT_IDS=$(n1_release_ticket_ids "$PREV_TAG" "$TAG")
    ```
 
-   Only the leading `[PREFIX-N]` tag counts: Source C takes it from the start of each release-note entry (after an optional `* ` or `- ` list marker), and a release-note entry without one contributes no ticket. Source D scans full commit messages with three line-start rules: a leading `[PREFIX-N]` (optional `* ` or `- ` marker) on any message line, so squash bodies such as `* [PREFIX-N] title` count; `PREFIX-N:` at the start of the first line; and a `- PREFIX-N: https://...` Landed row. IDs mentioned later in a line, untagged lines (conventional-commit prefix, merge commit) and not-landed rows such as `- PREFIX-N: failed, PR https://...` contribute no ticket; Sources A and B still apply.
+   Only the leading `[PREFIX-N]` tag counts: Source C takes it from the start of each release-note entry (after an optional `* ` or `- ` list marker), and a release-note entry without one contributes no ticket. Source D scans full commit messages (body text is untrusted) with three line-start rules: a leading `[PREFIX-N]` (optional `* ` or `- ` marker) on the first line, and `* [PREFIX-N]` child-list lines in the body; `PREFIX-N:` at the start of the first line; and a `- PREFIX-N: https://...` Landed row, only when the first line is a final PR title (`Queue ...` or `PREFIX-N: ...`). IDs mentioned later in a line, untagged lines (conventional-commit prefix, merge commit), `- [PREFIX-N]` body lines and not-landed rows such as `- PREFIX-N: failed, PR https://...` contribute no ticket; Sources A and B still apply.
 
    **Merge all sources:**
    ```bash
-   RELEASE_TICKET_IDS=$(echo -e "${BRANCH_ID}\n${PENDING_IDS}\n${GH_IDS}\n${GIT_IDS}" | grep -v '^$' | sort -u)
+   RELEASE_TICKET_IDS=$(echo -e "${BRANCH_ID}\n${PENDING_IDS}\n${GH_IDS}\n${GIT_IDS}" | grep -E '^[A-Z][A-Z0-9_]*-[0-9]+$' | sort -u)
    ```
 
    Note: Sources C and D require `TAG` to exist, so their extraction runs after Step 5 (Execute) completes. The merge produces the final `RELEASE_TICKET_IDS` used by Steps 5b, 6, and 7.

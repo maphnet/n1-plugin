@@ -99,6 +99,32 @@ eq "negatives: mid-line, untagged, body ID: text, not-landed row add nothing" "V
 VEL-12
 VEL-20
 VEL-30" "$(q_ids)"
+# N1-611 SEC-1: body text is untrusted; only the squash child list and final-PR Landed rows count there.
+qcommit 'fix: ordinary subject
+
+- [VEL-60] dash tag in body
+[VEL-61] bare tag in body
+- VEL-62: https://example.com/x landed-looking row'
+eq "non-first body: - [ID], bare [ID], Landed row under ordinary subject add nothing" "VEL-11
+VEL-12
+VEL-20
+VEL-30" "$(q_ids)"
+qcommit '[VEL-70] First-line tag (#1)'
+qcommit 'VEL-71: First-line colon (#2)'
+qcommit 'VEL-72: Story title (#3)
+
+- VEL-73: https://github.com/o/r/pull/9 (merged)
+- VEL-74: failed, PR https://github.com/o/r/pull/10 (blocked)'
+eq "first-line forms and Landed row under ID: title count; not-landed never" "VEL-11
+VEL-12
+VEL-20
+VEL-30
+VEL-70
+VEL-71
+VEL-72
+VEL-73" "$(q_ids)"
+eq "bad prefix a/b returns nothing" "" "$(cd "$Q" && PREFIX='a/b' n1_release_ticket_ids "" HEAD)"
+eq "empty prefix returns nothing" "" "$(cd "$Q" && PREFIX= n1_release_ticket_ids "" HEAD 2>/dev/null </dev/null)"
 git -C "$Q" -c user.name=t -c user.email=t@t commit -q --allow-empty -F <(printf 'Queue x: y\r\n\r\n* [VEL-50] Crlf child\r\n')
 eq "CRLF commit message still yields the ID" "VEL-50" "$(q_ids | grep -x VEL-50)"
 
