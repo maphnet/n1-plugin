@@ -15,7 +15,7 @@ check "direct implementation runs only the covering test files" '^6\. \*\*Run on
 check "QA runs the full suite once, then reruns only failing files" 'Run the full suite exactly once .*rerun only the failing test files' agents/qa-engineer.md
 check "QA evidence documents Fixed test: lines for files QA fixed" '^Fixed test: \{test_file\} \| `' agents/qa-engineer.md
 check "CLAUDE.md maps the queue-runner test areas" 'Queue runner tests are split by area' CLAUDE.md
-for s in "" _bg _bg_chain _orca _orca_liveness _orca_slots; do
+for s in "" _bg _bg_chain _final_pr _orca _orca_liveness _orca_slots; do
     f=tests/test_queue_runner$s.sh
     if [ -z "$s" ]; then pat='`tests/test_queue_runner\.sh`'; else pat="\`${s}\\.sh\`"; fi
     check "CLAUDE.md map names $f" "$pat" CLAUDE.md
