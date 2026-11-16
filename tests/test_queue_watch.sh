@@ -77,6 +77,21 @@ test_escalated_terminal_outcome_hints_n1_start() {
     has   "non-terminal: attach hint kept" "n1-queue q7: T-2 needs you: still working (resume: claude attach 0000beef)" "$out"
 }
 
+# N1-622 AC2. Bug caught: an Orca row's needs-you line said "resume: claude attach orca:task-1/d-1" (not a Claude
+# session) and the plain-reason line had no --answer command at all.
+test_escalated_orca_session_answer_hint() {
+    local q out; q=$(newq q-orca)
+    ev "$q" R1 escalated ticket=T-1 session=orca:task-1/d-1 reason="Which DB?"
+    ev "$q" R1 escalated ticket=T-2 session=orca:task-2/d-2 reason='{"question":"Pick one","options":["A","B"]}'
+    ev "$q" R1 escalated ticket=T-3 session=0000beef reason="bg question"
+    ev "$q" R1 queue_done reason="done"
+    out=$(watch 10 "$q" R1 "$$" 0)
+    has   "orca: plain reason carries the --answer hint" 'n1-queue q-orca: T-1 needs you: Which DB? (answer: /n1:n1-queue --answer T-1 "<text>")' "$out"
+    has   "orca: packed question keeps the --answer hint without attach" 'n1-queue q-orca: T-2 needs you (answer: /n1:n1-queue --answer T-2 "<text>"):' "$out"
+    lacks "orca: no attach hint for an Orca session" "attach orca:" "$out"
+    has   "bg: attach hint unchanged" "n1-queue q-orca: T-3 needs you: bg question (resume: claude attach 0000beef)" "$out"
+}
+
 test_escalated_dedupe() {
     # N1-241: the same ticket+reason relays once; a different reason, another ticket, or the
     # same reason after answer_delivered (a re-asked question, N1-55) relays again.
@@ -324,6 +339,7 @@ test_owed_and_slot_held_relayed() {
 test_run_id_filter_and_finish
 test_halt_draining_keeps_watch
 test_escalated_terminal_outcome_hints_n1_start
+test_escalated_orca_session_answer_hint
 test_escalated_dedupe
 test_escalated_dedupe_full_reason
 test_adopt_from_eof_and_resume

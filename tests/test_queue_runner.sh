@@ -927,6 +927,25 @@ FAKEEOF
     assert_eq "status: cost always em dash" "4" "$(echo "$out" | awk -F'\t' '$5=="\xe2\x80\x94"' | wc -l | tr -d ' ')"
 }
 
+# N1-622. Bug caught: --status printed "claude attach orca:task-3/d-3" in the Attach column of an awaiting Orca row.
+test_status_table_orca_answer_hint() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mk_status_queue "$tmp"
+    sed -i 's#| 11112222 |#| orca:task-3/d-3 |#' "$tmp/q.md"
+    mkdir -p "$tmp/bin"
+    cat > "$tmp/bin/claude" <<'FAKEEOF'
+#!/usr/bin/env bash
+case "$1" in
+    agents) echo '{"agents":[{"id":"0000abcd","state":"working"}]}' ;;
+esac
+FAKEEOF
+    chmod +x "$tmp/bin/claude"
+    local out
+    out=$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl")
+    assert_eq "status: Orca row keeps awaiting-human" "awaiting-human" "$(awk -F'\t' '$1=="T-3"{print $2}' <<<"$out")"
+    assert_eq "status: Orca row Attach is the --answer hint" '/n1:n1-queue --answer T-3 "<text>"' "$(awk -F'\t' '$1=="T-3"{print $7}' <<<"$out")"
+}
+
 test_status_table_running_step() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     mk_status_queue "$tmp"
@@ -2811,6 +2830,7 @@ test_queue_digest
 test_fmt_elapsed
 test_status_table_pre_np197_fixture
 test_status_table_claude_code
+test_status_table_orca_answer_hint
 test_status_table_running_step
 test_status_table_no_pr
 test_queue_answer
