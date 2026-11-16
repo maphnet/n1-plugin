@@ -593,6 +593,35 @@ test_story_repo_read_retry() {
     rm -rf "$tmp"
 }
 
+# N1-609 AC1/AC4: a retryable story_merge refusal leaves a pr row that --run counts (n1_queue_pr_resume_rows) and the
+# relaunched runner lands. Unreadable repo identity, then the PR merged: the resume records it without a merge call.
+# Red CI, then green: the resume merges. Bugs caught: the row not counted for --run; a resumed row merged twice.
+test_story_refusal_resume() {
+    local tmp
+    tmp=$(mktemp -d); story_restart_setup "$tmp" "" MERGED
+    echo 99 > "$tmp/fake/gh-repo-fail"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-refusal unreadable: pr, reason, marker removed" "pr|finish:pr-state-unreadable|no" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)|$([ -e "$tmp/.chained-T-A" ] && echo yes || echo no)"
+    assert_eq "story-refusal unreadable: --run counts the row" "T-A" "$(n1_queue_pr_resume_rows "$tmp/queue.md" | cut -f2)"
+    rm -f "$tmp/fake/gh-repo-fail"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-refusal unreadable then merged: recorded, no merge call" "merged|0" \
+        "$(runs_outcome "$tmp/queue.md" T-A)|$(nlines "$tmp/fake/gh-merge")"
+    assert_eq "story-refusal unreadable then merged: no longer counted" "" "$(n1_queue_pr_resume_rows "$tmp/queue.md")"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); story_restart_setup "$tmp" "" OPEN
+    printf '%s' '[{"bucket":"pass"},{"bucket":"fail"}]' > "$tmp/fake/gh-checks"; printf '1' > "$tmp/fake/gh-checks-rc"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-refusal red CI: nothing merged, reason, counted" "0|finish:ci-red|T-A" \
+        "$(nlines "$tmp/fake/gh-merge")|$(plan_cell "$tmp/queue.md" 1 9)|$(n1_queue_pr_resume_rows "$tmp/queue.md" | cut -f2)"
+    echo '[{"bucket":"pass"}]' > "$tmp/fake/gh-checks"; printf '0' > "$tmp/fake/gh-checks-rc"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-refusal red then green CI: resume merges once" "1|merged" \
+        "$(nlines "$tmp/fake/gh-merge")|$(runs_outcome "$tmp/queue.md" T-A)"
+    rm -rf "$tmp"
+}
+
 # N1-292 AC6: a held story child starts after the runner merged its blocker into story/S-1, without fullAuto.
 test_story_held_released_after_runner_merge() {
     local tmp done_a launch_b; tmp=$(mktemp -d)
@@ -1512,6 +1541,7 @@ test_story_pending_marker_guarded
 test_story_mode_snapshot
 test_story_resume
 test_story_repo_read_retry
+test_story_refusal_resume
 test_story_held_released_after_runner_merge
 test_story_dependents_of_ci_red
 test_queue_merge_green

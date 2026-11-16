@@ -1808,6 +1808,13 @@ test_rerun_wiring() {
     assert_eq "rerun-wiring: re-read precedes Write plan" "yes" "$([ -n "$rr" ] && [ -n "$wp" ] && [ "$rr" -lt "$wp" ] && echo yes || echo no)"
     assert_eq "rerun-wiring: bg run order wording" "yes" "$(_hasF 'the bg backend runs rows in plan order.' "$r")"
     assert_eq "rerun-wiring: busy guard precedes the re-read" "yes" "$([ -n "$bg" ] && [ -n "$rr" ] && [ "$bg" -lt "$rr" ] && echo yes || echo no)"
+    # N1-609: hand merges are recorded before the release pass; LEFT counts story pr rows a relaunch can still land.
+    assert_eq "rerun-wiring: re-read reconciles hand merges" "yes" "$(_hasF 'n1_queue_reconcile "$QUEUE_DIR/queue.md" || true' "$r")"
+    local rcl rll; rcl=$(grep -n -m1 -F 'n1_queue_reconcile "$QUEUE_DIR/queue.md"' "$r" | cut -d: -f1)
+    rll=$(grep -n -m1 -F 'n1_queue_rerun_release "$QUEUE_DIR/queue.md"' "$r" | cut -d: -f1)
+    assert_eq "rerun-wiring: reconcile precedes the release pass" "yes" "$([ -n "$rcl" ] && [ -n "$rll" ] && [ "$rcl" -lt "$rll" ] && echo yes || echo no)"
+    assert_eq "rerun-wiring: LEFT counts resumable story pr rows" "yes" "$(_hasF 'n1_queue_pr_resume_rows "$QUEUE_DIR/queue.md"' "$r")"
+    assert_eq "rerun-wiring: summary names recorded merges" "yes" "$(_hasF 'recorded as merged: <KEYs>' "$r")"
 }
 
 # N1-481: --close routing, operand parsing and the abandon gate.
