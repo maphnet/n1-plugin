@@ -144,9 +144,18 @@ eq "H3: finish state counts the hand-merged child" "closed 0/1" "$(n1_queue_fina
 mkdir -p "$N1_HOME/queue/q4"; sed -e 's/q3/q4/g' -e 's/R3/R4/g' "$Q3" > "$N1_HOME/queue/q4/queue.md"; Q4="$N1_HOME/queue/q4/queue.md"; E4="$N1_HOME/queue/q4/events.jsonl"
 sed -i -e '/^| H-1 /,$ s/| merged |/| pr |/' -e '/^| H-1 | x/ s/| [a-z]* | https/| pr | https/' "$Q4"
 echo "{\"event\":\"final_pr_opened\",\"run_id\":\"R4\",\"pr\":\"$U/40\"}" > "$E4"
-sed -i "s#$U/30#$U/40#" "$Q4"; echo MERGED > "$T/gh/state.40"; echo queue/q-real > "$T/gh/head.40"
+sed -i "s#$U/30#$U/40#" "$Q4"; echo MERGED > "$T/gh/state.40"; echo queue/q-real > "$T/gh/head.40"; echo queue/q4-x > "$T/gh/base.31"   # base matches the cell: only the head binding can reject
+# H4 forges the rest (Outcome merged + ticket_finished event) so only the head binding can reject; undone below.
+cp "$Q4" "$Q4.bak"; sed -i '/^| H-1 | x/ s/| pr | https/| merged | https/' "$Q4"
+echo "{\"event\":\"ticket_finished\",\"outcome\":\"merged\",\"run_id\":\"R4\",\"ticket\":\"H-1\",\"pr\":\"$U/31\"}" >> "$E4"
 eq "H4: story-branch cell != final PR head" "unlanded" "$(n1_queue_final_landed "$U/40" | awk -F'\t' '$2 == "H-1" { print $1 }')"
+mv "$Q4.bak" "$Q4"; sed -i '$d' "$E4"
 eq "H4: no event recorded" 0 "$(jq -c 'select(.event == "ticket_finished")' "$E4" | wc -l | tr -d ' ')"
+# H4b: final PR head unreadable (no state file -> gh fails): no reconcile, every row unlanded, nothing recorded
+sed -i "s#$U/40#$U/41#" "$Q4"; echo "{\"event\":\"final_pr_opened\",\"run_id\":\"R4\",\"pr\":\"$U/41\"}" >> "$E4"
+eq "H4b: head read failure" "unlanded unlanded unlanded unlanded" "$(n1_queue_final_landed "$U/41" | awk -F'\t' '/^(landed|unlanded)\t/ { printf "%s ", $1 }' | sed 's/ $//')"
+eq "H4b: no event recorded" 0 "$(jq -c 'select(.event == "ticket_finished")' "$E4" | wc -l | tr -d ' ')"
+sed -i "s#$U/41#$U/40#" "$Q4"; sed -i '$d' "$E4"
 # H5 (SEC-1): head matches again, but two rows claim the same child PR -> neither lands, nothing recorded
 echo queue/q4-x > "$T/gh/head.40"; sed -i "s#$U/32 | s2#$U/31 | s2#" "$Q4"; echo queue/q4-x > "$T/gh/base.31"
 eq "H5: duplicate PR rows" "unlanded unlanded" "$(n1_queue_final_landed "$U/40" | awk -F'\t' '$2 == "H-1" || $2 == "H-2" { printf "%s ", $1 }' | sed 's/ $//')"
