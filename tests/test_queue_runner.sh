@@ -2607,7 +2607,7 @@ test_final_cmd() {
     FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" PATH="$tmp/bin:$PATH" bash -c "$cmd" >/dev/null 2>&1
     assert_eq "final_cmd: ready PR has no --draft" 0 "$(grep -cF -- '--draft' "$tmp/fake/prompt.n1-q-S-1-final-2" || true)"
     # N1-446: the default kind is story (identical command); an unknown kind is refused. Queue prompt wording is
-    # asserted on the decoded prompt in test_queue_final_pr (tests/test_queue_runner_bg_chain.sh).
+    # asserted on the decoded prompt in test_queue_final_pr (tests/test_queue_runner_final_pr.sh).
     assert_eq "final-cmd: explicit story kind equals the default" yes \
         "$([ "$(n1_queue_final_cmd "$tmp/wt" /h RUN1 n1-q-S-1-final-2 S-1 main /q/b.md 0)" = "$(n1_queue_final_cmd "$tmp/wt" /h RUN1 n1-q-S-1-final-2 S-1 main /q/b.md 0 story)" ] && echo yes || echo no)"
     assert_eq "final-cmd: unknown kind -> 1" 1 "$(n1_queue_final_cmd "$tmp/wt" /h RUN1 s S-1 main /q/b.md 0 release >/dev/null 2>&1; echo $?)"
