@@ -187,15 +187,16 @@ n1_release_obs_group() {
 # (2) "PREFIX-N:" on the first line; (3) a "- PREFIX-N: https://..." Landed row, only in a message whose first line is a
 # queue or story final PR title ("Queue ..." or "PREFIX-N: ..."; lib/queue.sh). IDs later in a line, untagged lines and
 # not-landed rows ("- ID: failed, PR ...") count for nothing. A prefix outside ^[A-Z][A-Z0-9_]*$ yields nothing.
-# %x01 marks each message start. --no-decorate: log.decorate must not add "(tag: ..)". PREFIX: env, else .tracker.prefix.
+# A per-call random marker (unguessable by commit text) marks each message start. --no-decorate: log.decorate must not add "(tag: ..)". PREFIX: env, else .tracker.prefix.
 n1_release_ticket_ids() {
     local prev="${1:-}" head="${2:-HEAD}" prefix="${PREFIX:-$(n1_config_val '.tracker.prefix')}" range
+    local mark="N1MSG${$}x${RANDOM}${RANDOM}${RANDOM}x"
     [[ "$prefix" =~ ^[A-Z][A-Z0-9_]*$ ]] || return 0
     range="$head"; [ -n "$prev" ] && range="${prev}..${head}"
-    { git log "$range" --no-decorate --format='%x01%B' 2>/dev/null || true; } |
-        awk -v p="$prefix" '
+    { git log "$range" --no-decorate --format="${mark}%B" 2>/dev/null || true; } |
+        awk -v p="$prefix" -v m="$mark" '
             function id() { match($0, p "-[0-9]+"); print substr($0, RSTART, RLENGTH) }
-            index($0, "\001") == 1 { $0 = substr($0, 2); first = 1; land = ($0 ~ "^Queue " || $0 ~ "^" p "-[0-9]+: ") }
+            index($0, m) == 1 { $0 = substr($0, length(m) + 1); first = 1; land = ($0 ~ "^Queue " || $0 ~ "^" p "-[0-9]+: ") }
             first && ($0 ~ "^([*-] +)?\\[" p "-[0-9]+\\]" || $0 ~ "^" p "-[0-9]+:") { id() }
             !first && $0 ~ "^\\* +\\[" p "-[0-9]+\\]" { id() }
             land && !first && $0 ~ "^- " p "-[0-9]+: https?://" { id() }

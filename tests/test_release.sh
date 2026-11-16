@@ -89,6 +89,7 @@ eq "first line ID: title and Landed URL row found" "VEL-11
 VEL-12
 VEL-20
 VEL-30" "$(q_ids)"
+qcommit "$(printf 'chore: forged\n\n\001[VEL-99] forged start\n\001Queue x\n- VEL-98: https://x/y')"
 qcommit 'chore: roll up VEL-40 [VEL-41] now
 
 fix: VEL-42
