@@ -1683,7 +1683,8 @@ n1_queue_rerun_release() {
     # no live worker for its task); otherwise it is left as is and printed "live".
     # Release pass, repeated until a pass changes nothing (each change removes a skip row, so it ends): a skip row whose
     # Reason starts "predecessor <KEY>" or "blocked by <KEY> (" goes back to pending (Reason cleared) when <KEY>'s last
-    # row is done-before-run, no-pr, merged, obsolete (escalated + Reason obsolete), pending or held. Those prefixes are
+    # row is done-before-run, no-pr, merged (N1-609: a pr row whose Runs Outcome is merged; no code writes Status merged),
+    # obsolete (escalated + Reason obsolete), pending or held. Those prefixes are
     # written only by n1_queue_held_sweep, n1_queue_held_expire, n1_queue_eligible_rows and n1_queue_gated_expire;
     # "status changed" and the external-blocker "blocked by <ID>" (no parenthesis, run.md) never match. A row skipped on
     # its first failing predecessor may be re-skipped by n1_queue_eligible_rows on a second one (Orca only).
@@ -1729,6 +1730,7 @@ n1_queue_rerun_release() {
             if [[ "$r" =~ $pre ]] || [[ "$r" =~ $bre ]]; then p=${BASH_REMATCH[1]}; else continue; fi
             pst=$(n1_queue_ticket_status "$q" "$p")
             [ "$pst" = escalated ] && n1_queue_ticket_obsolete "$q" "$p" && pst=obsolete
+            [ "$pst" = pr ] && [ "$(_n1_queue_run_outcome "$q" "$p")" = merged ] && pst=merged   # N1-609: landed = pr + Runs Outcome merged
             case "$pst" in
                 done-before-run|no-pr|merged|obsolete|pending|held)
                     n1_queue_row_status "$q" "$num" pending "" clear || return 1

@@ -509,6 +509,42 @@ EOF
         "$(printf 'done\t1\tV-1\tpending')|done-before-run,pending" "$out|$(plan_cell "$q3" 1 8),$(plan_cell "$q3" 2 8)"
 }
 
+# N1-609 AC5: a pr row whose Runs Outcome is merged (story_merged, or n1_queue_reconcile for a hand merge) is landed for
+# the release pass. Bug caught: the release case matched Plan Status "merged", which no code writes, so
+# "blocked by <K> (finish:no-pin)" / "predecessor <K> not merged (...)" rows never came back after a hand merge.
+test_rerun_release_pr_merged() {
+    local tmp q out; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q="$tmp/queue/qm/queue.md"; mkdir -p "${q%/*}"
+    cat > "$q" <<EOT
+---
+queue_id: qm
+run_id: R1
+step: done
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | /r | $tmp/h | sonnet | pr | finish:no-pin |
+| 2 | T-2 | B | /r | $tmp/h | sonnet | skip | blocked by T-1 (finish:no-pin) |
+| 3 | T-3 | C | /r | $tmp/h | sonnet | skip | predecessor T-1 not merged (finish:no-pin) |
+| 4 | T-4 | D | /r | $tmp/h | sonnet | pr | finish:ci-red |
+| 5 | T-5 | E | /r | $tmp/h | sonnet | skip | blocked by T-4 (finish:ci-red) |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|---|---|---|---|---|---|
+| T-1 | s | 0 | pr | https://github.com/o/r/pull/1 | |
+| T-4 | s | 0 | pr | https://github.com/o/r/pull/4 | |
+EOT
+    out=$(printf '%s\n' | n1_queue_rerun_release "$q") || true
+    assert_eq "rerun-pr: unmerged pr blocker releases nothing" "" "$out"
+    n1_queue_runs_outcome "$q" T-1 merged https://github.com/o/r/pull/1
+    out=$(printf '%s\n' | n1_queue_rerun_release "$q") || true
+    assert_eq "rerun-pr: merged pr blocker releases both reason forms" "$(printf 'released\t2\tT-2\nreleased\t3\tT-3')" "$out"
+    assert_eq "rerun-pr: released rows pending, other blocker kept" "pending|pending|skip|pr" \
+        "$(plan_cell "$q" 2 8)|$(plan_cell "$q" 3 8)|$(plan_cell "$q" 5 8)|$(plan_cell "$q" 1 8)"
+}
+
 # --- run.md § Write plan cell-fill snippet (NP-203): free text with quotes via cells.tsv ---
 test_write_plan_cells() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
@@ -2819,6 +2855,7 @@ test_story_branch_wiring
 test_row_status
 test_queue_retry
 test_rerun_release
+test_rerun_release_pr_merged
 test_queue_reconcile_force
 test_gh_read_retries
 test_queue_close
