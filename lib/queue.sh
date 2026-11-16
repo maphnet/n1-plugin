@@ -696,7 +696,7 @@ n1_queue_held_sweep() {
                         # (ci-red, dirty, wrong-base, ...) does not merge this run, so its dependent is skipped. MERGED is
                         # tested first: a merged blocker with a stale finish:* Reason still releases.
                         why=$(_n1_queue_plan_reason "$q" "$b")
-                        case "$why" in finish:*) n1_queue_row_status "$q" "$num" skip "blocked by $b (${why%% *})"; continue ;; esac
+                        case "$why" in finish:*) n1_queue_row_status "$q" "$num" skip "blocked by $b ($why)"; continue ;; esac
                     fi
                 else
                     d=$(N1_HOME="$h" n1_config_val '.git.defaultBranch' 2>/dev/null); d="${d:-main}"
@@ -750,7 +750,7 @@ n1_queue_eligible_rows() {
                         # a chain that ended without merging (Reason finish:<why>) is final unless a merge is still owed
                         why=$(_n1_queue_plan_reason "$q" "$p")
                         case "$why" in
-                            finish:*) n1_queue_row_status "$q" "$num" skip "predecessor $p not merged (${why%% *})"
+                            finish:*) n1_queue_row_status "$q" "$num" skip "predecessor $p not merged ($why)"
                                       ok=0; break ;;
                         esac
                         ok=0

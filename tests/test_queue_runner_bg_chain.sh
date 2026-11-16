@@ -654,6 +654,29 @@ test_story_dependents_of_ci_red() {
     rm -rf "$tmp"
 }
 
+# N1-612: a refused pin names its reason. The child's pr-report.md carries `pin:refused review-failed`, so the child
+# Reason is finish:no-pin (review-failed), the dependent carries it through, the runner says the review FAILed at the
+# fix cap, and nothing merges. The no-marker case is the no-pin entry of test_story_merge_refusals (bare finish:no-pin).
+test_story_no_pin_reason() {
+    local tmp; tmp=$(mktemp -d)
+    story_merge_fixture "$tmp" "T-A:working done" "T-B:done"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    rm -f "$tmp/n1home/review-pins/o_r_1"
+    mkdir -p "$tmp/n1home/memory/T-A"
+    printf 'PR: https://github.com/o/r/pull/1\npin:refused review-failed T-A (the review verdict is not PASS; fix and re-review)\n' \
+        > "$tmp/n1home/memory/T-A/pr-report.md"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "no-pin-reason: nothing merged" 0 "$(nlines "$tmp/fake/gh-merge")"
+    assert_eq "no-pin-reason: child row names the refusal" "pr|finish:no-pin (review-failed)" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "no-pin-reason: dependent carries the reason" "skip|blocked by T-A (finish:no-pin (review-failed))" \
+        "$(plan_cell "$tmp/queue.md" 2 8)|$(plan_cell "$tmp/queue.md" 2 9)"
+    assert_eq "no-pin-reason: dependent never launched" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-B-2')"
+    assert_eq "no-pin-reason: runner points to review.md" 1 \
+        "$(grep -cF 'T-A review FAILed at the fix cap; open findings are in review.md (not a CI or PR comment issue)' "$tmp/output.txt" || true)"
+    rm -rf "$tmp"
+}
+
 # N1-446 AC3: a green, reviewed child of a list queue with integration: queue is merged by the runner into the queue
 # branch at the pin, without fullAuto (fixture config has fullAuto and mergeOnFinish off).
 test_queue_merge_green() {
@@ -1544,6 +1567,7 @@ test_story_repo_read_retry
 test_story_refusal_resume
 test_story_held_released_after_runner_merge
 test_story_dependents_of_ci_red
+test_story_no_pin_reason
 test_queue_merge_green
 test_queue_held_released_after_runner_merge
 test_queue_integration_snapshot

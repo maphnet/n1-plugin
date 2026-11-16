@@ -2225,6 +2225,10 @@ EOF
     assert_eq "cr3: merge mode lists nothing" "" "$(n1_queue_eligible_rows "$q" true)"
     assert_eq "cr3: successor skipped at once" "skip" "$(plan_cell "$q" 2 8)"
     assert_eq "cr3: reason names the predecessor and the finish failure" "predecessor T-1 not merged (finish:ci-red)" "$(plan_cell "$q" 2 9)"
+    cp "$d/nomerge.md" "$d/np.md"; n1_queue_row_status "$d/np.md" 1 pr "finish:no-pin (review-failed)"
+    n1_queue_eligible_rows "$d/np.md" true >/dev/null
+    assert_eq "N1-612: predecessor reason keeps the pin-refused suffix" \
+        "predecessor T-1 not merged (finish:no-pin (review-failed))" "$(plan_cell "$d/np.md" 2 9)"
     cp "$d/nomerge.md" "$d/exp.md"; n1_queue_row_status "$d/exp.md" 1 pr "waiting"
     n1_queue_gated_expire "$d/exp.md"
     assert_eq "cr3: gated expiry reason names the blocking predecessor" "predecessor T-1 not released (not at PR or not merged)" "$(plan_cell "$d/exp.md" 2 9)"
