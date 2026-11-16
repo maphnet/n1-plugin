@@ -424,6 +424,16 @@ n1_queue_repo_nwo() {
     return 0
 }
 
+n1_queue_pr_in_repo() {
+    # Usage: n1_queue_pr_in_repo <pr-url> <repo-dir> — N1-609: 0 only when the PR URL's owner/name equals the checkout's
+    # GitHub repo (the story_merge pr-repo-mismatch check). An unreadable repo (empty nwo) fails closed. The URL is
+    # child-writable, so a recorded merge must not trust it without this.
+    local u nwo
+    nwo=$(n1_queue_repo_nwo "$2"); [ -n "$nwo" ] || return 1
+    u=${1#https://github.com/}; u=${u%/pull/*}
+    [ "$u" = "$nwo" ]
+}
+
 _n1_queue_valid_branch() {
     # Usage: _n1_queue_valid_branch <name> — N1-293: 0 for a plain branch name (safe in a prompt command and gh args).
     [[ "$1" =~ ^[A-Za-z0-9._/-]+$ ]] && [[ "$1" != -* ]] && [[ "$1" != *..* ]] && git check-ref-format --branch "$1" >/dev/null 2>&1
@@ -2298,6 +2308,7 @@ n1_queue_reconcile() {
         else
             [ "$(n1_queue_pr_state "$url")" = MERGED ] || continue
         fi
+        n1_queue_pr_in_repo "$url" "$repo" || continue   # SEC-1: a merged PR of another repo never counts
         n1_queue_runs_outcome "$q" "$ticket" merged "$url" || continue
         [ "$status" = pr ] || n1_queue_row_status "$q" "$num" pr
         n1_queue_event "$evf" "$qid" "$rid" ticket_finished ticket="$ticket" outcome=merged pr="$url"
@@ -2309,7 +2320,7 @@ n1_queue_pr_resume_rows() {
     # Usage: n1_queue_pr_resume_rows <queue.md> — N1-609 (--run § Re-read LEFT): pr Plan rows (n1_queue_pending_rows
     # lines) a relaunched runner can still land: the repo has a ## Story Branches branch, the Runs Outcome is not
     # merged, and no .chained-<ticket> marker sits next to queue.md. A retryable story_merge refusal removes the marker;
-    # a final refusal or a recorded merge writes it. Tag rows (no story branch) never qualify, so --run does not relaunch
+    # a final refusal or a recorded merge writes it. Rows whose Reason is a runner-side dead end (child-escalated, story-branch-invalid, child-stop-failed, marker-write-failed, finish-child-busy) and a ticket cell that is not a key are skipped. Tag rows (no story branch) never qualify, so --run does not relaunch
     # for them. A duplicate Story Branches heading fails closed (row not listed). Reads queue.md only (no gh).
     local q="$1" d line num t repo sb
     d=$(dirname "$q")
@@ -2318,7 +2329,12 @@ n1_queue_pr_resume_rows() {
         [ -n "$num" ] || continue
         sb=$(n1_queue_story_branch_get "$q" "$repo") && [ -n "$sb" ] || continue
         [ "$(_n1_queue_run_outcome "$q" "$t")" = merged ] && continue
+        case "$t" in ''|*[!A-Za-z0-9_-]*) continue ;; esac   # SEC-2: same key check as chain_finish
         [ -e "$d/.chained-$t" ] && continue
+        # CR-1: reasons the runner cannot act on (it returns without a marker): a relaunch would do nothing.
+        case "$(n1_queue_row_reason "$q" "$num")" in
+            finish:child-escalated|finish:story-branch-invalid|finish:child-stop-failed|finish:marker-write-failed|finish:finish-child-busy) continue ;;
+        esac
         printf '%s\n' "$line"
     done <<< "$(n1_queue_pending_rows "$q" pr)"
 }
