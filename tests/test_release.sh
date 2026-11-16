@@ -123,7 +123,10 @@ VEL-70
 VEL-71
 VEL-72
 VEL-73" "$(q_ids)"
-eq "bad prefix a/b returns nothing" "" "$(cd "$Q" && PREFIX='a/b' n1_release_ticket_ids "" HEAD)"
+# Without the guard, 'VEL|OPS' makes the awk regex an alternation that matches the [VEL-..] commits above.
+eq "bad prefix VEL|OPS returns nothing" "" "$(cd "$Q" && PREFIX='VEL|OPS' n1_release_ticket_ids "" HEAD)"
+# Without the guard, an empty prefix matches "[-5]" and prints "-5".
+qcommit '[-5] empty-prefix bait'
 eq "empty prefix returns nothing" "" "$(cd "$Q" && PREFIX= n1_release_ticket_ids "" HEAD 2>/dev/null </dev/null)"
 git -C "$Q" -c user.name=t -c user.email=t@t commit -q --allow-empty -F <(printf 'Queue x: y\r\n\r\n* [VEL-50] Crlf child\r\n')
 eq "CRLF commit message still yields the ID" "VEL-50" "$(q_ids | grep -x VEL-50)"
