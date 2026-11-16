@@ -103,6 +103,11 @@ check "N1-231: headless blocker prompt follows the stop-list path with a categor
 check "N1-231: headless blocker prompt states no option is recommended" "No option is recommended, and never treat .continue anyway. as a default" "$B"
 if grep -qE 'KEY="|KEY=.<KEY>' "$B"; then echo "FAIL: N1-231: no tracker key is assigned into a shell string"; FAIL=1; else echo "PASS: N1-231: no tracker key is assigned into a shell string"; fi
 check "N1-231: queue caller skips the PR lookup" "CALLER=queue. skips this step" "$B"
+check "N1-610: blocker-check reads deployed status, case-insensitive" "DEPLOYED_STATUS.*case-insensitive" "$B"
+check "N1-610: blocker-check gate reads tracker.statuses.deployed" "tracker\.statuses\.deployed" "$B"
+check "N1-610: intake story mode counts deployed and released as done" "tracker\.statuses\.deployed. or .tracker\.statuses\.released. \(read with" skills/n1-queue/steps/intake.md
+check "N1-610: intake description blockers honor deployed status" "status name equals .tracker\.statuses\.deployed. .*The ones not done are the candidate's description blockers\." skills/n1-queue/steps/intake.md
+check "N1-610: run re-read counts deployed and released as done" "tracker\.statuses\.deployed. or .tracker\.statuses\.released." skills/n1-queue/steps/run.md
 check "N1-231: question shows status and PR" "<status>\[, PR #<n>\]" "$B"
 check "N1-231: interactive options carry the no-recommendation sentence" "No recommendation\. The options are equivalent given the available evidence; select based on team preference\." "$B"
 check "N1-231: headless options use the exact ask-mode stop label" "OPTIONS=continue anyway \| Stop this ticket" "$B"

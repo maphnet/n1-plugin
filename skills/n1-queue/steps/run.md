@@ -110,7 +110,7 @@ N1-536: work finished outside the queue (ticket done in the tracker, PR merged b
    n1_queue_pending_rows "$QUEUE_DIR/queue.md" 'failed|escalated|skip|pending|held' | cut -f2 | sort -u
    ```
    `pr`, `in-progress`, `awaiting-human`, `merged`, `no-pr` and `done-before-run` rows are not read.
-2. Call `mcp__<TRACKER_MCP>__<READ_OP>` once per listed ticket. A ticket is done-class when its status's lowercase name is one of `done`, `closed`, `resolved`, `fixed`, `verified` (intake.md § Story mode status classification), in every queue mode (not the tag-mode `TODO_STATUS` test). A read error counts as not done: record the ticket for the summary and go on.
+2. Call `mcp__<TRACKER_MCP>__<READ_OP>` once per listed ticket. A ticket is done-class when its status's lowercase name is one of `done`, `closed`, `resolved`, `fixed`, `verified` (intake.md § Story mode status classification), in every queue mode; the status also counts as done-class when it equals `tracker.statuses.deployed` or `tracker.statuses.released` (when set) (not the tag-mode `TODO_STATUS` test). A read error counts as not done: record the ticket for the summary and go on.
 3. Apply the changes. Pass only the done-class keys, never a status name (status names can contain quotes); with no done-class key, run it with no key arguments (`printf '%s\n'`), since the release pass still runs:
    ```bash
    source ~/.n1/preamble.sh

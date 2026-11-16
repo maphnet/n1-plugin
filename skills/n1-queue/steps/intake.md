@@ -39,7 +39,7 @@ Enumerate subtasks (same logic as tag mode but via parent link):
 - **Search/links error or unparseable result**: report the error and **STOP** (not zero subtasks).
 - **Zero subtasks** (parsed empty result, any status): print "no subtasks — run /n1:n1-start <STORY_ID>" and **STOP** (no queue is built).
 
-Status classification: a status whose lowercase name is one of `done`, `closed`, `resolved`, `fixed`, `verified` -> `done-before-run`. Everything else -> candidate.
+Status classification: a status whose lowercase name is one of `done`, `closed`, `resolved`, `fixed`, `verified` -> `done-before-run`. A status equal (case-insensitive) to `tracker.statuses.deployed` or `tracker.statuses.released` (read with `n1_config_val`) is also done-class, when set; an empty key never matches. Everything else -> candidate.
 
 **Epic expansion (Jira only).** When the tracker is Jira and the `READ_OP` call above returned issue type `Epic` for the story ID, expand every child, including those just classified `done-before-run` (a Done-class child can still hold an open Sub-task), before any later step uses them: a child with Sub-tasks queued as a row would stop at its own Headless Guard. Call each such child `<STORY_KEY>` (any issue type) and take them in enumeration order (created ASC):
 1. Apply § Key validation to `<STORY_KEY>` before the search; an invalid key is excluded with reason `invalid ticket key` and never searched.
@@ -84,7 +84,7 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 F="<QUEUE_DIR>/desc/<KEY>.txt"; [ -f "$F" ] && n1_queue_desc_blockers '<KEY>' < "$F"
 ```
-It prints each key that a dependency phrase (`blocked by`, `depends on`, `after`, `requires`) names within three words in the same clause. A key in a later clause or in parentheses never counts. No output, or no `desc/<KEY>.txt` (story mode reads no issue per candidate), means no description blockers. Read the status of each printed key. The ones not done are the candidate's description blockers.
+It prints each key that a dependency phrase (`blocked by`, `depends on`, `after`, `requires`) names within three words in the same clause. A key in a later clause or in parentheses never counts. No output, or no `desc/<KEY>.txt` (story mode reads no issue per candidate), means no description blockers. Read the status of each printed key. A key is done when its status category is Done or its status name equals `tracker.statuses.deployed` (case-insensitive, when set; an empty key never matches). The ones not done are the candidate's description blockers.
 
 The candidate's open blockers are its link blockers plus its description blockers, counted once per distinct ID. With none, keep it. With exactly one that is itself a candidate of this plan (the same-plan case, N1-64, whichever check found it), keep the candidate and prefix its Reason with `blocked_on <ID> · `. run.md § Write plan gives it Status `held`, and the runner launches it only after the user merges the blocker's PR (`n1_queue_held_sweep`). Otherwise exclude it with reason `blocked by <ID>`, naming the first open blocker that is not a candidate, else the first. Two candidates that block each other through either check (a cycle) are both excluded with reason `blocked by <ID> (cycle)`.
 
