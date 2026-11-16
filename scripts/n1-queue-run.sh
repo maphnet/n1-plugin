@@ -661,7 +661,7 @@ story_merge() {
     url=$(n1_queue_attested_pr "$QUEUE" "$TICKET" "$N1H")
     view=$(n1_queue_pr_view "$url")
     [ -n "$view" ] || { sm_retry pr-state-unreadable; return 0; }
-    nwo=$(cd "$REPO" 2>/dev/null && timeout -k 30 30 gh repo view --json nameWithOwner -q .nameWithOwner </dev/null 2>/dev/null)
+    nwo=$(n1_queue_repo_nwo "$REPO")
     [ -n "$nwo" ] || { sm_retry pr-state-unreadable; return 0; }
     u=${url#https://github.com/}; u=${u%/pull/*}
     [ "$u" = "$nwo" ] || { sm_final pr-repo-mismatch; return 0; }
@@ -1092,7 +1092,8 @@ chain_finish() {
             # merged into SB whose Outcome is not merged yet (Done session included), and otherwise does nothing.
             aurl=$(n1_queue_attested_pr "$QUEUE" "$TICKET" "$N1H")
             if [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ] \
-                && [ "$(n1_queue_pr_view "$aurl" | cut -f1,2)" = "MERGED"$'\t'"$SB" ]; then
+                && [ "$(n1_queue_pr_view "$aurl" | cut -f1,2)" = "MERGED"$'\t'"$SB" ] \
+                && n1_queue_pr_in_repo "$aurl" "$REPO"; then
                 story_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$aurl" merged
             else
                 echo "[$NUM] $TICKET chain: already evaluated (marker=${mstate:-unknown})"

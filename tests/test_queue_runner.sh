@@ -509,6 +509,42 @@ EOF
         "$(printf 'done\t1\tV-1\tpending')|done-before-run,pending" "$out|$(plan_cell "$q3" 1 8),$(plan_cell "$q3" 2 8)"
 }
 
+# N1-609 AC5: a pr row whose Runs Outcome is merged (story_merged, or n1_queue_reconcile for a hand merge) is landed for
+# the release pass. Bug caught: the release case matched Plan Status "merged", which no code writes, so
+# "blocked by <K> (finish:no-pin)" / "predecessor <K> not merged (...)" rows never came back after a hand merge.
+test_rerun_release_pr_merged() {
+    local tmp q out; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q="$tmp/queue/qm/queue.md"; mkdir -p "${q%/*}"
+    cat > "$q" <<EOT
+---
+queue_id: qm
+run_id: R1
+step: done
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | /r | $tmp/h | sonnet | pr | finish:no-pin |
+| 2 | T-2 | B | /r | $tmp/h | sonnet | skip | blocked by T-1 (finish:no-pin) |
+| 3 | T-3 | C | /r | $tmp/h | sonnet | skip | predecessor T-1 not merged (finish:no-pin) |
+| 4 | T-4 | D | /r | $tmp/h | sonnet | pr | finish:ci-red |
+| 5 | T-5 | E | /r | $tmp/h | sonnet | skip | blocked by T-4 (finish:ci-red) |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|---|---|---|---|---|---|
+| T-1 | s | 0 | pr | https://github.com/o/r/pull/1 | |
+| T-4 | s | 0 | pr | https://github.com/o/r/pull/4 | |
+EOT
+    out=$(printf '%s\n' | n1_queue_rerun_release "$q") || true
+    assert_eq "rerun-pr: unmerged pr blocker releases nothing" "" "$out"
+    n1_queue_runs_outcome "$q" T-1 merged https://github.com/o/r/pull/1
+    out=$(printf '%s\n' | n1_queue_rerun_release "$q") || true
+    assert_eq "rerun-pr: merged pr blocker releases both reason forms" "$(printf 'released\t2\tT-2\nreleased\t3\tT-3')" "$out"
+    assert_eq "rerun-pr: released rows pending, other blocker kept" "pending|pending|skip|pr" \
+        "$(plan_cell "$q" 2 8)|$(plan_cell "$q" 3 8)|$(plan_cell "$q" 5 8)|$(plan_cell "$q" 1 8)"
+}
+
 # --- run.md § Write plan cell-fill snippet (NP-203): free text with quotes via cells.tsv ---
 test_write_plan_cells() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
@@ -1772,6 +1808,13 @@ test_rerun_wiring() {
     assert_eq "rerun-wiring: re-read precedes Write plan" "yes" "$([ -n "$rr" ] && [ -n "$wp" ] && [ "$rr" -lt "$wp" ] && echo yes || echo no)"
     assert_eq "rerun-wiring: bg run order wording" "yes" "$(_hasF 'the bg backend runs rows in plan order.' "$r")"
     assert_eq "rerun-wiring: busy guard precedes the re-read" "yes" "$([ -n "$bg" ] && [ -n "$rr" ] && [ "$bg" -lt "$rr" ] && echo yes || echo no)"
+    # N1-609: hand merges are recorded before the release pass; LEFT counts story pr rows a relaunch can still land.
+    assert_eq "rerun-wiring: re-read reconciles hand merges" "yes" "$(_hasF 'n1_queue_reconcile "$QUEUE_DIR/queue.md" || true' "$r")"
+    local rcl rll; rcl=$(grep -n -m1 -F 'n1_queue_reconcile "$QUEUE_DIR/queue.md"' "$r" | cut -d: -f1)
+    rll=$(grep -n -m1 -F 'n1_queue_rerun_release "$QUEUE_DIR/queue.md"' "$r" | cut -d: -f1)
+    assert_eq "rerun-wiring: reconcile precedes the release pass" "yes" "$([ -n "$rcl" ] && [ -n "$rll" ] && [ "$rcl" -lt "$rll" ] && echo yes || echo no)"
+    assert_eq "rerun-wiring: LEFT counts resumable story pr rows" "yes" "$(_hasF 'n1_queue_pr_resume_rows "$QUEUE_DIR/queue.md"' "$r")"
+    assert_eq "rerun-wiring: summary names recorded merges" "yes" "$(_hasF 'recorded as merged: <KEYs>' "$r")"
 }
 
 # N1-481: --close routing, operand parsing and the abandon gate.
@@ -2552,7 +2595,7 @@ test_status_reconcile_merged() {
     printf -- '---\nstep: done\nqueue_run_id: R0\n---\n## Pending\npr_url: https://github.com/o/r/pull/3\n' > "$tmp/n1home/memory/T-C/overview.md"
     for n in 1 2 3; do n1_queue_row_status "$tmp/queue.md" "$n" failed subtask-timeout; done
     printf '| T-A | 2026-11-02T00:00:00Z | | failed | | orca:task-T-A/d-T-A |\n| T-B | 2026-11-02T00:00:00Z | | failed | | orca:task-T-B/d-T-B |\n| T-C | 2026-11-02T00:00:00Z | | failed | | orca:task-T-C/d-T-C |\n' >> "$tmp/queue.md"
-    printf '#!/bin/sh\ncase "$*" in *pull/1*|*pull/3*) echo MERGED ;; *pull/2*) echo OPEN ;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
+    printf '#!/bin/sh\ncase "$*" in *"repo view"*) echo o/r ;; *pull/1*|*pull/3*) echo MERGED ;; *pull/2*) echo OPEN ;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
     : > "$tmp/events.jsonl"
     out=$(PATH="$tmp/bin:$PATH" n1_queue_reconcile "$tmp/queue.md")
     assert_eq "reconcile: merged row reported" "reconciled: T-A merged" "$out"
@@ -2574,7 +2617,8 @@ test_status_reconcile_merged() {
 test_queue_reconcile_force() {
     local tmp q; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     q="$tmp/queue/qf/queue.md"; mkdir -p "${q%/*}" "$tmp/bin"
-    printf '#!/bin/sh\necho MERGED\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
+    mkdir -p "$tmp/r"
+    printf '#!/bin/sh\ncase "$*" in *"repo view"*) echo o/r ;; *) echo MERGED ;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
     cat > "$q" <<EOF
 ---
 queue_id: qf
@@ -2584,7 +2628,7 @@ step: run
 ## Plan
 | # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
 |---|--------|-------|------|---------|-------|--------|--------|
-| 1 | T-1 | A | /r | $tmp/h | sonnet | pr | |
+| 1 | T-1 | A | $tmp/r | $tmp/h | sonnet | pr | |
 
 ## Runs
 | Ticket | Started | Exit | Outcome | PR | Session |
@@ -2601,12 +2645,103 @@ EOF
         "$(awk '/^if \[ -z "\$RUN_MODE" \]; then n1_queue_reconcile "\$QUEUE" force/ { r = NR } /^ev queue_done/ { d = NR } END { print (r && d && r < d) ? "yes" : "no" }' "$REPO_ROOT/scripts/n1-queue-run.sh")"
 }
 
+# N1-609 AC3: n1_queue_pr_view retries a transient read (N1-292) and the repo identity read used by story_merge now
+# retries the same way (3 attempts). Bugs caught: a dropped retry loop; one flaky gh repo view stranding a merged PR as
+# pr-state-unreadable; a missing checkout dir burning the backoff.
+test_gh_read_retries() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mk_bg "$tmp" pv "T-A:done"
+    printf 'MERGED\tstory/S-1\tabc\n' > "$tmp/fake/gh-view.1"
+    pv() { FAKE_DIR="$tmp/fake" PATH="$tmp/bin:$PATH" n1_queue_pr_view https://github.com/o/r/pull/1; }
+    rn() { FAKE_DIR="$tmp/fake" PATH="$tmp/bin:$PATH" n1_queue_repo_nwo "$1"; }
+    echo 2 > "$tmp/fake/gh-fail"
+    assert_eq "pr-view: two transient failures retried" "$(printf 'MERGED\tstory/S-1\tabc')" "$(pv)"
+    echo 3 > "$tmp/fake/gh-fail"
+    assert_eq "pr-view: three failures print nothing" "" "$(pv)"
+    echo o/r > "$tmp/fake/gh-repo"
+    echo 2 > "$tmp/fake/gh-repo-fail"
+    assert_eq "repo-nwo: two transient failures retried" "o/r" "$(rn "$tmp")"
+    echo 3 > "$tmp/fake/gh-repo-fail"
+    assert_eq "repo-nwo: three failures print nothing" "" "$(rn "$tmp")"
+    rm -f "$tmp/fake/gh-repo-n"
+    assert_eq "repo-nwo: missing dir prints nothing, no gh call" "|0" "$(rn "$tmp/nope")|$(cat "$tmp/fake/gh-repo-n" 2>/dev/null || echo 0)"
+}
+
+# N1-609 AC1/AC2: --run lists the story pr rows it can still land (no .chained marker, Outcome not merged) and records
+# hand merges before the release pass. An integration row counts as merged only into its story branch. Bugs caught: a
+# tag row relaunched on every --run; a final-refusal row (marker done) relaunched; a PR merged into the wrong base
+# recorded as landed; a duplicate Story Branches heading not failing closed.
+test_story_pr_reconcile() {
+    local tmp q d out; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q="$tmp/queue/qs/queue.md"; d="${q%/*}"; mkdir -p "$d" "$tmp/bin" "$tmp/h" "$tmp/r" "$tmp/t"
+    cat > "$q" <<EOQ
+---
+queue_id: qs
+run_id: R1
+step: done
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | $tmp/r | $tmp/h | sonnet | pr | finish:pr-state-unreadable |
+| 2 | T-2 | B | $tmp/r | $tmp/h | sonnet | pr | finish:no-pin |
+| 3 | T-3 | C | $tmp/r | $tmp/h | sonnet | pr | merged |
+| 4 | T-4 | D | $tmp/t | $tmp/h | sonnet | pr | |
+| 5 | T-5 | E | $tmp/r | $tmp/h | sonnet | pr | finish:child-escalated |
+| 6 | T-6 | F | $tmp/r | $tmp/h | sonnet | pr | finish:pr-state-unreadable |
+| 7 | T-7 | G | $tmp/r | $tmp/h | sonnet | pr | finish:story-branch-invalid |
+| 8 | T-8 | H | $tmp/r | $tmp/h | sonnet | pr | finish:pr-state-unreadable |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|---|---|---|---|---|---|
+| T-1 | s | 0 | pr | https://github.com/o/r/pull/1 | |
+| T-2 | s | 0 | pr | https://github.com/o/r/pull/2 | |
+| T-3 | s | 0 | merged | https://github.com/o/r/pull/3 | |
+| T-4 | s | 0 | pr | https://github.com/o/t/pull/4 | |
+| T-5 | s | 0 | pr | https://github.com/o/r/pull/5 | |
+| T-6 | s | 0 | pr | https://github.com/x/evil/pull/6 | |
+| T-7 | s | 0 | pr | https://github.com/o/r/pull/7 | |
+| T-8 | s | 0 | pr | https://github.com/o/r/pull/8 | |
+EOQ
+    n1_queue_story_branch_set "$q" "$tmp/r" story/S-1
+    printf 'R1\ndone\n' > "$d/.chained-T-2"
+    : > "$d/events.jsonl"
+    assert_eq "pr-resume: unlanded story rows without a marker; dead-end reasons skipped (CR-1)" "$(printf '1\tT-1\n6\tT-6\n8\tT-8')" "$(n1_queue_pr_resume_rows "$q" | cut -f1,2)"
+    rm -f "$d/.chained-T-2"
+    assert_eq "pr-resume: marker removed lists the row" "T-1 T-2 T-6 T-8" "$(n1_queue_pr_resume_rows "$q" | cut -f2 | paste -sd' ')"
+    printf 'R1\ndone\n' > "$d/.chained-T-2"
+    # T-1 merged into main (wrong base: left), T-2 merged into story/S-1 (recorded), T-4 tag row (any base, as before).
+    cat > "$tmp/bin/gh" <<'GH'
+#!/bin/sh
+case "$*" in
+    *"repo view"*) case "$(pwd)" in */r) echo o/r ;; */t) echo o/t ;; *) exit 1 ;; esac ;;
+    *baseRefName*pull/6*) printf 'MERGED\tstory/S-1\tabc\n' ;;
+    *baseRefName*pull/8*) exit 1 ;;
+    *baseRefName*pull/1*) printf 'MERGED\tmain\tabc\n' ;;
+    *baseRefName*pull/2*) printf 'MERGED\tstory/S-1\tabc\n' ;;
+    *baseRefName*) exit 1 ;;
+    *pull/4*) echo MERGED ;;
+    *) exit 1 ;;
+esac
+GH
+    chmod +x "$tmp/bin/gh"
+    out=$(PATH="$tmp/bin:$PATH" n1_queue_reconcile "$q")
+    assert_eq "story-reconcile: story base and tag rows recorded" "$(printf 'reconciled: T-2 merged\nreconciled: T-4 merged')" "$out"   # T-6: other-repo PR (SEC-1); T-8: gh exit 1 (TQ-1)
+    assert_eq "story-reconcile: wrong-base row left" "pr|merged|merged|merged|pr|pr" \
+        "$(_n1_queue_run_outcome "$q" T-1)|$(_n1_queue_run_outcome "$q" T-2)|$(_n1_queue_run_outcome "$q" T-3)|$(_n1_queue_run_outcome "$q" T-4)|$(_n1_queue_run_outcome "$q" T-6)|$(_n1_queue_run_outcome "$q" T-8)"
+    assert_eq "story-reconcile: recorded row no longer resumed" "T-1 T-6 T-8" "$(n1_queue_pr_resume_rows "$q" | cut -f2 | paste -sd' ')"
+    printf '\n## Story Branches\n' >> "$q"
+    assert_eq "pr-resume: duplicate Story Branches heading fails closed" "" "$(n1_queue_pr_resume_rows "$q")"
+}
+
 # N1-481: --close verifies every row is settled, then removes worktrees, identity files and the queue dir.
 test_queue_close() {
     local tmp h q out rc t; source "$REPO_ROOT/lib/orca-queue.sh"   # before the RETURN trap: sourcing fires it
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     h="$tmp/h"; mkdir -p "$tmp/bin" "$h/queue/sentinels" "$h/queue/sessions" "$tmp/.n1/orca-home"
-    printf '#!/bin/sh\ncase "$*" in *pull/1*|*pull/9*) echo MERGED ;; *pull/2*) echo CLOSED ;; *pull/3*) echo OPEN ;; esac\n' > "$tmp/bin/gh"
+    mkdir -p "$tmp/norepo"   # N1-609: the reconcile repo check needs a checkout dir (not a git repo, so cleanup skips it)
+    printf '#!/bin/sh\ncase "$*" in *"repo view"*) echo o/r ;; *pull/1*|*pull/9*) echo MERGED ;; *pull/2*) echo CLOSED ;; *pull/3*) echo OPEN ;; esac\n' > "$tmp/bin/gh"
     chmod +x "$tmp/bin/gh"
     _mkq() { # <id> <step> <T-3 status> — T-1's PR merged (by hand), T-2's closed, T-3's open
         q="$tmp/queue/$1/queue.md"; mkdir -p "${q%/*}"
@@ -2658,7 +2793,7 @@ EOF
     _close
     assert_eq "close: settled queue closed" "0|no|0" "$rc|$(_qd)|$(_left)"
     assert_eq "close: prints what it removed" "yes|yes|yes" \
-        "$(_has "closed queue q3: removed $tmp/queue/q3")|$(_has 'identity files: T-1 T-2 T-3')|$(_has 'worktrees: T-1 cleanup:skipped (no-repo)')"
+        "$(_has "closed queue q3: removed $tmp/queue/q3")|$(_has 'identity files: T-1 T-2 T-3')|$(_has 'worktrees: T-1 cleanup:skipped (no-pr)')"
 
     # AC4: dead step: run queue asks first (rc 2, nothing removed); abandon removes the same files as AC1.
     _mkq q4 run pending; _ids; _close
@@ -2797,7 +2932,10 @@ test_story_branch_wiring
 test_row_status
 test_queue_retry
 test_rerun_release
+test_rerun_release_pr_merged
 test_queue_reconcile_force
+test_gh_read_retries
+test_story_pr_reconcile
 test_queue_close
 test_discard_wiring
 test_write_plan_cells

@@ -410,6 +410,30 @@ n1_queue_pr_view() {
     return 0
 }
 
+n1_queue_repo_nwo() {
+    # Usage: n1_queue_repo_nwo <repo-dir> — N1-609: "<owner>/<name>" of the checkout's GitHub repo. Retries like
+    # n1_queue_pr_state (3 attempts, 2s/4s backoff), so one flaky read does not end story_merge as pr-state-unreadable.
+    # Prints nothing for a missing dir (no gh call) or on a persistent gh error.
+    [ -d "$1" ] || return 0
+    local attempt out
+    for attempt in 1 2 3; do
+        out=$(cd "$1" 2>/dev/null && timeout -k 30 30 gh repo view --json nameWithOwner -q .nameWithOwner </dev/null 2>/dev/null) || out=""
+        [ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+        [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
+    done
+    return 0
+}
+
+n1_queue_pr_in_repo() {
+    # Usage: n1_queue_pr_in_repo <pr-url> <repo-dir> — N1-609: 0 only when the PR URL's owner/name equals the checkout's
+    # GitHub repo (the story_merge pr-repo-mismatch check). An unreadable repo (empty nwo) fails closed. The URL is
+    # child-writable, so a recorded merge must not trust it without this.
+    local u nwo
+    nwo=$(n1_queue_repo_nwo "$2"); [ -n "$nwo" ] || return 1
+    u=${1#https://github.com/}; u=${u%/pull/*}
+    [ "$u" = "$nwo" ]
+}
+
 _n1_queue_valid_branch() {
     # Usage: _n1_queue_valid_branch <name> — N1-293: 0 for a plain branch name (safe in a prompt command and gh args).
     [[ "$1" =~ ^[A-Za-z0-9._/-]+$ ]] && [[ "$1" != -* ]] && [[ "$1" != *..* ]] && git check-ref-format --branch "$1" >/dev/null 2>&1
@@ -1669,7 +1693,8 @@ n1_queue_rerun_release() {
     # no live worker for its task); otherwise it is left as is and printed "live".
     # Release pass, repeated until a pass changes nothing (each change removes a skip row, so it ends): a skip row whose
     # Reason starts "predecessor <KEY>" or "blocked by <KEY> (" goes back to pending (Reason cleared) when <KEY>'s last
-    # row is done-before-run, no-pr, merged, obsolete (escalated + Reason obsolete), pending or held. Those prefixes are
+    # row is done-before-run, no-pr, merged (N1-609: a pr row whose Runs Outcome is merged; no code writes Status merged),
+    # obsolete (escalated + Reason obsolete), pending or held. Those prefixes are
     # written only by n1_queue_held_sweep, n1_queue_held_expire, n1_queue_eligible_rows and n1_queue_gated_expire;
     # "status changed" and the external-blocker "blocked by <ID>" (no parenthesis, run.md) never match. A row skipped on
     # its first failing predecessor may be re-skipped by n1_queue_eligible_rows on a second one (Orca only).
@@ -1715,6 +1740,7 @@ n1_queue_rerun_release() {
             if [[ "$r" =~ $pre ]] || [[ "$r" =~ $bre ]]; then p=${BASH_REMATCH[1]}; else continue; fi
             pst=$(n1_queue_ticket_status "$q" "$p")
             [ "$pst" = escalated ] && n1_queue_ticket_obsolete "$q" "$p" && pst=obsolete
+            [ "$pst" = pr ] && [ "$(_n1_queue_run_outcome "$q" "$p")" = merged ] && pst=merged   # N1-609: landed = pr + Runs Outcome merged
             case "$pst" in
                 done-before-run|no-pr|merged|obsolete|pending|held)
                     n1_queue_row_status "$q" "$num" pending "" clear || return 1
@@ -1742,7 +1768,7 @@ n1_queue_close() {
         echo "close refused: queue $id is running; nothing removed (let it end, or --stop it first)"; return 1
     fi
     declare -F n1_orca_sentinel_rm >/dev/null || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/orca-queue.sh" || return 1
-    # Integration queues skip the hand-merge reconcile: it accepts a PR merged into any base, but their rows merge only into the story branch.
+    # Integration queues skip the hand-merge reconcile: reconcile counts a story row only when its PR merged into the story branch (N1-609), and close keeps the conservative skip.
     # SEC-3: queue.md is child-writable, so fail closed: any integration marker (frontmatter, a Story Branches / Final PRs
     # section, or a runner-written final_pr_opened event) makes this an integration queue.
     integ=0
@@ -2266,19 +2292,51 @@ n1_queue_reconcile() {
     # (queue_run_id == the queue's run_id: ticket memory outlives runs, so an older run's merged PR must not count),
     # else the Runs PR cell (overview.md final_outcome never says merged). Never merges, chains or releases tags; an
     # unreadable PR state, or a ticket without a Runs row, leaves the row.
+    # N1-609 (--run § Re-read): a row whose repo has a ## Story Branches branch counts only when its PR is MERGED into
+    # that branch (one n1_queue_pr_view read, the story_merge check); a duplicate Story Branches heading skips the row.
     # N1-481: `force` skips the live-runner check; only the runner's own Done section passes it (its pid is still set).
-    local q="$1" evf qid rid num ticket repo n1h model status url
+    local q="$1" evf qid rid num ticket repo n1h model status url sb pst pbase
     if [ "${2:-}" != force ] && n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then return 0; fi
     evf="$(dirname "$q")/events.jsonl"; qid=$(n1_read_frontmatter "$q" queue_id); rid=$(n1_read_frontmatter "$q" run_id)
     while IFS=$'\t' read -r -u 3 num ticket repo n1h model status; do
         [ "$(_n1_queue_run_outcome "$q" "$ticket")" = merged ] && continue
+        sb=$(n1_queue_story_branch_get "$q" "$repo") || continue
         url=$(n1_queue_attested_pr "$q" "$ticket" "$n1h")
-        [ "$(n1_queue_pr_state "$url")" = MERGED ] || continue
+        if [ -n "$sb" ]; then
+            IFS=$'\t' read -r pst pbase _ <<< "$(n1_queue_pr_view "$url")"
+            [ "$pst" = MERGED ] && [ "$pbase" = "$sb" ] || continue
+        else
+            [ "$(n1_queue_pr_state "$url")" = MERGED ] || continue
+        fi
+        n1_queue_pr_in_repo "$url" "$repo" || continue   # SEC-1: a merged PR of another repo never counts
         n1_queue_runs_outcome "$q" "$ticket" merged "$url" || continue
         [ "$status" = pr ] || n1_queue_row_status "$q" "$num" pr
         n1_queue_event "$evf" "$qid" "$rid" ticket_finished ticket="$ticket" outcome=merged pr="$url"
         printf 'reconciled: %s merged\n' "$ticket"
     done 3< <(n1_queue_pending_rows "$q" 'pr|failed|stopped')
+}
+
+n1_queue_pr_resume_rows() {
+    # Usage: n1_queue_pr_resume_rows <queue.md> — N1-609 (--run § Re-read LEFT): pr Plan rows (n1_queue_pending_rows
+    # lines) a relaunched runner can still land: the repo has a ## Story Branches branch, the Runs Outcome is not
+    # merged, and no .chained-<ticket> marker sits next to queue.md. A retryable story_merge refusal removes the marker;
+    # a final refusal or a recorded merge writes it. Rows whose Reason is a runner-side dead end (child-escalated, story-branch-invalid, child-stop-failed, marker-write-failed, finish-child-busy) and a ticket cell that is not a key are skipped. Tag rows (no story branch) never qualify, so --run does not relaunch
+    # for them. A duplicate Story Branches heading fails closed (row not listed). Reads queue.md only (no gh).
+    local q="$1" d line num t repo sb
+    d=$(dirname "$q")
+    while IFS= read -r line; do
+        IFS=$'\t' read -r num t repo _ <<< "$line"
+        [ -n "$num" ] || continue
+        sb=$(n1_queue_story_branch_get "$q" "$repo") && [ -n "$sb" ] || continue
+        [ "$(_n1_queue_run_outcome "$q" "$t")" = merged ] && continue
+        case "$t" in ''|*[!A-Za-z0-9_-]*) continue ;; esac   # SEC-2: same key check as chain_finish
+        [ -e "$d/.chained-$t" ] && continue
+        # CR-1: reasons the runner cannot act on (it returns without a marker): a relaunch would do nothing.
+        case "$(n1_queue_row_reason "$q" "$num")" in
+            finish:child-escalated|finish:story-branch-invalid|finish:child-stop-failed|finish:marker-write-failed|finish:finish-child-busy) continue ;;
+        esac
+        printf '%s\n' "$line"
+    done <<< "$(n1_queue_pending_rows "$q" pr)"
 }
 
 _n1_queue_event_duration() {
