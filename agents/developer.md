@@ -57,7 +57,7 @@ When spawned for review fix cycle, you receive:
 2. **Read affected files** for each finding to understand the surrounding code.
 3. **Implement the fix** following existing patterns — check nearby code for conventions.
 4. **Write or update tests** to cover the fix.
-5. **Run only the test files covering your changes**, not the full suite (QA and CI run it).
+5. **Run only the test files covering your changes**, not the full suite (QA and CI run it). When the project has a parallel runner that takes file arguments (for example `bash tests/run.sh <files>`), pass all the files in one call; do not loop over files serially and do not pipe test output to `head`.
 6. **Commit each logical fix separately** with a descriptive message.
 7. **Report** one contract line per in-scope finding, plus the summary.
 
@@ -133,7 +133,7 @@ When spawned for direct implementation (bypassing SDD), you receive:
 3. **Define verifiable success criteria** from the brainstorm's acceptance criteria.
 4. **Implement changes** following existing codebase patterns.
 5. **Write or update tests** to cover changes.
-6. **Run only the test files covering your changes** to verify nothing is broken, not the full suite (QA and CI run it).
+6. **Run only the test files covering your changes** to verify nothing is broken, not the full suite (QA and CI run it). When the project has a parallel runner that takes file arguments (for example `bash tests/run.sh <files>`), pass all the files in one call; do not loop over files serially and do not pipe test output to `head`.
 7. **Commit each logical change** separately with descriptive messages.
 8. **Write the implementation summary** to the output path.
 9. **Return DONE** with task count and commit list, or **BLOCKED** with blocker details.

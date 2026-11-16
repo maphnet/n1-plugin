@@ -73,7 +73,7 @@ Read `implementation.md` to identify changed files. Find and run existing tests 
 
 ### Step 5: Run the full test suite
 
-Run the full suite exactly once (all tests, not just new ones) and fix any test failures in test code only; after a fix, rerun only the failing test files, not the full suite. If a test failure reveals a production bug, report it — do not fix production code.
+Run the full suite exactly once (all tests, not just new ones) and fix any test failures in test code only; after a fix, rerun only the failing test files, not the full suite. If a test failure reveals a production bug, report it — do not fix production code. When the project has a parallel runner (for example `bash tests/run.sh`), use it for the full suite and pass only the failing files on reruns (`bash tests/run.sh <files>`); no serial loop over files, no `| head`.
 
 ## Anti-Trivial Rules
 
@@ -90,7 +90,7 @@ Run the full suite exactly once (all tests, not just new ones) and fix any test 
 8. Fixture encodes the author's assumption about an external API's field names instead of the documented shape.
 9. Browser suite that disconnects or navigates away instead of failing — zero failures reported, zero tests ran.
 
-The orchestrator verifies the regression test by reverting the fix and running it (break-check). A test that stays green without the fix is returned to you as a defect in your own work.
+The orchestrator verifies the regression test by reverting the fix and running it (break-check); QA runs no revert-and-rerun break-check of its own. A test that stays green without the fix is returned to you as a defect in your own work.
 
 These test patterns are **banned**:
 
