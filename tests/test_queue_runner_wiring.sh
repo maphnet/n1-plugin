@@ -392,6 +392,9 @@ test_add_wiring() {
     assert_eq "add-wiring: late add documented" "yes" "$(_hasF 'A late add can start work in a queue that is about to finish.' "$s/steps/add.md")"
     assert_eq "add-wiring: runner applies in both loops" "2" "$(grep -c 'n1_queue_apply_adds "$QUEUE"' "$r")"
     assert_eq "add-wiring: runner sweeps on halt and done" "2" "$(grep -c 'n1_queue_add_reject_all "$QUEUE"' "$r")"
+    # The finish sweep must follow `step done`: the stager re-reads step after claiming, so the reverse order orphans a row.
+    assert_eq "add-wiring: finish sweep follows step done" "yes" \
+        "$([ "$(grep -n 'step done$' "$r" | tail -1 | cut -d: -f1)" -lt "$(grep -n 'n1_queue_add_reject_all "$QUEUE" queue-finished' "$r" | cut -d: -f1)" ] && echo yes || echo no)"
     assert_eq "add-wiring: events documented" "yes|yes" "$(_hasF '`ticket_added`' "$REPO_ROOT/references/architecture.md")|$(_hasF '`ticket_add_rejected`' "$REPO_ROOT/references/architecture.md")"
 }
 

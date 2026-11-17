@@ -262,7 +262,7 @@ test_orca_stop_notice_deferral_survives_restart() {
 
 
 # N1-617 AC2: Orca backend; the row is staged mid-run (on the 2nd inbox check) while T-A is in flight.
-# Bugs caught: the Orca loop never applies the spool; an added row not counted against maxConcurrent.
+# Bugs caught: the Orca loop never applies the spool mid-run; the added row is never launched.
 test_add_orca_pickup() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = 2 | .queue.subtaskTimeoutMinutes = 600'
