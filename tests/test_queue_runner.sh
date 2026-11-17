@@ -329,6 +329,53 @@ EOF
     assert_eq "retry: no queue" "1|No queue runs found." "$rc|$out"
 }
 
+# N1-617 AC1/AC5: --add gate. Bugs caught: a planned/done/halted/interrupted/story/closing/stopping/draining queue
+# accepted; a live list queue refused.
+test_add_gate() {
+    local tmp q rc out; tmp=$(mktemp -d); trap 'rm -rf "$tmp"; stop_fake_runner' RETURN
+    q=$(mk_add_queue "$tmp")
+    _gate() { rc=0; out=$(n1_queue_add_gate "$1" 2>&1) || rc=$?; printf '%s|%s' "$rc" "$out"; }
+    assert_eq "add-gate: unknown queue" "1|n1-queue: no such queue" "$(_gate "$tmp/queue/nope/queue.md")"
+    assert_eq "add-gate: dead runner = interrupted" \
+        "1|n1-queue: queue q1 is interrupted (runner gone); resume with /n1:n1-queue --run q1" "$(_gate "$q")"
+    start_fake_runner "$REPO_ROOT" "$q"; n1_write_frontmatter "$q" pid "$FAKE_RUNNER_PID"
+    assert_eq "add-gate: live list queue passes" "0|" "$(_gate "$q")"
+    n1_write_frontmatter "$q" mode story
+    assert_eq "add-gate: story refused" "1|n1-queue: queue q1 is a story queue; --add takes list or tag queues only" "$(_gate "$q")"
+    n1_write_frontmatter "$q" mode tag
+    assert_eq "add-gate: tag passes" "0|" "$(_gate "$q")"
+    n1_write_frontmatter "$q" step planned
+    assert_eq "add-gate: planned refused" "1|n1-queue: queue q1 is planned, not running; start it with /n1:n1-queue --run q1" "$(_gate "$q")"
+    n1_write_frontmatter "$q" step done
+    assert_eq "add-gate: done refused" "1|n1-queue: queue q1 is done; start a new queue" "$(_gate "$q")"
+    n1_write_frontmatter "$q" step halted
+    assert_eq "add-gate: halted (stopped) refused" "1|n1-queue: queue q1 is halted; start a new queue" "$(_gate "$q")"
+    n1_write_frontmatter "$q" step run
+    touch "$tmp/queue/q1/.stop"
+    assert_eq "add-gate: stopping refused" "1|n1-queue: queue q1 is stopping" "$(_gate "$q")"
+    rm -f "$tmp/queue/q1/.stop"; mkdir "$tmp/queue/q1/.closing"
+    assert_eq "add-gate: closing refused" "1|n1-queue: queue q1 is closing" "$(_gate "$q")"
+    rmdir "$tmp/queue/q1/.closing"
+    n1_queue_event "$tmp/queue/q1/events.jsonl" q1 R1 queue_started
+    n1_queue_event "$tmp/queue/q1/events.jsonl" q1 R1 halt_draining reason=x
+    assert_eq "add-gate: halt draining refused" "1|n1-queue: queue q1 is draining after a halt" "$(_gate "$q")"
+    n1_queue_event "$tmp/queue/q1/events.jsonl" q1 R1 queue_started
+    assert_eq "add-gate: drain from an earlier start ignored" "0|" "$(_gate "$q")"
+}
+
+# N1-617 AC1: omitted id resolves only among running queues.
+test_add_active_ids() {
+    local tmp qa qb; tmp=$(mktemp -d); trap 'rm -rf "$tmp"; stop_fake_runner' RETURN
+    qa="$tmp/queue/a/queue.md"; qb="$tmp/queue/b/queue.md"; mkdir -p "${qa%/*}" "${qb%/*}"
+    printf -- '---\nqueue_id: a\nstep: run\n---\n' > "$qa"; printf -- '---\nqueue_id: b\nstep: run\n---\n' > "$qb"
+    assert_eq "add-active: none live" "" "$(n1_queue_active_ids "$tmp")"
+    start_fake_runner "$REPO_ROOT" "$qa"; n1_write_frontmatter "$qa" pid "$FAKE_RUNNER_PID"
+    n1_write_frontmatter "$qb" pid "$FAKE_RUNNER_PID"   # pid of another queue's runner: not alive for b
+    assert_eq "add-active: only the live one" "a" "$(n1_queue_active_ids "$tmp")"
+    n1_write_frontmatter "$qa" step done
+    assert_eq "add-active: done excluded" "" "$(n1_queue_active_ids "$tmp")"
+}
+
 # N1-536: --run on a done/halted/interrupted queue marks tracker-done rows done-before-run and releases rows skipped only
 # because of an in-plan predecessor. Skip rows are built by the real writers (eligible_rows, gated_expire, held_sweep,
 # held_expire), so a reworded writer Reason fails here. Bugs caught: a still-failed, not-in-plan or at-pr predecessor
@@ -2802,6 +2849,8 @@ test_story_base
 test_story_bg_settings
 test_row_status
 test_queue_retry
+test_add_gate
+test_add_active_ids
 test_rerun_release
 test_rerun_release_pr_merged
 test_queue_reconcile_force

@@ -1711,6 +1711,40 @@ n1_queue_retry() {
     echo "Retry queued: /n1:n1-queue --run $(n1_read_frontmatter "$q" queue_id)"
 }
 
+n1_queue_add_gate() {
+    # Usage: n1_queue_add_gate <queue.md> — N1-617 (n1-queue --add): exit 0 when tickets may be staged for this queue:
+    # a list or tag queue at step run with a live runner, not closing, stopping or draining after a halt. Otherwise one
+    # refusal line on stderr, exit 1. "Stopped" queues are step halted (--stop ends there).
+    local q="$1" dir id step last
+    [ -n "$q" ] && [ -f "$q" ] || { echo "n1-queue: no such queue" >&2; return 1; }
+    dir=$(dirname -- "$q"); id=$(n1_read_frontmatter "$q" queue_id); id="${id:-$(basename -- "$dir")}"
+    [ "$(n1_read_frontmatter "$q" mode)" = story ] && { echo "n1-queue: queue $id is a story queue; --add takes list or tag queues only" >&2; return 1; }
+    step=$(n1_read_frontmatter "$q" step)
+    case "$step" in
+        run) ;;
+        planned) echo "n1-queue: queue $id is planned, not running; start it with /n1:n1-queue --run $id" >&2; return 1 ;;
+        done|halted) echo "n1-queue: queue $id is $step; start a new queue" >&2; return 1 ;;
+        *) echo "n1-queue: queue $id step '${step:-none}' cannot take --add" >&2; return 1 ;;
+    esac
+    n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q" \
+        || { echo "n1-queue: queue $id is interrupted (runner gone); resume with /n1:n1-queue --run $id" >&2; return 1; }
+    [ -e "$dir/.closing" ] && { echo "n1-queue: queue $id is closing" >&2; return 1; }
+    [ -e "$dir/.stop" ] && { echo "n1-queue: queue $id is stopping" >&2; return 1; }
+    last=$(jq -rs '[.[] | select(.event == "queue_started" or .event == "halt_draining")] | last | .event // ""' "$dir/events.jsonl" 2>/dev/null)
+    [ "$last" = halt_draining ] && { echo "n1-queue: queue $id is draining after a halt" >&2; return 1; }
+    return 0
+}
+
+n1_queue_active_ids() {
+    # Usage: n1_queue_active_ids <n1-home> — N1-617: one queue id per line for queues at step run whose runner is alive.
+    local f
+    for f in "$1"/queue/*/queue.md; do
+        [ -f "$f" ] && [ "$(n1_read_frontmatter "$f" step)" = run ] || continue
+        n1_queue_runner_alive "$(n1_read_frontmatter "$f" pid)" "$f" && basename -- "$(dirname -- "$f")"
+    done
+    return 0
+}
+
 n1_queue_rerun_release() {
     # Usage: n1_queue_rerun_release <queue.md> < done-keys — N1-536 (--run on a done, halted or interrupted queue).
     # stdin: ticket keys whose tracker status is done-class (run.md reads the tracker; this helper never does).
