@@ -138,7 +138,8 @@ hb_rebase() {   # N1-315: <ticket> — a wait the worker cannot beacon through (
 # content (question/options/recommended/rationale) is packed into the event's reason field so
 # it survives the file's later removal by n1_queue_answer/the child on resume. events.jsonl's
 # reason field is already free text; this just widens what it can hold, as JSON, via jq -c.
-# N1-359: optional 4th arg = fallback reason (the Orca subject) used when overview.md has no ## Escalations entry.
+# N1-359: optional 4th arg = fallback reason (the Orca subject; N1-622: or the Orca question text) used when overview.md
+# has no ## Escalations entry.
 escalate() {
     local sid q qfile qfull reason mark key fb
     sid=$(n1_queue_session_id "$QUEUE" "$1")
@@ -1608,7 +1609,7 @@ run_orca() {
         # return, a heartbeat, or a replayed batch must not count as a whole poll interval).
         if [ -n "$EVS" ]; then CHARGE=$(( $(date +%s) - TICK0 )); else CHARGE=$POLL; fi
         # N1-265: the row and event loops read fd 3, so a callee that reads fd 0 never consumes the remaining rows or events.
-        # N1-359: EXTRA = optional 5th column (stop/escalation text, see n1_orca_events); empty when absent.
+        # N1-359: EXTRA = optional 5th column (stop/escalation/question text, see n1_orca_events); empty when absent.
         while IFS=$'\t' read -r -u 3 TYPE TASK MSG MDISP EXTRA; do
             _n1_orca_id "$TASK" || continue
             [ "$MSG" != "-" ] || MSG=""; [ "$MDISP" != "-" ] || MDISP=""   # "-" = empty field (see n1_orca_events)
@@ -1645,15 +1646,17 @@ run_orca() {
                     # re-finalize it and delete .ask before the answer.
                     IFS=$'\t' read -r NUM _ _ N1H _ STATUS <<< "$(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human|failed|pr|no-pr|escalated' | awk -F'\t' -v t="$T" '$2 == t' | tail -1)"
                     case "$STATUS" in failed|pr|no-pr|escalated) [[ "$SETTLED" != *" $TASK "* ]] || continue ;; esac
-                    printf '%s\n' "$MSG" > "$N1_QUEUE_DIR/.ask-$T"
+                    # N1-622: line 2 = the question text, read by the row loop's escalate (written only when present);
+                    # every other marker reader uses head -1 or an existence test.
+                    printf '%s\n' "$MSG" ${EXTRA:+"$EXTRA"} > "$N1_QUEUE_DIR/.ask-$T"
                     case "$STATUS" in
                         failed)
                             n1_queue_row_status "$QUEUE" "$NUM" awaiting-human
                             WORKED[NUM]=0; OWED="${OWED// $TASK / }"; PARKED[NUM]=1; SINCE_PARK=0
                             if [ -n "${STRUCK[NUM]:-}" ]; then STRUCK[NUM]=""; CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL - 1)); fi
                             echo "[$NUM] $T -> awaiting-human (worker asked after the row failed)"
-                            escalate "$T" "$N1H" ;;
-                        pr|no-pr|escalated) escalate "$T" "$N1H" ;;
+                            escalate "$T" "$N1H" "" "$EXTRA" ;;
+                        pr|no-pr|escalated) escalate "$T" "$N1H" "" "$EXTRA" ;;
                     esac ;;
                 escalation) escalate "$T" "$(orca_n1h_of "$T")" "" "$EXTRA" ;;
                 # N1-359: Orca's "worker stopped without reporting" notice is not a human question: record it; the row is
@@ -1762,7 +1765,7 @@ run_orca() {
                     n1_queue_row_status "$QUEUE" "$NUM" "awaiting-human"
                     PARKED[NUM]=1; SINCE_PARK=0
                     echo "[$NUM] $TICKET -> awaiting-human"
-                    escalate "$TICKET" "$N1H"
+                    escalate "$TICKET" "$N1H" "" "$(sed -n 2p "$N1_QUEUE_DIR/.ask-$TICKET" 2>/dev/null)"   # N1-622: question text
                 fi
                 continue
             fi

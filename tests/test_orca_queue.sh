@@ -170,6 +170,18 @@ eq "events: zero-width and tag-block chars in a subject become spaces" "escalati
 B=$(printf 'x%.0s' $(seq 400))
 eq "events: stop text capped at 300 chars" 300 \
     "$(n1_orca_events "$(jq -cn --arg b "$B" '{ok: true, result: {messages: [{id: "m-12", type: "escalation", body: $b, payload: ({taskId: "task-12", dispatchId: "d-12", stopReason: "finished"} | tojson)}]}}')" | cut -f5 | tr -d '\n' | wc -c | tr -d ' ')"
+# N1-622: a raw `orca orchestration ask` question carries its text as the 5th column: body, else subject, else
+# payload.question (the field Orca fills is unverified), control/format chars stripped, cut to 300 chars.
+eq "events: question text from body, subject fallback, payload.question fallback" \
+    "$(printf 'question\ttask-15\tm-15\td-15\tWhich DB? Postgres or SQLite\nquestion\ttask-16\tm-16\td-16\tPick a port\nquestion\ttask-17\tm-17\td-17\tUse cache?')" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-15","type":"question","subject":"ignored","body":"Which DB?\nPostgres or SQLite","payload":"{\"taskId\":\"task-15\",\"dispatchId\":\"d-15\"}"},{"id":"m-16","type":"question","subject":"Pick a port","payload":"{\"taskId\":\"task-16\",\"dispatchId\":\"d-16\"}"},{"id":"m-17","type":"question","payload":"{\"taskId\":\"task-17\",\"dispatchId\":\"d-17\",\"question\":\"Use cache?\"}"}]}}')"
+eq "events: question text capped at 300 chars" 300 \
+    "$(n1_orca_events "$(jq -cn --arg b "$B" '{ok: true, result: {messages: [{id: "m-18", type: "question", body: $b, payload: ({taskId: "task-18", dispatchId: "d-18"} | tojson)}]}}')" | cut -f5 | tr -d '\n' | wc -c | tr -d ' ')"
+eq "events: zero-width chars in question text become spaces" "question	task-19	m-19	d-19	a b" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-19","type":"question","body":"a​b","payload":"{\"taskId\":\"task-19\",\"dispatchId\":\"d-19\"}"}]}}')"
+eq "events: whitespace/control-only question body falls through to the subject; all-blank text emits no 5th column" \
+    "$(printf 'question\ttask-20\tm-20\td-20\tPick a port\nquestion\ttask-21\tm-21\td-21')" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-20","type":"question","body":" \n​ ","subject":"Pick a port","payload":"{\"taskId\":\"task-20\",\"dispatchId\":\"d-20\"}"},{"id":"m-21","type":"question","body":"\n\t","payload":"{\"taskId\":\"task-21\",\"dispatchId\":\"d-21\"}"}]}}')"
 reset
 n1_orca_check run-1 5 >/dev/null
 has "check: requests heartbeat" "--types worker_done,escalation,question,heartbeat" "$(calls)"
@@ -540,8 +552,10 @@ n1_write_frontmatter "$Q/queue.md" orca_queue_run R1
 n1_write_frontmatter "$Q/queue.md" orca_coord_terminal term-9
 n1_queue_row_status "$Q/queue.md" 1 in-progress
 rm -f "$Q/.ask-T-1" "$Q/.question-T-1.json"
-QM() { jq -cn --arg i "$1" --arg k "$2" --arg d "$3" '{id: $i, type: "question", payload: ({taskId: $k, dispatchId: $d} | tojson)}'; }
-export FAKE_INBOX="$(QM m-9 task-1 d-1),$(QM m-10 task-1 d-1),$(QM m-11 task-1 d-other),$(QM m-12 task-x d-x)"
+# N1-622: optional 4th arg = question body; m-10 carries one so every pending case below also proves a 5th column
+# (question text) never folds into the dispatch id read by n1_orca_pending_questions.
+QM() { jq -cn --arg i "$1" --arg k "$2" --arg d "$3" --arg b "${4:-}" '{id: $i, type: "question", payload: ({taskId: $k, dispatchId: $d} | tojson)} + (if $b != "" then {body: $b} else {} end)'; }
+export FAKE_INBOX="$(QM m-9 task-1 d-1),$(QM m-10 task-1 d-1 'Which DB?'),$(QM m-11 task-1 d-other),$(QM m-12 task-x d-x)"
 eq "row_of_task: ticket and dispatch" "$(printf 'T-1\td-1')" "$(n1_orca_row_of_task "$Q/queue.md" task-1)"
 eq "row_of_task: unknown task" "" "$(n1_orca_row_of_task "$Q/queue.md" task-x)"
 reset

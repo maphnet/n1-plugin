@@ -2087,6 +2087,8 @@ n1_queue_watch() {
                         # stopped-path escalate): attach would reach nothing, so hint n1-start instead.
                         if [ "$out" = terminal ]; then
                             hint="; resume: n1-start $t"
+                        elif [ "${s#orca:}" != "$s" ]; then
+                            hint=""   # N1-622: an Orca worker is answered with --answer; attach takes a Claude session id
                         else
                             hint="${s:+; resume: $(n1_bg_cmd attach "$s")}"
                         fi
@@ -2100,6 +2102,10 @@ n1_queue_watch() {
                         if [ -n "$qbody" ]; then
                             printf 'n1-queue %s: %s needs you (answer: /n1:n1-queue --answer %s "<text>"%s):\n%s\n' \
                                 "$q" "$t" "$t" "$hint" "$qbody"
+                        elif [ "$out" != terminal ] && [ "${s#orca:}" != "$s" ] && [[ "$t" =~ ^[A-Za-z0-9_-]+$ ]]; then
+                            # N1-622: a raw Orca question (plain reason) still needs the --answer command.
+                            printf 'n1-queue %s: %s needs you: %s (answer: /n1:n1-queue --answer %s "<text>")\n' \
+                                "$q" "$t" "${reason:-waiting for an answer}" "$t"
                         else
                             printf 'n1-queue %s: %s needs you: %s%s\n' "$q" "$t" "${reason:-waiting for an answer}" \
                                 "${hint:+ (${hint#; })}"
@@ -2202,7 +2208,12 @@ n1_queue_status_table() {
                     started_epoch=$(date -u -d "$started" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$started" +%s 2>/dev/null || echo 0)
                     [ "$started_epoch" -gt 0 ] && elapsed=$(n1_fmt_elapsed "$((now - started_epoch))")
                 fi
-                [ "$state" = awaiting-human ] && [ -n "$sid" ] && attach=$(n1_bg_cmd attach "$sid")
+                if [ "$state" = awaiting-human ] && [ -n "$sid" ]; then
+                    case "$sid" in
+                        orca:*) attach="/n1:n1-queue --answer $ticket \"<text>\"" ;;   # N1-622: not a Claude session
+                        *) attach=$(n1_bg_cmd attach "$sid") ;;
+                    esac
+                fi
                 ;;
             pr|no-pr|failed|deferred|escalated|stopped)
                 local dur; dur=$(_n1_queue_event_duration "$events" "$ticket")

@@ -237,13 +237,33 @@ test_orca_question_parks() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
     echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
-    orca_msg question task-T-A m-q1 > "$tmp/fake/question"
+    orca_msg question task-T-A m-q1 "" "" "Orca question text" > "$tmp/fake/question"
     printf '{"ticket":"T-A","question":"Pick a DB?","options":["A","B"],"recommended":"A","rationale":"x"}' > "$tmp/.question-T-A.json"
     assert_eq "orca-ask: exit 0" "0" "$(run_orca_queue "$tmp")"
     assert_eq "orca-ask: row parked" "awaiting-human" "$(plan_cell "$tmp/queue.md" 1 8)"
-    assert_eq "orca-ask: message id kept for --answer" "m-q1" "$(cat "$tmp/.ask-T-A" 2>/dev/null)"
+    assert_eq "orca-ask: message id kept for --answer" "m-q1" "$(head -1 "$tmp/.ask-T-A" 2>/dev/null)"
+    # N1-622 AC3: the mirrored .question file wins over the Orca question text.
+    assert_eq "orca-ask: packed .question file wins over Orca text" "Pick a DB?" \
+        "$(jq -R -r 'fromjson? | select(.event == "escalated" and .ticket == "T-A") | .reason | fromjson? | .question' "$tmp/events.jsonl")"
     assert_eq "orca-ask: one escalation" "1" "$(jq -r 'select(.event=="escalated" and .ticket=="T-A") | .ticket' "$tmp/events.jsonl" 2>/dev/null | wc -l | tr -d ' ')"
     assert_eq "orca-ask: never relaunched" "1" "$(grep -c worker-start "$tmp/fake/orca-calls")"
+    rm -rf "$tmp"
+}
+
+# N1-622 AC1. Bug caught: a raw `orca orchestration ask` question (no .question file, no overview entry) escalated with
+# an empty reason: n1_orca_events dropped the text and the row loop had no way to get it, so the watch printed
+# "waiting for an answer" without the question.
+test_orca_raw_question_text() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    orca_msg question task-T-A m-q1 "" "" $'Which DB?\nPostgres or SQLite' > "$tmp/fake/question"
+    assert_eq "orca-raw-ask: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-raw-ask: row parked" "awaiting-human" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "orca-raw-ask: marker line 1 is the message id" "m-q1" "$(head -1 "$tmp/.ask-T-A" 2>/dev/null)"
+    assert_eq "orca-raw-ask: one escalation" "1" "$(jq -r 'select(.event=="escalated" and .ticket=="T-A") | .ticket' "$tmp/events.jsonl" 2>/dev/null | wc -l | tr -d ' ')"
+    assert_eq "orca-raw-ask: escalated reason is the stripped question text" "Which DB? Postgres or SQLite" \
+        "$(jq -R -r 'fromjson? | select(.event == "escalated" and .ticket == "T-A") | .reason' "$tmp/events.jsonl")"
     rm -rf "$tmp"
 }
 
@@ -255,7 +275,7 @@ test_orca_question_after_timeout() {
     local tmp; tmp=$(mktemp -d)
     orca_resumed_row "$tmp"
     : > "$tmp/fake/nodone.T-A"
-    orca_msg question task-T-A m-q1 > "$tmp/fake/q.late"
+    orca_msg question task-T-A m-q1 "" "" "Retry with a longer timeout?" > "$tmp/fake/q.late"
     printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://x/pr/A\n' > "$tmp/fake/overview.pr"
     printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/q.late" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.4"
     printf 'rm -f "%s"\n' "$tmp/.ask-T-A" > "$tmp/fake/at.5"
@@ -264,6 +284,9 @@ test_orca_question_after_timeout() {
     evc() { jq -R --arg e "$1" --arg o "${2:-}" 'fromjson? | select(.event == $e and .ticket == "T-A" and ($o == "" or .outcome == $o)) | .event' "$tmp/events.jsonl" | wc -l | tr -d ' '; }
     assert_eq "orca-ask-after-timeout: row re-adopted" "1" "$(grep -c 'T-A -> awaiting-human (worker asked after the row failed)' "$tmp/output.txt" || true)"
     assert_eq "orca-ask-after-timeout: one escalated event" "1" "$(evc escalated)"
+    # N1-622 AC1: a question on a failed row escalates in the event loop; the reason is the Orca question text.
+    assert_eq "orca-ask-after-timeout: escalated reason is the question text" "Retry with a longer timeout?" \
+        "$(jq -R -r 'fromjson? | select(.event == "escalated" and .ticket == "T-A") | .reason' "$tmp/events.jsonl")"
     assert_eq "orca-ask-after-timeout: unblocked after the answer" "1" "$(evc unblocked)"
     # no WORKED reset: the stale clock (>60 s) would time the re-adopted row out again on the next tick
     assert_eq "orca-ask-after-timeout: exactly one timeout (clock reset)" "1" "$(evc ticket_finished failed)"
@@ -1328,6 +1351,7 @@ test_orca_overlap_run_pairs_never_concurrent
 test_orca_overlap_run_pairs_release_in_order
 test_orca_held_blocker
 test_orca_question_parks
+test_orca_raw_question_text
 test_orca_question_after_timeout
 test_orca_stop_notice_not_escalated
 test_orca_stop_notice_then_timeout

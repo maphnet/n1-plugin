@@ -125,6 +125,8 @@ n1_orca_events() {
     # escalation's text is its subject. The text is untrusted: control/format chars become spaces, then it is cut to
     # 300 chars. The 5th column is omitted when the text is empty (the consumer's last read variable then reads empty).
     # N1-315: a heartbeat's text is its payload phase (hook-sent progress beacon), cut to 64 chars.
+    # N1-622: a question's text is its first non-blank body, subject or payload question (the field Orca fills is
+    # unverified); stripped, trimmed and cut to 300 chars like an escalation's.
     jq -r 'def str: if type == "string" then . else "" end;
         def strip: gsub("[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\ufeff\\x{E0000}-\\x{E007F}]"; " ");
         (.result.messages // .result.batch // .result.items // [])[]?
@@ -138,6 +140,7 @@ n1_orca_events() {
         | (if $ty == "escalation-stop" then
                "stopped (" + $stop + "): " + ([.body, .subject] | map(str | select(. != "")) | .[0] // "")
            elif $ty == "escalation" then (.subject | str)
+           elif $ty == "question" then ([.body, .subject, $p.question] | map(str | strip | gsub("^ +| +$"; "") | select(. != "")) | .[0] // "")
            elif $ty == "heartbeat" then ($p.phase // "" | str | .[:64])
            else "" end | strip | .[:300]) as $x
         | ([$ty, $tid, (.id // .messageId // ""),
@@ -569,7 +572,7 @@ n1_orca_pending_questions() {
         || { [ -n "$coord" ] && out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration check --run "$run" --all --types question); } \
         || return 0   # a dead coordinator terminal (Orca restarted): retry as the caller, which resolves from its own env
     rows=$(n1_queue_pending_rows "$q" 'in-progress|awaiting-human|failed|pr|no-pr|escalated')
-    while IFS=$'\t' read -r type task msg disp; do
+    while IFS=$'\t' read -r type task msg disp _; do   # N1-622: _ takes the optional 5th column (question text)
         [ "$type" = question ] && _n1_orca_id "$task" && _n1_orca_id "$msg" || continue
         IFS=$'\t' read -r t d <<< "$(n1_orca_row_of_task "$q" "$task")"
         [[ "$t" =~ ^[A-Za-z0-9_-]+$ ]] && [ "$disp" = "$d" ] && [ ! -e "$1/.ask-$t" ] || continue
