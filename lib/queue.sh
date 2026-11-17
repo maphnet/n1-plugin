@@ -1805,6 +1805,8 @@ n1_queue_add_stage() {
     # The runner sweeps .add/ right after it writes step done or halted. A claim made after the gate but before that
     # write is swept; a claim made after it would be orphaned, so re-read the step once the file exists.
     case "$(n1_read_frontmatter "$q" step)" in done|halted)
+        # A claim the runner already consumed was accepted or rejected with an event; only an unconsumed one is refused here.
+        [ -e "$dir/.add/$k.row" ] || { echo "Add queued: $k (the runner already picked it up)"; return 0; }
         rm -f "$dir/.add/$k.row"; echo "n1-queue: queue $id is no longer running; $k was not added" >&2; return 1 ;;
     esac
     echo "Add queued: $k (the runner appends it within queue.pollSeconds)"

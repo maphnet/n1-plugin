@@ -2089,9 +2089,9 @@ DIGEST="$(( $(count_rows pr) - RF )) PR / $([ "$NOPR" = 0 ] || printf '%s no-PR 
 # leaves it open on purpose.
 if [ -n "$COORD" ] && [ "$(count_rows awaiting-human)" = 0 ]; then n1_orca_coord_close "$COORD"; fi
 release_backstop
-ev queue_done reason="$DIGEST"
 n1_write_frontmatter "$QUEUE" step done
 n1_queue_add_reject_all "$QUEUE" queue-finished   # N1-617: a late --add is reported, never silently lost
+ev queue_done reason="$DIGEST"   # last event: a live watcher returns on it, so the rejections above are relayed first
 drain_wait
 strip_pid
 exit 0
