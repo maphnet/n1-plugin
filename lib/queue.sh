@@ -1782,6 +1782,7 @@ n1_queue_add_stage() {
     dir=$(dirname -- "$q"); id=$(n1_read_frontmatter "$q" queue_id); id="${id:-$(basename -- "$dir")}"
     IFS= read -r line < "$src" || [ -n "$line" ] || { echo "n1-queue: $k: empty cells file" >&2; return 1; }
     for i in 1 2 3 4 5 6 7 8 9 10; do c+=("$(_n1_queue_sanitize_cell "$(printf '%s' "$line" | cut -f"$i")")"); done
+    c[5]=""; c[6]=""; c[7]=""; c[8]=""; c[9]=""   # SEC-1: never carry Touches/Order/Pre-Decision/Notes from model text
     [ -f "$dir/desc/$k.title" ] && c[0]=$(_n1_queue_sanitize_cell "$(cat "$dir/desc/$k.title")") \
         && c[8]=$(_n1_queue_sanitize_cell "$(n1_queue_content_hash "$dir/desc/$k.title" "$dir/desc/$k.txt" 2>/dev/null)")
     if ! why=$(_n1_queue_add_check "$q" "$k" "${c[4]}" "${c[1]}" "${c[2]}" "${c[3]}"); then
@@ -1815,7 +1816,7 @@ n1_queue_apply_adds() {
     # in name order: re-check (_n1_queue_add_check), append the Plan row at max # + 1 (pending, or held for a
     # "blocked_on <ID>" Reason; n1_queue_held_sweep releases it), insert its ## Decisions row when the section exists,
     # emit ticket_added, remove the file. A refused or malformed file emits ticket_add_rejected and is removed.
-    local q="$1" dir ev qid run f k line i num st row tmp why
+    local q="$1" dir ev qid run f k line i num st row drow tmp why
     local -a c
     dir=$(dirname -- "$q"); ev="$dir/events.jsonl"
     [ -d "$dir/.add" ] || return 0
@@ -1833,21 +1834,17 @@ n1_queue_apply_adds() {
         num=$(awk -F'|' '{ gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2) } $2 ~ /^[0-9]+$/ { if ($2 + 0 > max) max = $2 + 0 } END { print max + 1 }' "$q")
         st=pending; case "${c[4]}" in "blocked_on "*) st=held ;; esac
         row="| $num | $k | ${c[0]} | ${c[1]} | ${c[2]} | ${c[3]} | $st | ${c[4]} |"
+        # One rewrite adds the Plan row and the Decisions row together (one mv), so a failure never leaves one without
+        # the other. Only the Desc Checksum cell is filled; Touches/Order/Pre-Decision/Notes stay empty (SEC-1).
+        drow=""; [ "$(grep -c '^## Decisions$' "$q")" = 1 ] && drow="| $k |  |  |  | ${c[8]} |  |"
         tmp=$(mktemp "${q}.XXXXXX") || return 1
-        ROW="$row" awk 'BEGIN { row = ENVIRON["ROW"] }
+        ROW="$row" DROW="$drow" awk 'BEGIN { row = ENVIRON["ROW"]; drow = ENVIRON["DROW"] }
             /^## Plan/ { in_plan = 1 }
+            /^## Decisions$/ { d = 1; print; next }
             in_plan && /^$/ && !added { print row; added = 1 }
+            drow != "" && d && !dadded && (/^$/ || /^## /) { print drow; dadded = 1 }
             { print }
-            END { if (in_plan && !added) print row }' "$q" > "$tmp" && mv "$tmp" "$q" || { rm -f "$tmp"; return 1; }
-        if [ "$(grep -c '^## Decisions$' "$q")" = 1 ]; then
-            tmp=$(mktemp "${q}.XXXXXX") || return 1
-            ROW="| $k |  |  |  |  |  |" awk 'BEGIN { row = ENVIRON["ROW"] }
-                /^## Decisions$/ { d = 1; print; next }
-                d && !added && (/^$/ || /^## /) { print row; added = 1 }
-                { print }
-                END { if (d && !added) print row }' "$q" > "$tmp" && mv "$tmp" "$q" || { rm -f "$tmp"; return 1; }
-            n1_queue_decisions_write_row "$q" "$k" "${c[5]}" "${c[6]}" "${c[7]}" "${c[8]}" "${c[9]}" || true
-        fi
+            END { if (in_plan && !added) print row; if (drow != "" && d && !dadded) print drow }' "$q" > "$tmp" && mv "$tmp" "$q" || { rm -f "$tmp"; return 1; }
         rm -f "$f"
         n1_queue_event "$ev" "$qid" "$run" ticket_added ticket="$k" reason="#$num $st"
         echo "[$num] $k added ($st)"
@@ -2290,6 +2287,8 @@ n1_queue_watch() {
                         printf 'n1-queue %s: %s still hold the slot after their PR; %s\n' "$q" "$t" "$reason" ;;
                     ticket_finished)
                         printf 'n1-queue %s: %s finished: %s%s%s\n' "$q" "$t" "$out" "${pr:+ $pr}" "${reason:+ ($reason)}" ;;
+                    ticket_add_rejected)   # N1-617: an --add reported as queued was dropped by the runner
+                        printf 'n1-queue %s: add of %s was dropped (%s)\n' "$q" "$t" "$reason" ;;
                     halted|queue_done)
                         [ "$ev" = halted ] && ev=halted || ev=finished
                         printf 'n1-queue %s: %s%s. Watch ended.\n' "$q" "$ev" "${reason:+: $reason}"
@@ -2297,7 +2296,7 @@ n1_queue_watch() {
                 esac
             done < <(sed -n "$((seen + 1)),${total}p" "$events" | jq -rR --arg run "$run" '
                 fromjson? | objects | select(.run_id == $run)
-                | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "escalation_retracted" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "stalled" or .event == "worker_stopped" or .event == "worker_owed" or .event == "slot_held" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
+                | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "escalation_retracted" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "stalled" or .event == "worker_stopped" or .event == "worker_owed" or .event == "slot_held" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done" or .event == "ticket_add_rejected")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
                 | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c\u00ad\u200b-\u200d\u2060-\u2064\ufeff\\x{E0000}-\\x{E007F}]"; " ")) as $arr
                 # N1-60 [CR-4]: a packed-question reason is already capped at write time

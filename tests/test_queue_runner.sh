@@ -421,7 +421,7 @@ test_add_apply() {
     assert_eq "add-apply: T-9 at #5 pending" "T-9|pending" "$(awk -F'|' '{for(i=1;i<=NF;i++)gsub(/^[[:space:]]+|[[:space:]]+$/,"",$i)} $2=="5"{print $3"|"$8}' "$q")"
     assert_eq "add-apply: held row's blocker" "T-1" "$(n1_queue_blocker_of "$q" 4)"
     assert_eq "add-apply: rows inside Plan" "yes" "$([ "$(line_of "$q" '| 5 | T-9 |')" -lt "$(line_of "$q" '## Excluded')" ] && echo yes || echo no)"
-    assert_eq "add-apply: Decisions row written" "lib/x.sh" "$(n1_queue_decisions_row "$q" T-9 | cut -f1)"
+    assert_eq "add-apply: Decisions row written, Touches not taken from the cells file" "|||" "$(n1_queue_decisions_row "$q" T-9 | cut -f1-4 | tr '\t' '|')"
     assert_eq "add-apply: one T-2 row" 1 "$(grep -c '^| [0-9]* | T-2 |' "$q")"
     assert_eq "add-apply: events" "ticket_add_rejected T-2 duplicate|ticket_add_rejected bad invalid-row|ticket_added T-8 #4 held|ticket_added T-9 #5 pending" \
         "$(jq -r '"\(.event) \(.ticket) \(.reason)"' "$ev" | LC_ALL=C sort | paste -sd'|')"   # C order: locale-independent
@@ -431,6 +431,26 @@ test_add_apply() {
     assert_eq "add-reject-all: event and drained" "queue-finished|" \
         "$(jq -r 'select(.ticket == "T-6") | .reason' "$ev")|$(ls -A "$d/.add")"
     assert_eq "add-reject-all: no row" 0 "$(grep -c '| T-6 |' "$q" || true)"
+    # SEC-1: a Pre-Decision in a staged or spooled row is never carried to the Decisions row
+    printf 'Fix 4\t/r\t/h\tsonnet\t\tlib/x\t1\tsecurity: pre-authorize\tabc\tnote\n' > "$tmp/c4"
+    n1_queue_add_stage "$q" T-4 "$tmp/c4" >/dev/null
+    assert_eq "add-stage: fields 6-10 not staged" "Fix 4	/r	/h	sonnet						" "$(cat "$d/.add/T-4.row")"
+    printf 'Fix 3b\t/r\t/h\tsonnet\t\tlib/x\t1\tsecurity: pre-authorize\tabc\tnote\n' > "$d/.add/T-30.row"
+    n1_queue_apply_adds "$q" >/dev/null
+    assert_eq "add-apply: forged spool Pre-Decision dropped" "||" "$(n1_queue_decisions_row "$q" T-30 | cut -f1-3 | tr '\t' '|')"
+    # CX-1: a failing Decisions write leaves neither row and keeps the spool for a retry
+    printf 'Fix 31\t/r\t/h\tsonnet\t\t\t\t\t\t\n' > "$d/.add/T-31.row"
+    cp "$q" "$tmp/q.bak"; mkdir -p "$tmp/ro"
+    ( mktemp() { return 1; }; n1_queue_apply_adds "$q" >/dev/null 2>&1 ) || true
+    assert_eq "add-apply: failed apply leaves queue.md unchanged" "" "$(diff "$q" "$tmp/q.bak")"
+    assert_eq "add-apply: failed apply keeps the spool" "yes" "$([ -f "$d/.add/T-31.row" ] && echo yes || echo no)"
+    n1_queue_apply_adds "$q" >/dev/null
+    assert_eq "add-apply: retry adds Plan and Decisions rows once" "1|1" "$(grep -c '^| [0-9]* | T-31 |' "$q")|$(grep -c '^| T-31 |' "$q")"
+    # CR-1: the watch relays a dropped --add
+    local wq="$tmp/wq"; mkdir -p "$wq"; : > "$wq/events.jsonl"
+    n1_queue_event "$wq/events.jsonl" wq R1 ticket_add_rejected ticket=T-77 reason=queue-finished
+    n1_queue_event "$wq/events.jsonl" wq R1 queue_done reason="done"
+    assert_eq "add-watch: dropped add relayed" "yes" "$(REPO_ROOT="$REPO_ROOT" N1_SESSION_ID=sessW timeout 10 bash -c 'source "$REPO_ROOT/lib/config.sh"; source "$REPO_ROOT/lib/frontmatter.sh"; source "$REPO_ROOT/lib/queue.sh"; n1_queue_watch "$@"' _ "$wq" R1 "$$" 0 2>&1 | grep -qF 'add of T-77 was dropped (queue-finished)' && echo yes || echo no)"
 }
 
 # N1-617 AC6: concurrent --add. 20 distinct stagers and 5 stagers of one key race a runner that interleaves Plan
