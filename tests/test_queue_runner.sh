@@ -1104,6 +1104,17 @@ test_status_table_no_pr() {
         "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $2 "|" $3 "|" $4 "|" $6}')"
 }
 
+# N1-617 AC7: a ticket with a ticket_added event reads "<KEY> (added)"; others unchanged.
+test_status_table_added() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mk_status_queue "$tmp"; mkdir -p "$tmp/bin"
+    # fake claude as in test_status_table_no_pr: the table always runs `claude agents`; never reach a real one
+    printf '#!/usr/bin/env bash\ncase "$1" in agents) echo '"'"'{"agents":[]}'"'"' ;; esac\n' > "$tmp/bin/claude"; chmod +x "$tmp/bin/claude"
+    n1_queue_event "$tmp/events.jsonl" q r ticket_added ticket=T-4 reason="#4 pending"
+    local out; out=$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl" 2>/dev/null | cut -f1 | paste -sd,)
+    assert_eq "status-added: marker on T-4 only" "T-1,T-2,T-3,T-4 (added)" "$out"
+}
+
 test_escalated_step_fallback() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     printf -- '---\nstep: escalated\n---\n\n## Escalations\n\n- no headless prefix here\n' > "$tmp/o.md"
@@ -2964,6 +2975,7 @@ test_status_table_claude_code
 test_status_table_orca_answer_hint
 test_status_table_running_step
 test_status_table_no_pr
+test_status_table_added
 test_queue_answer
 test_escalated_step_fallback
 test_queue_event

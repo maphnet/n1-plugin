@@ -2342,6 +2342,7 @@ n1_queue_status_table() {
     agents_json=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null)
     now=$(date +%s)
     n1_queue_interrupted "$file" && gone=1
+    local added; added=$(jq -r 'select(.event == "ticket_added") | .ticket' "$events" 2>/dev/null)   # N1-617
 
     while IFS=$'\t' read -r num ticket repo n1h model status; do
         local state="$status" step="" elapsed="" cost="—" pr="" attach="" sid
@@ -2388,7 +2389,8 @@ n1_queue_status_table() {
                 ;;
         esac
         local cln; cln=$(sed -n 's/^- \*\*Cleanup:\*\* //p' "$n1h/memory/$ticket/overview.md" 2>/dev/null | head -1)
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ticket" "$state" "$step" "$elapsed" "$cost" "$pr" "$attach" "$(_n1_queue_sanitize_cell "$cln")"
+        local tk="$ticket"; grep -qxF -- "$ticket" <<< "$added" && tk="$ticket (added)"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$tk" "$state" "$step" "$elapsed" "$cost" "$pr" "$attach" "$(_n1_queue_sanitize_cell "$cln")"
     done < <(awk -F'|' '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) } $2 ~ /^[0-9]+$/ && NF >= 9 { printf "%s\t%s\t%s\t%s\t%s\t%s\n", $2, $3, $5, $6, $7, $8 }' "$file")
 }
 

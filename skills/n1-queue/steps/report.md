@@ -65,9 +65,12 @@ F=$(n1_queue_final_prs "$QUEUE_FILE")
 if [ -n "$F" ]; then echo "Final PRs (repo, PR, draft, mergeable, note):"; sed 's/^/  /' <<<"$F"; fi
 R=$(n1_queue_review_failed_rows "$QUEUE_FILE" | paste -sd, -)
 if [ -n "$R" ]; then echo "Awaiting human review (review FAIL at the fix cap): $R"; fi
+jq -r 'select(.event == "ticket_add_rejected") | "Add refused: \(.ticket) (\(.reason))"' "$QUEUE_DIR/events.jsonl" 2>/dev/null
 ```
 
 For each row under "Worktrees not removed", resolve the reason, then run /n1:n1-clean --ticket <ticket>. The `Cleanup` column is empty until a cleanup ran.
+
+A Ticket cell reading `<KEY> (added)` is a row appended mid-run by `--add` (a `ticket_added` event). An `Add refused:` line is a staged `--add` row the runner dropped (`ticket_add_rejected`).
 
 The `Last beacon` block lists each in-progress row's latest worker progress beacon. `stalled?` means the worker is live but sent no beacon and showed no other activity (commit, ticket memory write, running subagent) for `queue.stallMinutes`. The flag is informational, and the runner never stops the worker because of it.
 
