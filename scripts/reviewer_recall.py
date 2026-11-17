@@ -385,6 +385,10 @@ def cmd_replay(args):
         out_file.write_text("".join(json.dumps(r) + "\n" for r in kept), encoding="utf-8")
     done = {r["id"] for r in kept}
     meta, body, commit, digest = persona_info(args.persona)
+    old = {r.get("persona_sha256") for r in kept if r.get("persona_sha256")}
+    if old - {digest}:
+        print(f"persona changed since the earlier rows in {run_dir}; use a new run directory", file=sys.stderr)
+        return 1
     prompt_file = run_dir / "persona.md"
     prompt_file.write_text(body, encoding="utf-8")
     rows, rejected, spent = [], 0, 0.0
@@ -436,7 +440,10 @@ def write_sample(run_dir, cases, grades, replays, seed):
                   f"- Judge: {g['verdict']} ({g.get('finding_ref')}): {g.get('reason')}", "",
                   "<details><summary>review</summary>", "", replays[c["ticket"]].get("findings_text") or "", "",
                   "</details>", ""]
-    (run_dir / "grade-sample.md").write_text("\n".join(lines), encoding="utf-8")
+    text, path = "\n".join(lines), run_dir / "grade-sample.md"
+    if not path.is_file() or path.read_text(encoding="utf-8") != text:  # sample changed: old confirmation is stale
+        (run_dir / "grade-sample.confirmed").unlink(missing_ok=True)
+    path.write_text(text, encoding="utf-8")
 
 
 def cmd_grade(args):
@@ -447,7 +454,11 @@ def cmd_grade(args):
     run_dir = Path(args.replay)
     replays = {r["ticket"]: r for r in read_jsonl(run_dir / "replay.jsonl") if r.get("status") == "ok"}
     out_file = run_dir / "grades.jsonl"
-    done = {g["id"] for g in read_jsonl(out_file)}
+    existing = read_jsonl(out_file)
+    kept = [g for g in existing if g.get("status") == "ok"]
+    if len(kept) != len(existing):  # drop failed judge rows so a retry does not leave duplicates
+        out_file.write_text("".join(json.dumps(g) + "\n" for g in kept), encoding="utf-8")
+    done = {g["id"] for g in kept}
     todo = [c for c in cases if c["kind"] == "finding" and c["class"] == "missed"
             and c["ticket"] in replays and c["id"] not in done]
     rows, rejected = [], 0
@@ -489,9 +500,10 @@ def cmd_grade(args):
 
 def compute_report(meta, cases, replays, grades, manual):
     """Pure aggregation, no claude calls. Raises ValueError when replay rows mix persona commits."""
-    commits = sorted({r["persona_commit"] for r in replays if r.get("persona_commit")})
+    commits = sorted({(r["persona_commit"], r.get("persona_sha256")) for r in replays if r.get("persona_commit")},
+                     key=str)
     if len(commits) > 1:
-        raise ValueError(f"replay rows mix persona commits {commits}; report one persona version at a time")
+        raise ValueError(f"replay rows mix persona versions {commits}; report one persona version at a time")
     findings = [c for c in cases if c["kind"] == "finding"]
     missed = [c for c in findings if c["class"] == "missed"]
     cls = Counter(c["class"] for c in findings)

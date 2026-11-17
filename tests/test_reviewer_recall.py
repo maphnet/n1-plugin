@@ -318,6 +318,12 @@ class GradeTest(ClaudeFixture):
         self.grade(run_dir)
         g = rr.read_jsonl(run_dir / "grades.jsonl")[0]
         self.assertEqual((g["status"], g["verdict"]), ("error", None))
+        # Bug caught: failed judge rows skipped forever on retry; stale confirmation kept for a new sample.
+        (run_dir / "grade-sample.confirmed").write_text("0\n")
+        self.env["FAKE_JUDGE"] = "ok"
+        self.grade(run_dir)
+        self.assertEqual([x["status"] for x in rr.read_jsonl(run_dir / "grades.jsonl")], ["ok"])
+        self.assertFalse((run_dir / "grade-sample.confirmed").exists())
 
 
 def finding(fid, cls, split, file="lib/q.sh:1"):
@@ -359,6 +365,10 @@ class ReportTest(unittest.TestCase):
         self.assertEqual((r["overflag"]["test_control"]["mean"], r["overflag"]["test_missed"]["mean"]), (3, 3))
         self.assertEqual(r["recurring"], {"lib/q.sh": ["N1-1#1", "N1-2#1"]})
         replays[0]["persona_commit"] = "other"
+        with self.assertRaises(ValueError):
+            rr.compute_report(meta, cases, replays, grades, None)
+        replays[0]["persona_commit"] = "abc"
+        replays[0]["persona_sha256"] = "e" * 64  # same commit, edited file
         with self.assertRaises(ValueError):
             rr.compute_report(meta, cases, replays, grades, None)
 
