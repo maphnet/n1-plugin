@@ -1489,7 +1489,8 @@ orca_settle() {
         if [ -n "$RUN_MODE" ]; then
             story_env "$REPO" && [ "$(n1_queue_pr_view "$URL" | cut -f1,2)" = "MERGED"$'\t'"$SB" ] || fb=0
         fi
-        if [ "$fb" = 1 ] && [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ] && [ "$(n1_queue_pr_state "$URL")" = MERGED ]; then
+        if [ "$fb" = 1 ] && [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ] && [ "$(n1_queue_pr_state "$URL")" = MERGED ] \
+            && n1_queue_pr_in_repo "$URL" "$REPO"; then   # N1-619: the URL is child-writable (N1-609)
             n1_queue_runs_outcome "$QUEUE" "$TICKET" merged "$URL"
             ev ticket_finished ticket="$TICKET" outcome=merged pr="$URL" session="$(n1_queue_session_id "$QUEUE" "$TICKET")"
             echo "[$NUM] $TICKET -> merged $URL"
