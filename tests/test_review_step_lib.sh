@@ -31,6 +31,8 @@ eq "entry: returns 0" "0" "$rc"
 has "entry: base from branch-point" "$OUT" "BASE_BRANCH=origin/feat-base RELATED_ENABLED="
 has "entry: cycle 0 is full scope" "$OUT" "CYCLE=0 INCREMENTAL=false"
 has "entry: prints tree snapshot" "$OUT" "TREE_BEFORE=$(n1_tree_snapshot "$REPO")"
+has "entry: prints worktree CLAUDE_MD on an unresolvable base" "$OUT" "CLAUDE_MD=$REPO/CLAUDE.md"
+has "entry: prints empty CLAUDE_DIFF on fallback" "$OUT" "CLAUDE_DIFF="
 lacks "entry: no FIX_FILES on full scope" "$OUT" "FIX_FILES="
 if [ -e "$MEM/review-cr.md" ]; then no "entry: removes stale reviewer files"; else ok "entry: removes stale reviewer files"; fi
 eq "entry: writes review spec" "# Review Spec (generated)" "$(head -1 "$MEM/review-spec.md")"
@@ -103,6 +105,7 @@ OUT=$( cd "$REPO" && eval "$(fence "$STEP" 1 | sed "s#<worktree dir>#$REPO#")" 2
 eq "wiring: entry fence exits 0" "0" "$rc"
 has "wiring: entry fence prints base and cycle" "$OUT" "BASE_BRANCH=origin/feat-base RELATED_ENABLED="
 has "wiring: entry fence prints TREE_BEFORE" "$OUT" "TREE_BEFORE="
+has "wiring: entry fence prints CLAUDE_MD" "$OUT" "CLAUDE_MD="
 put_reviews
 OUT=$( cd "$REPO" && eval "$(fence "$STEP" 3 | sed 's/<true if security-reviewer was spawned, else false>/false/')" 2>&1 ); rc=$?
 eq "wiring: collect fence exits 0" "0" "$rc"
@@ -168,5 +171,65 @@ eq "preexisting: invalid story base exits 1" "1" "$rc"
 eq "preexisting: non-directory worktree exits 1" "1" "$rc"
 ( cd "$REPO" && n1_review_preexisting_diff "" ) >/dev/null 2>&1; rc=$?
 eq "preexisting: empty worktree arg exits 1" "1" "$rc"
+
+# --- n1_review_claude_base (N1-627): base-revision CLAUDE.md copy and removed/modified-lines diff ---
+CR="$T/claude-repo"; git init -q "$CR"
+gc() { git -C "$CR" -c user.name=t -c user.email=t@t "$@"; }
+printf '# Rules\n\n- Keep A\n- Keep B\n- Never C\n' > "$CR/CLAUDE.md"; gc add CLAUDE.md; gc commit -q -m base
+CB=$(git -C "$CR" rev-parse HEAD)
+printf '# Rules\n\n- Keep A\n- Keep B loosely\n- Add D\n' > "$CR/CLAUDE.md"; gc commit -q -am branch
+printf -- '---\nreview_fix_cycle: 0\n---\n## Key Decisions\n(none yet)\n' > "$MEM/overview.md"
+rm -f "$MEM/claude-base.md" "$MEM/claude-diff.md"
+OUT=$(n1_review_claude_base "$CR" "$CB" 2>&1); rc=$?
+eq "claude-base: returns 0" "0" "$rc"
+eq "claude-base: prints base path then diff path" "CLAUDE_MD=$MEM/claude-base.md|CLAUDE_DIFF=$MEM/claude-diff.md|" "$(tr '\n' '|' <<<"$OUT")"
+eq "claude-base: copy is the base revision, not the branch edit" "$(printf '# Rules\n\n- Keep A\n- Keep B\n- Never C')" "$(cat "$MEM/claude-base.md")"
+D=$(cat "$MEM/claude-diff.md")
+has "claude-diff: keeps the hunk header" "$D" "@@ -4,2 +4,2 @@"
+has "claude-diff: lists the modified rule's removed text" "$D" "-- Keep B"
+has "claude-diff: lists the removed rule" "$D" "-- Never C"
+lacks "claude-diff: omits the modified rule's new text" "$D" "loosely"
+lacks "claude-diff: omits added lines" "$D" "Add D"
+lacks "claude-diff: strips file headers" "$D" "--- a/CLAUDE.md"
+lacks "claude-base: success records no key decision" "$(cat "$MEM/overview.md")" "base copy unavailable"
+
+printf -- '# Rules\n\n- Keep A\n- Keep B\n' > "$CR/CLAUDE.md"
+n1_review_claude_base "$CR" "$CB" >/dev/null 2>&1
+has "claude-diff: an uncommitted edit counts (working tree)" "$(cat "$MEM/claude-diff.md")" "-- Never C"
+gc checkout -q -- CLAUDE.md
+gc checkout -q -b add-only "$CB"; printf -- '- Extra E\n' >> "$CR/CLAUDE.md"; gc commit -q -am add
+n1_review_claude_base "$CR" "$CB" >/dev/null 2>&1
+eq "claude-diff: pure additions give (none)" "(none)" "$(cat "$MEM/claude-diff.md")"
+
+fb() { # <label> <reason> <worktree> <base>: fallback prints the worktree copy and records one Key Decision over two calls
+    local o rc
+    o=$(n1_review_claude_base "$3" "$4" 2>&1); rc=$?
+    eq "fallback $1: returns 0" "0" "$rc"
+    eq "fallback $1: worktree copy, empty diff" "CLAUDE_MD=$3/CLAUDE.md|CLAUDE_DIFF=|" "$(tr '\n' '|' <<<"$o")"
+    n1_review_claude_base "$3" "$4" >/dev/null 2>&1
+    eq "fallback $1: one key decision after two calls" "1" "$(grep -cF "base copy unavailable ($2); worktree copy used." "$MEM/overview.md")"
+}
+fb "empty base" "empty base" "$CR" ""
+fb "unresolvable base" "unresolvable base origin/no-such-ref" "$CR" "origin/no-such-ref"
+fb "no CLAUDE.md at base" "no CLAUDE.md at base $BASE_SHA" "$REPO" "$BASE_SHA"
+gc checkout -q -b empty-claude "$CB"; : > "$CR/CLAUDE.md"; gc commit -q -am empty; EB=$(git -C "$CR" rev-parse HEAD)
+fb "empty CLAUDE.md at base" "no CLAUDE.md at base $EB" "$CR" "$EB"
+if [ -e "$MEM/claude-base.md" ]; then no "fallback: removes the empty base copy"; else ok "fallback: removes the empty base copy"; fi
+fb "missing worktree" "worktree missing" "$T/no-such-wt" "$CB"
+
+OUT=$(ID="" n1_review_claude_base "$CR" "$CB" 2>&1); rc=$?
+eq "fallback empty ID: returns 0" "0" "$rc"
+eq "fallback empty ID: worktree copy, empty diff" "CLAUDE_MD=$CR/CLAUDE.md|CLAUDE_DIFF=|" "$(tr '\n' '|' <<<"$OUT")"
+if [ -e "$N1_HOME/memory/claude-base.md" ]; then no "fallback empty ID: writes nothing under memory/"; else ok "fallback empty ID: writes nothing under memory/"; fi
+OUT=$(N1_HOME="" n1_review_claude_base "$CR" "$CB" 2>&1); rc=$?
+eq "fallback empty N1_HOME: returns 0" "0" "$rc"
+eq "fallback empty N1_HOME: worktree copy, empty diff" "CLAUDE_MD=$CR/CLAUDE.md|CLAUDE_DIFF=|" "$(tr '\n' '|' <<<"$OUT")"
+rm -f "$MEM/overview.md"
+OUT=$(n1_review_claude_base "$CR" "" 2>&1); rc=$?
+eq "fallback without overview.md: returns 0" "0" "$rc"
+if [ -e "$MEM/overview.md" ]; then no "fallback without overview.md: creates no overview"; else ok "fallback without overview.md: creates no overview"; fi
+
+printf '%s' "$CB" > "$MEM/branch-point"
+has "entry: resolvable base prints the base copy path" "$(n1_review_entry "$CR" 2>&1)" "CLAUDE_MD=$MEM/claude-base.md"
 
 exit $FAIL

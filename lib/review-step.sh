@@ -25,6 +25,37 @@ n1_review_preexisting_diff() {
     printf '%s\n' "$out"
 }
 
+n1_review_claude_base() {
+    # Usage: n1_review_claude_base <worktree dir> <base rev> — N1-627: writes `git show <base>:CLAUDE.md` to $MEM/claude-base.md
+    # and its removed/modified lines (git diff -U0 <merge-base> -- CLAUDE.md, merge-base to the working tree so uncommitted and
+    # fix-cycle edits count: `@@` hunk headers and `-` lines only; `(none)` when nothing was removed) to $MEM/claude-diff.md; prints "CLAUDE_MD=<path>" and "CLAUDE_DIFF=<path>". Always returns 0: any failure prints
+    # the worktree CLAUDE.md and an empty CLAUDE_DIFF= and records one Key Decision per reason (entry reruns each review cycle).
+    # <base rev> may be the branch-point SHA or a ref like origin/<branch>; the copy and the diff both use merge-base(<base>, HEAD),
+    # so a base ref that advanced after branching neither adds foreign rules to the copy nor shifts the diff line numbers.
+    local wt="${1:-}" base="${2:-}" MEM="" why="" kd d mb
+    [ -n "${ID:-}" ] && [ -n "${N1_HOME:-}" ] && [ -d "$N1_HOME/memory/$ID" ] && MEM="$N1_HOME/memory/$ID"
+    if [ -z "$MEM" ]; then why="no ticket memory dir"
+    elif [ -z "$wt" ] || [ ! -d "$wt" ]; then why="worktree missing"
+    elif [ -z "$base" ]; then why="empty base"
+    elif ! git -C "$wt" rev-parse --verify -q "$base^{commit}" >/dev/null 2>&1; then why="unresolvable base $base"
+    else
+        mb=$(git -C "$wt" merge-base "$base" HEAD 2>/dev/null) || mb="$base"
+        if ! git -C "$wt" show "$mb:CLAUDE.md" 2>/dev/null >"$MEM/claude-base.md" || [ ! -s "$MEM/claude-base.md" ]; then
+            rm -f "$MEM/claude-base.md"; why="no CLAUDE.md at base $base"
+        fi
+    fi
+    if [ -n "$why" ]; then
+        kd="Review CLAUDE.md: base copy unavailable ($why); worktree copy used."
+        [ -n "$MEM" ] && ! grep -qF -- "$kd" "$MEM/overview.md" 2>/dev/null && n1_append_key_decision "$MEM/overview.md" "$kd" 2>/dev/null
+        printf 'CLAUDE_MD=%s\nCLAUDE_DIFF=\n' "${wt:+$wt/}CLAUDE.md"; return 0
+    fi
+    echo "CLAUDE_MD=$MEM/claude-base.md"
+    d=$(git -C "$wt" diff --no-color --no-ext-diff -U0 "$mb" -- CLAUDE.md 2>/dev/null) || { rm -f "$MEM/claude-diff.md"; echo "CLAUDE_DIFF="; return 0; }
+    d=$(awk '/^@@/ { h = $0; inh = 1; next } inh && /^-/ { if (h != "") { print h; h = "" } print }' <<<"$d")
+    printf '%s\n' "${d:-(none)}" >"$MEM/claude-diff.md"
+    echo "CLAUDE_DIFF=$MEM/claude-diff.md"; return 0
+}
+
 _n1_review_fix_ran() {
     # Usage: _n1_review_fix_ran <cycle> — true when cycle >= 1 and the fix produced a diff or recorded a `## Fix Cycle <cycle>`
     # section (a dispute-only cycle commits nothing but still needs an incremental re-review to rule on the disputes).
@@ -34,19 +65,22 @@ _n1_review_fix_ran() {
 
 n1_review_entry() {
     # Usage: n1_review_entry <worktree dir> — prints "BASE_BRANCH= RELATED_ENABLED= CYCLE= INCREMENTAL=", "TREE_BEFORE=",
-    # and "FIX_FILES=" when incremental; writes review-spec.md/qa-facts.md; returns 1 on a missing dependency or bad story base.
-    local BASE_BRANCH MEM TREE_BEFORE RELATED_ENABLED CYCLE INCREMENTAL FIX_FILES=""
+    # "CLAUDE_MD=", "CLAUDE_DIFF=" (n1_review_claude_base, N1-627) and "FIX_FILES=" when incremental; writes
+    # review-spec.md/qa-facts.md/claude-base.md/claude-diff.md; returns 1 on a missing dependency or bad story base.
+    local BASE_BRANCH MEM TREE_BEFORE RELATED_ENABLED CYCLE INCREMENTAL FIX_FILES="" CLAUDE_LINES
     n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md || { echo "ERROR: implementation.md missing — aborting review step" >&2; return 1; }
     BASE_BRANCH=$(n1_review_base) || { echo "ERROR: invalid story base" >&2; return 1; }
     MEM="$N1_HOME/memory/$ID"; rm -f "$MEM/review-hdr.md" "$MEM/review-cr.md" "$MEM/review-sec.md" "$MEM/review-status.md"
     { echo "# Review Spec (generated)"; n1_extract_sections "$MEM/brainstorm.md" "acceptance criteria" "chosen approach|selected approach|decision"; [ -s "$MEM/brainstorm.md" ] || n1_extract_sections "$MEM/ticket.md" "acceptance criteria" "requirements"; } > "$MEM/review-spec.md"
     { echo "# QA Facts (generated)"; n1_extract_sections "$MEM/qa.md" "evidence" "break-check" "tests run"; [ -n "${BREAK_CHECK_TQ:-}" ] && { echo "## Hollow tests (break-check never-red)"; echo "$BREAK_CHECK_TQ" | sed 's/^/- /'; }; } > "$MEM/qa-facts.md"
+    CLAUDE_LINES=$(n1_review_claude_base "$1" "$BASE_BRANCH")
     TREE_BEFORE=$(n1_tree_snapshot "$1")
     RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
     CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}; [[ $CYCLE =~ ^[0-9]+$ ]] || CYCLE=1
     INCREMENTAL=false; _n1_review_fix_ran "$CYCLE" && { INCREMENTAL=true; cp "$N1_HOME/memory/$ID/review.md" "$N1_HOME/memory/$ID/review-prev.md" 2>/dev/null; FIX_FILES=$(cat "$N1_HOME/memory/$ID/fix-changed-files" 2>/dev/null); }
     echo "BASE_BRANCH=$BASE_BRANCH RELATED_ENABLED=$RELATED_ENABLED CYCLE=$CYCLE INCREMENTAL=$INCREMENTAL"
     echo "TREE_BEFORE=$TREE_BEFORE"
+    echo "$CLAUDE_LINES"
     [ "$INCREMENTAL" = true ] && echo "FIX_FILES=$(tr '\n' ' ' <<<"$FIX_FILES")"
     return 0
 }
