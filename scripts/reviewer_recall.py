@@ -410,7 +410,80 @@ def cmd_replay(args):
     return 2 if rejected else 0
 
 
-COMMANDS = {"build": cmd_build, "replay": cmd_replay}
+JUDGE_PROMPT = (JUDGE_MARKER + " Answer key: {key}. Codex finding text: {codex}\n\nReview findings:\n{review}\n\n"
+                "Verdict `caught` only if a finding describes the same defect (same mechanism, same code location "
+                "or function). `partial` if it names the same file or symptom but a different mechanism. "
+                "Otherwise `missed`. Reply with one JSON object: "
+                '{{"verdict":"caught|partial|missed","finding_ref":"<id or null>","reason":"<one sentence>"}}.')
+
+
+def write_sample(run_dir, cases, grades, replays, seed):
+    """Seeded 20% (min 5) sample of ok grades for the manual check (D5)."""
+    graded = sorted((g for g in grades if g.get("status") == "ok"), key=lambda g: g["id"])
+    k = min(len(graded), max(5, math.ceil(len(graded) * 0.2)))
+    by_id = {c["id"]: c for c in cases}
+    lines = [f"sample: {k}", "",
+             "Check each verdict against the answer key, then write the number of disagreements as the "
+             "first line of grade-sample.confirmed in this directory.", ""]
+    for g in sorted(random.Random(seed).sample(graded, k), key=lambda g: g["id"]):
+        c = by_id[g["id"]]
+        lines += [f"## {g['id']} ({c.get('split')})", f"- Answer key: {c['answer_key']}",
+                  f"- Codex text: {c.get('codex_text')}",
+                  f"- Judge: {g['verdict']} ({g.get('finding_ref')}): {g.get('reason')}", "",
+                  "<details><summary>review</summary>", "", replays[c["ticket"]].get("findings_text") or "", "",
+                  "</details>", ""]
+    (run_dir / "grade-sample.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def cmd_grade(args):
+    if not shutil.which(str(args.claude)):
+        print(f"claude binary not found: {args.claude}", file=sys.stderr)
+        return 1
+    meta, cases = load_cases(args.cases)
+    run_dir = Path(args.replay)
+    replays = {r["ticket"]: r for r in read_jsonl(run_dir / "replay.jsonl") if r.get("status") == "ok"}
+    out_file = run_dir / "grades.jsonl"
+    done = {g["id"] for g in read_jsonl(out_file)}
+    todo = [c for c in cases if c["kind"] == "finding" and c["class"] == "missed"
+            and c["ticket"] in replays and c["id"] not in done]
+    rows, rejected = [], 0
+    try:
+        with open(out_file, "a", encoding="utf-8") as fh:
+            for c in todo:
+                sid = str(uuid.uuid4())
+                prompt = JUDGE_PROMPT.format(key=c["answer_key"], codex=c.get("codex_text") or "",
+                                             review=replays[c["ticket"]].get("findings_text") or "(empty)")
+                cmd = [args.claude, "-p", prompt, "--output-format", "json", "--session-id", sid, "--tools", "",
+                       "--model", args.model, "--max-budget-usd", str(args.max_budget_usd),
+                       "--setting-sources", "", "--strict-mcp-config"]
+                cwd = tempfile.mkdtemp(prefix="reviewer-recall-judge-")
+                try:
+                    status, data, err = ab.run_claude(cmd, cwd, args.timeout)
+                finally:
+                    shutil.rmtree(cwd, ignore_errors=True)
+                verdict = parse_judge((data or {}).get("result")) if status == "ok" else None
+                row = {"id": c["id"], "ticket": c["ticket"], "split": c.get("split"),
+                       "status": "ok" if verdict else "error", "verdict": (verdict or {}).get("verdict"),
+                       "finding_ref": (verdict or {}).get("finding_ref"), "reason": (verdict or {}).get("reason"),
+                       "session_id": sid, "cost_usd": float((data or {}).get("total_cost_usd") or 0),
+                       "error": None if verdict else (err or "unparseable judge reply"), "raw": data}
+                reason = ab.validate_row(row, sid)
+                if reason:
+                    rejected += 1
+                    print(f"REJECTED {c['id']}: {reason}", file=sys.stderr)
+                    continue
+                rows.append(row)
+                fh.write(json.dumps(row) + "\n")
+                fh.flush()
+                print(f"{c['id']}: {row['status']} {row['verdict']}", file=sys.stderr)
+    finally:
+        write_summary(run_dir, "grade", rows, rejected, args)
+    write_sample(run_dir, cases, read_jsonl(out_file), replays, meta.get("seed", 629))
+    print(run_dir / "grades.jsonl")
+    return 2 if rejected else 0
+
+
+COMMANDS = {"build": cmd_build, "replay": cmd_replay, "grade": cmd_grade}
 
 
 def main(argv=None):
@@ -440,6 +513,13 @@ def main(argv=None):
     r.add_argument("--persona", type=Path, default=REPO / "agents" / "code-reviewer.md", help=argparse.SUPPRESS)
     r.add_argument("--claude", default="claude", help=argparse.SUPPRESS)
     add_repo_args(r)
+    g = sub.add_parser("grade", help="judge replayed reviews against answer keys (paid claude calls)")
+    g.add_argument("--cases", required=True, type=Path)
+    g.add_argument("--replay", required=True, type=Path, help="replay run dir (grades.jsonl is written there)")
+    g.add_argument("--model", default="sonnet")
+    g.add_argument("--timeout", type=int, default=180, help="seconds per judge call")
+    g.add_argument("--max-budget-usd", type=float, default=0.5, help="spend cap per judge call")
+    g.add_argument("--claude", default="claude", help=argparse.SUPPRESS)
     args = p.parse_args(argv)
     if getattr(args, "memory_root", False) is None:
         if not os.environ.get("N1_HOME"):

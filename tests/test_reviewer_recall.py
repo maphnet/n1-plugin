@@ -275,5 +275,34 @@ class ReplayTest(ClaudeFixture):
         self.assertEqual(self.calls(), [])
 
 
+class GradeTest(ClaudeFixture):
+    def grade(self, run_dir):
+        with mock.patch.dict(os.environ, self.env):
+            return self.run_main("grade", "--cases", self.cases, "--replay", run_dir, "--claude", self.claude)
+
+    def test_grades_missed_findings_once(self):
+        # Bugs caught: judge spent on caught findings or controls; judge given tools; verdict not
+        # recorded; a re-run pays again for findings already graded; sample file missing (D5).
+        _, run_dir, _ = self.replay("--split", "all")
+        n_calls = len(self.calls())
+        rc, _, err = self.grade(run_dir)
+        self.assertEqual(rc, 0, err)
+        grades = rr.read_jsonl(run_dir / "grades.jsonl")
+        self.assertEqual([(g["id"], g["status"], g["verdict"]) for g in grades], [("N1-1#1", "ok", "caught")])
+        judge = self.calls()[n_calls]
+        self.assertEqual(judge["argv"][judge["argv"].index("--tools") + 1], "")
+        self.assertTrue((run_dir / "grade-sample.md").read_text().startswith("sample: 1\n"))
+        self.grade(run_dir)
+        self.assertEqual(len(self.calls()), n_calls + 1)
+
+    def test_unparseable_judge_reply_is_error_not_miss(self):
+        # Bug caught: a malformed judge reply silently counted as `missed`, lowering recall.
+        _, run_dir, _ = self.replay("--case", "N1-1")
+        self.env["FAKE_JUDGE"] = "bad"
+        self.grade(run_dir)
+        g = rr.read_jsonl(run_dir / "grades.jsonl")[0]
+        self.assertEqual((g["status"], g["verdict"]), ("error", None))
+
+
 if __name__ == "__main__":
     unittest.main()
