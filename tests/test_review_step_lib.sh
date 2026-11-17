@@ -200,6 +200,10 @@ gc checkout -q -- CLAUDE.md
 gc checkout -q -b add-only "$CB"; printf -- '- Extra E\n' >> "$CR/CLAUDE.md"; gc commit -q -am add
 n1_review_claude_base "$CR" "$CB" >/dev/null 2>&1
 eq "claude-diff: pure additions give (none)" "(none)" "$(cat "$MEM/claude-diff.md")"
+printf 'CLAUDE.md -diff\n' > "$CR/.gitattributes"; gc add .gitattributes; gc commit -q -m attrs
+printf -- '# Rules\n\n- Keep A\n- Keep B\n' > "$CR/CLAUDE.md"; gc commit -q -am drop
+n1_review_claude_base "$CR" "$CB" >/dev/null 2>&1
+has "claude-diff: branch .gitattributes -diff cannot hide a removed rule" "$(cat "$MEM/claude-diff.md")" "-- Never C"
 
 fb() { # <label> <reason> <worktree> <base>: fallback prints the worktree copy and records one Key Decision over two calls
     local o rc

@@ -50,7 +50,7 @@ n1_review_claude_base() {
         printf 'CLAUDE_MD=%s\nCLAUDE_DIFF=\n' "${wt:+$wt/}CLAUDE.md"; return 0
     fi
     echo "CLAUDE_MD=$MEM/claude-base.md"
-    d=$(git -C "$wt" diff --no-color --no-ext-diff -U0 "$mb" -- CLAUDE.md 2>/dev/null) || { rm -f "$MEM/claude-diff.md"; echo "CLAUDE_DIFF="; return 0; }
+    d=$(git -C "$wt" diff --no-color --no-ext-diff --no-textconv --text -U0 "$mb" -- CLAUDE.md 2>/dev/null) || { rm -f "$MEM/claude-diff.md"; echo "CLAUDE_DIFF="; return 0; }
     d=$(awk '/^@@/ { h = $0; inh = 1; next } inh && /^-/ { if (h != "") { print h; h = "" } print }' <<<"$d")
     printf '%s\n' "${d:-(none)}" >"$MEM/claude-diff.md"
     echo "CLAUDE_DIFF=$MEM/claude-diff.md"; return 0
