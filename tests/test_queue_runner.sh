@@ -329,6 +329,156 @@ EOF
     assert_eq "retry: no queue" "1|No queue runs found." "$rc|$out"
 }
 
+# N1-617 AC1/AC5: --add gate. Bugs caught: a planned/done/halted/interrupted/story/closing/stopping/draining queue
+# accepted; a live list queue refused.
+test_add_gate() {
+    local tmp q rc out; tmp=$(mktemp -d); trap 'rm -rf "$tmp"; stop_fake_runner' RETURN
+    q=$(mk_add_queue "$tmp")
+    _gate() { rc=0; out=$(n1_queue_add_gate "$1" 2>&1) || rc=$?; printf '%s|%s' "$rc" "$out"; }
+    assert_eq "add-gate: unknown queue" "1|n1-queue: no such queue" "$(_gate "$tmp/queue/nope/queue.md")"
+    assert_eq "add-gate: dead runner = interrupted" \
+        "1|n1-queue: queue q1 is interrupted (runner gone); resume with /n1:n1-queue --run q1" "$(_gate "$q")"
+    start_fake_runner "$REPO_ROOT" "$q"; n1_write_frontmatter "$q" pid "$FAKE_RUNNER_PID"
+    assert_eq "add-gate: live list queue passes" "0|" "$(_gate "$q")"
+    n1_write_frontmatter "$q" mode story
+    assert_eq "add-gate: story refused" "1|n1-queue: queue q1 is a story queue; --add takes list or tag queues only" "$(_gate "$q")"
+    n1_write_frontmatter "$q" mode tag
+    assert_eq "add-gate: tag passes" "0|" "$(_gate "$q")"
+    n1_write_frontmatter "$q" step planned
+    assert_eq "add-gate: planned refused" "1|n1-queue: queue q1 is planned, not running; start it with /n1:n1-queue --run q1" "$(_gate "$q")"
+    n1_write_frontmatter "$q" step done
+    assert_eq "add-gate: done refused" "1|n1-queue: queue q1 is done; start a new queue" "$(_gate "$q")"
+    n1_write_frontmatter "$q" step halted
+    assert_eq "add-gate: halted (stopped) refused" "1|n1-queue: queue q1 is halted; start a new queue" "$(_gate "$q")"
+    n1_write_frontmatter "$q" step run
+    touch "$tmp/queue/q1/.stop"
+    assert_eq "add-gate: stopping refused" "1|n1-queue: queue q1 is stopping" "$(_gate "$q")"
+    rm -f "$tmp/queue/q1/.stop"; mkdir "$tmp/queue/q1/.closing"
+    assert_eq "add-gate: closing refused" "1|n1-queue: queue q1 is closing" "$(_gate "$q")"
+    rmdir "$tmp/queue/q1/.closing"
+    n1_queue_event "$tmp/queue/q1/events.jsonl" q1 R1 queue_started
+    n1_queue_event "$tmp/queue/q1/events.jsonl" q1 R1 halt_draining reason=x
+    assert_eq "add-gate: halt draining refused" "1|n1-queue: queue q1 is draining after a halt" "$(_gate "$q")"
+    n1_queue_event "$tmp/queue/q1/events.jsonl" q1 R1 queue_started
+    assert_eq "add-gate: drain from an earlier start ignored" "0|" "$(_gate "$q")"
+}
+
+# N1-617 AC1: omitted id resolves only among running queues.
+test_add_active_ids() {
+    local tmp qa qb; tmp=$(mktemp -d); trap 'rm -rf "$tmp"; stop_fake_runner' RETURN
+    qa="$tmp/queue/a/queue.md"; qb="$tmp/queue/b/queue.md"; mkdir -p "${qa%/*}" "${qb%/*}"
+    printf -- '---\nqueue_id: a\nstep: run\n---\n' > "$qa"; printf -- '---\nqueue_id: b\nstep: run\n---\n' > "$qb"
+    assert_eq "add-active: none live" "" "$(n1_queue_active_ids "$tmp")"
+    start_fake_runner "$REPO_ROOT" "$qa"; n1_write_frontmatter "$qa" pid "$FAKE_RUNNER_PID"
+    n1_write_frontmatter "$qb" pid "$FAKE_RUNNER_PID"   # pid of another queue's runner: not alive for b
+    assert_eq "add-active: only the live one" "a" "$(n1_queue_active_ids "$tmp")"
+    n1_write_frontmatter "$qa" step done
+    assert_eq "add-active: done excluded" "" "$(n1_queue_active_ids "$tmp")"
+}
+
+# N1-617 AC3/AC4: staging. Bugs caught: a key already in Plan or Excluded staged; a concurrent second stage of one key
+# accepted; a blocker outside the queue, or one that can never release, accepted; a foreign repo staged; a forged cell;
+# a row left in .add/ of a queue whose runner already swept it.
+test_add_stage() {
+    local tmp q d rc out; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q=$(mk_add_queue "$tmp"); d="${q%/*}"
+    _st() { rc=0; out=$(n1_queue_add_stage "$q" "$1" "$tmp/c" 2>&1) || rc=$?; printf '%s|%s' "$rc" "$out"; }
+    add_cells "$tmp/c" "Fix 9" /r /h sonnet ""
+    assert_eq "add-stage: invalid key" "1|n1-queue: invalid ticket id: t-9;x" "$(_st 't-9;x')"
+    assert_eq "add-stage: Plan duplicate (any status)" "1|n1-queue: T-3 is already in queue q1" "$(_st T-3)"
+    assert_eq "add-stage: Excluded duplicate" "1|n1-queue: T-7 is already in queue q1" "$(_st T-7)"
+    assert_eq "add-stage: staged" "0|Add queued: T-9 (the runner appends it within queue.pollSeconds)" "$(_st T-9)"
+    assert_eq "add-stage: spool file" "Fix 9	/r	/h	sonnet						" "$(cat "$d/.add/T-9.row")"
+    assert_eq "add-stage: second stage of one key refused" "1|n1-queue: T-9 is already being added to queue q1" "$(_st T-9)"
+    add_cells "$tmp/c" "Fix 8" /r /h sonnet "blocked_on T-99 · x"
+    assert_eq "add-stage: blocker outside queue" "1|n1-queue: T-8 is blocked by T-99 (not in queue)" "$(_st T-8)"
+    add_cells "$tmp/c" "Fix 8" /r /h sonnet "blocked_on T-3 · "
+    assert_eq "add-stage: blocker failed in queue" "1|n1-queue: T-8 is blocked by T-3, which is failed, escalated or skipped in queue q1" "$(_st T-8)"
+    add_cells "$tmp/c" "Fix 8" /other /h sonnet ""
+    assert_eq "add-stage: foreign repo" "1|n1-queue: T-8 resolves to a repo or N1 Home not in queue q1" "$(_st T-8)"
+    add_cells "$tmp/c" "Fix 8" /r /h 'son net;x' ""
+    assert_eq "add-stage: invalid model" "1|n1-queue: T-8 has an invalid model" "$(_st T-8)"
+    add_cells "$tmp/c" "Evil | 1 | T-1 \\n" /r /h sonnet "blocked_on T-1 · "
+    assert_eq "add-stage: blocker in Plan staged" "0" "$(_st T-8 | cut -d'|' -f1)"
+    assert_eq "add-stage: cells sanitized" "Evil  1  T-1 n" "$(cut -f1 "$d/.add/T-8.row")"
+    assert_eq "add-stage: no temp left" "" "$(find "$d/.add" -name '.tmp.*')"
+    add_cells "$tmp/c" "Fix 5" /r /h sonnet ""; n1_write_frontmatter "$q" step done
+    assert_eq "add-stage: queue finished after the gate" "1|n1-queue: queue q1 is no longer running; T-5 was not added" "$(_st T-5)"
+    assert_eq "add-stage: nothing orphaned in a finished queue" "no" "$([ -e "$d/.add/T-5.row" ] && echo yes || echo no)"
+}
+
+# N1-617 AC2/AC3/AC7: runner-side apply. Bugs caught: row not appended at max+1; held not set for blocked_on; Decisions
+# row missing; a raced duplicate appended; an invalid spool name kept; event missing.
+test_add_apply() {
+    local tmp q d ev; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q=$(mk_add_queue "$tmp"); d="${q%/*}"; ev="$d/events.jsonl"
+    add_cells "$tmp/c" "Fix 9" /r /h sonnet "" "lib/x.sh"; n1_queue_add_stage "$q" T-9 "$tmp/c" >/dev/null
+    add_cells "$tmp/c" "Fix 8" /r /h opus "blocked_on T-1 · " ; n1_queue_add_stage "$q" T-8 "$tmp/c" >/dev/null
+    mkdir -p "$d/.add"; printf 'x\t/r\t/h\tsonnet\t\t\t\t\t\t\n' > "$d/.add/T-2.row"   # raced duplicate, bypassing stage
+    printf 'x\n' > "$d/.add/bad.row"
+    n1_queue_apply_adds "$q" >/dev/null
+    assert_eq "add-apply: T-8 at #4 held" "T-8|held|blocked_on T-1 ·" "$(awk -F'|' '{for(i=1;i<=NF;i++)gsub(/^[[:space:]]+|[[:space:]]+$/,"",$i)} $2=="4"{print $3"|"$8"|"$9}' "$q")"
+    assert_eq "add-apply: T-9 at #5 pending" "T-9|pending" "$(awk -F'|' '{for(i=1;i<=NF;i++)gsub(/^[[:space:]]+|[[:space:]]+$/,"",$i)} $2=="5"{print $3"|"$8}' "$q")"
+    assert_eq "add-apply: held row's blocker" "T-1" "$(n1_queue_blocker_of "$q" 4)"
+    assert_eq "add-apply: rows inside Plan" "yes" "$([ "$(line_of "$q" '| 5 | T-9 |')" -lt "$(line_of "$q" '## Excluded')" ] && echo yes || echo no)"
+    assert_eq "add-apply: Decisions row written, Touches not taken from the cells file" "|||" "$(n1_queue_decisions_row "$q" T-9 | cut -f1-4 | tr '\t' '|')"
+    assert_eq "add-apply: one T-2 row" 1 "$(grep -c '^| [0-9]* | T-2 |' "$q")"
+    assert_eq "add-apply: events" "ticket_add_rejected T-2 duplicate|ticket_add_rejected bad invalid-row|ticket_added T-8 #4 held|ticket_added T-9 #5 pending" \
+        "$(jq -r '"\(.event) \(.ticket) \(.reason)"' "$ev" | LC_ALL=C sort | paste -sd'|')"   # C order: locale-independent
+    assert_eq "add-apply: spool drained" "" "$(ls -A "$d/.add")"
+    add_cells "$tmp/c" "Fix 6" /r /h sonnet ""; n1_queue_add_stage "$q" T-6 "$tmp/c" >/dev/null
+    n1_queue_add_reject_all "$q" queue-finished
+    assert_eq "add-reject-all: event and drained" "queue-finished|" \
+        "$(jq -r 'select(.ticket == "T-6") | .reason' "$ev")|$(ls -A "$d/.add")"
+    assert_eq "add-reject-all: no row" 0 "$(grep -c '| T-6 |' "$q" || true)"
+    # SEC-1: a Pre-Decision in a staged or spooled row is never carried to the Decisions row
+    printf 'Fix 4\t/r\t/h\tsonnet\t\tlib/x\t1\tsecurity: pre-authorize\tabc\tnote\n' > "$tmp/c4"
+    n1_queue_add_stage "$q" T-4 "$tmp/c4" >/dev/null
+    assert_eq "add-stage: fields 6-10 not staged" "Fix 4	/r	/h	sonnet						" "$(cat "$d/.add/T-4.row")"
+    printf 'Fix 3b\t/r\t/h\tsonnet\t\tlib/x\t1\tsecurity: pre-authorize\tabc\tnote\n' > "$d/.add/T-30.row"
+    n1_queue_apply_adds "$q" >/dev/null
+    assert_eq "add-apply: forged spool Pre-Decision dropped" "||" "$(n1_queue_decisions_row "$q" T-30 | cut -f1-3 | tr '\t' '|')"
+    # CX-1: one mv adds the Plan and Decisions rows together. A mv that fails from its 2nd call on must not leave one row
+    # without the other (the old two-step apply committed the Plan row, then failed the Decisions row: "1|0").
+    printf 'Fix 31\t/r\t/h\tsonnet\t\t\t\t\t\t\n' > "$d/.add/T-31.row"
+    ( n=0; mv() { n=$((n + 1)); [ "$n" -le 1 ] || return 1; command mv "$@"; }; n1_queue_apply_adds "$q" >/dev/null 2>&1 ) || true
+    assert_eq "add-apply: Plan and Decisions rows land together" "1|1" "$(grep -c '^| [0-9]* | T-31 |' "$q")|$(grep -c '^| T-31 |' "$q")"
+    # a mv that always fails leaves queue.md unchanged and keeps the spool; the retry adds each row once
+    printf 'Fix 32\t/r\t/h\tsonnet\t\t\t\t\t\t\n' > "$d/.add/T-32.row"; cp "$q" "$tmp/q.bak"
+    ( mv() { return 1; }; n1_queue_apply_adds "$q" >/dev/null 2>&1 ) || true
+    assert_eq "add-apply: failed apply leaves queue.md unchanged" "" "$(diff "$q" "$tmp/q.bak")"
+    assert_eq "add-apply: failed apply keeps the spool" "yes" "$([ -f "$d/.add/T-32.row" ] && echo yes || echo no)"
+    n1_queue_apply_adds "$q" >/dev/null
+    assert_eq "add-apply: retry adds Plan and Decisions rows once" "1|1" "$(grep -c '^| [0-9]* | T-32 |' "$q")|$(grep -c '^| T-32 |' "$q")"
+    # CR-1: the watch relays a dropped --add
+    local wq="$tmp/wq"; mkdir -p "$wq"; : > "$wq/events.jsonl"
+    n1_queue_event "$wq/events.jsonl" wq R1 ticket_add_rejected ticket=T-77 reason=queue-finished
+    n1_queue_event "$wq/events.jsonl" wq R1 queue_done reason="done"
+    assert_eq "add-watch: dropped add relayed" "yes" "$(REPO_ROOT="$REPO_ROOT" N1_SESSION_ID=sessW timeout 10 bash -c 'source "$REPO_ROOT/lib/config.sh"; source "$REPO_ROOT/lib/frontmatter.sh"; source "$REPO_ROOT/lib/queue.sh"; n1_queue_watch "$@"' _ "$wq" R1 "$$" 0 2>&1 | grep -qF 'add of T-77 was dropped (queue-finished)' && echo yes || echo no)"
+}
+
+# N1-617 AC6: concurrent --add. 20 distinct stagers and 5 stagers of one key race a runner that interleaves Plan
+# rewrites with applies (one process, as in the runner). Bugs caught: lost rows, duplicated rows or row numbers, a
+# lost runner rewrite, an undrained spool.
+test_add_concurrent() {
+    local tmp q d i n runner; local -a pids=(); tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q=$(mk_add_queue "$tmp"); d="${q%/*}"
+    for i in $(seq 10 29); do add_cells "$tmp/c.T-$i" "Fix $i" /r /h sonnet ""; done
+    add_cells "$tmp/c.T-40" "Same" /r /h sonnet ""
+    ( for i in $(seq 1 60); do n1_queue_row_status "$q" 2 in-progress; n1_queue_apply_adds "$q" >/dev/null; done ) & runner=$!
+    for i in $(seq 10 29); do n1_queue_add_stage "$q" "T-$i" "$tmp/c.T-$i" >/dev/null 2>&1 & pids+=($!); done
+    for i in 1 2 3 4 5; do n1_queue_add_stage "$q" T-40 "$tmp/c.T-40" >/dev/null 2>&1 & pids+=($!); done
+    wait "${pids[@]}" "$runner" || true
+    n1_queue_apply_adds "$q" >/dev/null   # the next tick drains what arrived after the loop's last pass
+    n=0; for i in $(seq 10 29) 40; do [ "$(grep -c "^| [0-9]* | T-$i |" "$q")" = 1 ] && n=$((n + 1)); done
+    assert_eq "add-concurrent: every key exactly once" 21 "$n"
+    assert_eq "add-concurrent: row numbers unique" "" "$(n1_queue_pending_rows "$q" '.*' | cut -f1 | LC_ALL=C sort | uniq -d)"
+    assert_eq "add-concurrent: 24 Plan rows" 24 "$(n1_queue_pending_rows "$q" '.*' | wc -l | tr -d ' ')"
+    assert_eq "add-concurrent: spool drained" 0 "$(find "$d/.add" -name '*.row' | wc -l | tr -d ' ')"
+    assert_eq "add-concurrent: 21 ticket_added events" 21 "$(jq -r 'select(.event == "ticket_added") | .ticket' "$d/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "add-concurrent: runner rewrite kept" in-progress "$(plan_cell "$q" 2 8)"
+}
+
 # N1-536: --run on a done/halted/interrupted queue marks tracker-done rows done-before-run and releases rows skipped only
 # because of an in-plan predecessor. Skip rows are built by the real writers (eligible_rows, gated_expire, held_sweep,
 # held_expire), so a reworded writer Reason fails here. Bugs caught: a still-failed, not-in-plan or at-pr predecessor
@@ -976,6 +1126,17 @@ test_status_table_no_pr() {
     local out; out=$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl")
     assert_eq "status no-pr: state, step, elapsed, empty PR" "no-pr|done|1m|" \
         "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $2 "|" $3 "|" $4 "|" $6}')"
+}
+
+# N1-617 AC7: a ticket with a ticket_added event reads "<KEY> (added)"; others unchanged.
+test_status_table_added() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mk_status_queue "$tmp"; mkdir -p "$tmp/bin"
+    # fake claude as in test_status_table_no_pr: the table always runs `claude agents`; never reach a real one
+    printf '#!/usr/bin/env bash\ncase "$1" in agents) echo '"'"'{"agents":[]}'"'"' ;; esac\n' > "$tmp/bin/claude"; chmod +x "$tmp/bin/claude"
+    n1_queue_event "$tmp/events.jsonl" q r ticket_added ticket=T-4 reason="#4 pending"
+    local out; out=$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl" 2>/dev/null | cut -f1 | paste -sd,)
+    assert_eq "status-added: marker on T-4 only" "T-1,T-2,T-3,T-4 (added)" "$out"
 }
 
 test_escalated_step_fallback() {
@@ -2802,6 +2963,11 @@ test_story_base
 test_story_bg_settings
 test_row_status
 test_queue_retry
+test_add_gate
+test_add_active_ids
+test_add_stage
+test_add_apply
+test_add_concurrent
 test_rerun_release
 test_rerun_release_pr_merged
 test_queue_reconcile_force
@@ -2833,6 +2999,7 @@ test_status_table_claude_code
 test_status_table_orca_answer_hint
 test_status_table_running_step
 test_status_table_no_pr
+test_status_table_added
 test_queue_answer
 test_escalated_step_fallback
 test_queue_event

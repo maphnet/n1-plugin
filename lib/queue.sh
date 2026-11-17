@@ -1711,6 +1711,163 @@ n1_queue_retry() {
     echo "Retry queued: /n1:n1-queue --run $(n1_read_frontmatter "$q" queue_id)"
 }
 
+n1_queue_add_gate() {
+    # Usage: n1_queue_add_gate <queue.md> — N1-617 (n1-queue --add): exit 0 when tickets may be staged for this queue:
+    # a list or tag queue at step run with a live runner, not closing, stopping or draining after a halt. Otherwise one
+    # refusal line on stderr, exit 1. "Stopped" queues are step halted (--stop ends there).
+    local q="$1" dir id step last
+    [ -n "$q" ] && [ -f "$q" ] || { echo "n1-queue: no such queue" >&2; return 1; }
+    dir=$(dirname -- "$q"); id=$(n1_read_frontmatter "$q" queue_id); id="${id:-$(basename -- "$dir")}"
+    [ "$(n1_read_frontmatter "$q" mode)" = story ] && { echo "n1-queue: queue $id is a story queue; --add takes list or tag queues only" >&2; return 1; }
+    step=$(n1_read_frontmatter "$q" step)
+    case "$step" in
+        run) ;;
+        planned) echo "n1-queue: queue $id is planned, not running; start it with /n1:n1-queue --run $id" >&2; return 1 ;;
+        done|halted) echo "n1-queue: queue $id is $step; start a new queue" >&2; return 1 ;;
+        *) echo "n1-queue: queue $id step '${step:-none}' cannot take --add" >&2; return 1 ;;
+    esac
+    n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q" \
+        || { echo "n1-queue: queue $id is interrupted (runner gone); resume with /n1:n1-queue --run $id" >&2; return 1; }
+    [ -e "$dir/.closing" ] && { echo "n1-queue: queue $id is closing" >&2; return 1; }
+    [ -e "$dir/.stop" ] && { echo "n1-queue: queue $id is stopping" >&2; return 1; }
+    last=$(jq -rs '[.[] | select(.event == "queue_started" or .event == "halt_draining")] | last | .event // ""' "$dir/events.jsonl" 2>/dev/null)
+    [ "$last" = halt_draining ] && { echo "n1-queue: queue $id is draining after a halt" >&2; return 1; }
+    return 0
+}
+
+n1_queue_active_ids() {
+    # Usage: n1_queue_active_ids <n1-home> — N1-617: one queue id per line for queues at step run whose runner is alive.
+    local f
+    for f in "$1"/queue/*/queue.md; do
+        [ -f "$f" ] && [ "$(n1_read_frontmatter "$f" step)" = run ] || continue
+        n1_queue_runner_alive "$(n1_read_frontmatter "$f" pid)" "$f" && basename -- "$(dirname -- "$f")"
+    done
+    return 0
+}
+
+_n1_queue_add_check() {
+    # Usage: _n1_queue_add_check <queue.md> <KEY> <reason> <repo> <n1home> <model> — N1-617: shared by the skill-side
+    # stage and the runner-side apply. Prints a refusal token and returns 1, or returns 0. Duplicate = a Plan row
+    # (any status) or an ## Excluded row for KEY. A Reason "blocked_on <ID>" needs <ID> to have a Plan row that is not
+    # failed/escalated/skip (n1_queue_held_sweep never releases those). Repo and N1 Home must equal an existing row's
+    # pair (story branches and release_backstop assume the start-time repos).
+    local q="$1" k="$2" b st
+    if awk -F'|' -v k="$k" '/^## /{ s = $0 }
+        /^\|/ && s == "## Plan" { c = $3; n = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); gsub(/^[[:space:]]+|[[:space:]]+$/, "", n); if (n ~ /^[0-9]+$/ && c == k) f = 1 }
+        /^\|/ && s == "## Excluded" { for (i = 2; i < NF; i++) { c = $i; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); if (c == k) f = 1 } }
+        END { exit !f }' "$q"; then echo duplicate; return 1; fi
+    b=$(printf '%s' "$3" | sed -n 's/^blocked_on \([A-Za-z0-9_-]*\).*/\1/p')
+    if [ -n "$b" ]; then
+        st=$(n1_queue_ticket_status "$q" "$b")
+        [ -n "$st" ] || { echo "blocker-not-in-queue $b"; return 1; }
+        case "$st" in failed|escalated|skip) echo "blocker-closed $b"; return 1 ;; esac
+    fi
+    R="$4" H="$5" awk -F'\t' '$3 == ENVIRON["R"] && $4 == ENVIRON["H"] { f = 1 } END { exit !f }' \
+        < <(n1_queue_pending_rows "$q" '.*') || { echo repo-not-in-queue; return 1; }
+    [[ "$6" =~ ^[A-Za-z0-9._-]+$ ]] || { echo invalid-model; return 1; }
+    return 0
+}
+
+n1_queue_add_stage() {
+    # Usage: n1_queue_add_stage <queue.md> <KEY> <cells-file> — N1-617 (skill side of --add): validate one ticket and
+    # stage it at <queue-dir>/.add/<KEY>.row for the runner (n1_queue_apply_adds). <cells-file> holds one line of 10
+    # tab fields: Title Repo N1Home Model Reason Touches Order Pre-Decision DescChecksum Notes (free text written by the
+    # file-write mechanism, never a shell argument). Every field is sanitized. Title and Desc Checksum come from
+    # desc/<KEY>.title|txt when present (as run.md § Write plan). The claim is a hard link: a second stage of the same
+    # key fails with EEXIST. Never touches queue.md.
+    local q="$1" k="$2" src="$3" dir id line i tmp why
+    local -a c=()
+    [[ "$k" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] || { echo "n1-queue: invalid ticket id: $k" >&2; return 1; }
+    [ -f "$q" ] && [ -f "$src" ] || { echo "n1-queue: $k: queue or cells file missing" >&2; return 1; }
+    dir=$(dirname -- "$q"); id=$(n1_read_frontmatter "$q" queue_id); id="${id:-$(basename -- "$dir")}"
+    IFS= read -r line < "$src" || [ -n "$line" ] || { echo "n1-queue: $k: empty cells file" >&2; return 1; }
+    for i in 1 2 3 4 5 6 7 8 9 10; do c+=("$(_n1_queue_sanitize_cell "$(printf '%s' "$line" | cut -f"$i")")"); done
+    c[5]=""; c[6]=""; c[7]=""; c[8]=""; c[9]=""   # SEC-1: never carry Touches/Order/Pre-Decision/Notes from model text
+    [ -f "$dir/desc/$k.title" ] && c[0]=$(_n1_queue_sanitize_cell "$(cat "$dir/desc/$k.title")") \
+        && c[8]=$(_n1_queue_sanitize_cell "$(n1_queue_content_hash "$dir/desc/$k.title" "$dir/desc/$k.txt" 2>/dev/null)")
+    if ! why=$(_n1_queue_add_check "$q" "$k" "${c[4]}" "${c[1]}" "${c[2]}" "${c[3]}"); then
+        case "$why" in
+            duplicate) echo "n1-queue: $k is already in queue $id" >&2 ;;
+            blocker-not-in-queue*) echo "n1-queue: $k is blocked by ${why#* } (not in queue)" >&2 ;;
+            blocker-closed*) echo "n1-queue: $k is blocked by ${why#* }, which is failed, escalated or skipped in queue $id" >&2 ;;
+            repo-not-in-queue) echo "n1-queue: $k resolves to a repo or N1 Home not in queue $id" >&2 ;;
+            *) echo "n1-queue: $k has an invalid model" >&2 ;;
+        esac
+        return 1
+    fi
+    mkdir -p "$dir/.add" || return 1
+    tmp=$(mktemp "$dir/.add/.tmp.XXXXXX") || return 1
+    (IFS=$'\t'; printf '%s\n' "${c[*]}") > "$tmp"
+    if ! ln "$tmp" "$dir/.add/$k.row" 2>/dev/null; then
+        rm -f "$tmp"; echo "n1-queue: $k is already being added to queue $id" >&2; return 1
+    fi
+    rm -f "$tmp"
+    # The runner sweeps .add/ right after it writes step done or halted. A claim made after the gate but before that
+    # write is swept; a claim made after it would be orphaned, so re-read the step once the file exists.
+    case "$(n1_read_frontmatter "$q" step)" in done|halted)
+        # A claim the runner already consumed was accepted or rejected with an event; only an unconsumed one is refused here.
+        [ -e "$dir/.add/$k.row" ] || { echo "Add queued: $k (the runner already picked it up)"; return 0; }
+        rm -f "$dir/.add/$k.row"; echo "n1-queue: queue $id is no longer running; $k was not added" >&2; return 1 ;;
+    esac
+    echo "Add queued: $k (the runner appends it within queue.pollSeconds)"
+}
+
+n1_queue_apply_adds() {
+    # Usage: n1_queue_apply_adds <queue.md> — N1-617, runner only: the runner is the only writer of queue.md while it
+    # runs, so appending here (between ticks) cannot race its own mktemp+mv rewrites. For each <queue-dir>/.add/*.row
+    # in name order: re-check (_n1_queue_add_check), append the Plan row at max # + 1 (pending, or held for a
+    # "blocked_on <ID>" Reason; n1_queue_held_sweep releases it), insert its ## Decisions row when the section exists,
+    # emit ticket_added, remove the file. A refused or malformed file emits ticket_add_rejected and is removed.
+    local q="$1" dir ev qid run f k line i num st row drow tmp why
+    local -a c
+    dir=$(dirname -- "$q"); ev="$dir/events.jsonl"
+    [ -d "$dir/.add" ] || return 0
+    qid=$(n1_read_frontmatter "$q" queue_id); run=$(n1_read_frontmatter "$q" run_id)
+    for f in "$dir"/.add/*.row; do
+        [ -f "$f" ] || continue
+        k=$(basename -- "$f" .row); line=""
+        if ! [[ "$k" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] || { ! IFS= read -r line < "$f" && [ -z "$line" ]; }; then
+            rm -f "$f"; n1_queue_event "$ev" "$qid" "$run" ticket_add_rejected ticket="$k" reason=invalid-row; continue
+        fi
+        c=(); for i in 1 2 3 4 5 6 7 8 9 10; do c+=("$(_n1_queue_sanitize_cell "$(printf '%s' "$line" | cut -f"$i")")"); done
+        if ! why=$(_n1_queue_add_check "$q" "$k" "${c[4]}" "${c[1]}" "${c[2]}" "${c[3]}"); then
+            rm -f "$f"; n1_queue_event "$ev" "$qid" "$run" ticket_add_rejected ticket="$k" reason="$why"; continue
+        fi
+        num=$(awk -F'|' '{ gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2) } $2 ~ /^[0-9]+$/ { if ($2 + 0 > max) max = $2 + 0 } END { print max + 1 }' "$q")
+        st=pending; case "${c[4]}" in "blocked_on "*) st=held ;; esac
+        row="| $num | $k | ${c[0]} | ${c[1]} | ${c[2]} | ${c[3]} | $st | ${c[4]} |"
+        # One rewrite adds the Plan row and the Decisions row together (one mv), so a failure never leaves one without
+        # the other. Only the Desc Checksum cell is filled; Touches/Order/Pre-Decision/Notes stay empty (SEC-1).
+        drow=""; [ "$(grep -c '^## Decisions$' "$q")" = 1 ] && drow="| $k |  |  |  | ${c[8]} |  |"
+        tmp=$(mktemp "${q}.XXXXXX") || return 1
+        ROW="$row" DROW="$drow" awk 'BEGIN { row = ENVIRON["ROW"]; drow = ENVIRON["DROW"] }
+            /^## Plan/ { in_plan = 1 }
+            /^## Decisions$/ { d = 1; print; next }
+            in_plan && /^$/ && !added { print row; added = 1 }
+            drow != "" && d && !dadded && (/^$/ || /^## /) { print drow; dadded = 1 }
+            { print }
+            END { if (in_plan && !added) print row; if (drow != "" && d && !dadded) print drow }' "$q" > "$tmp" && mv "$tmp" "$q" || { rm -f "$tmp"; return 1; }
+        rm -f "$f"
+        n1_queue_event "$ev" "$qid" "$run" ticket_added ticket="$k" reason="#$num $st"
+        echo "[$num] $k added ($st)"
+    done
+    return 0
+}
+
+n1_queue_add_reject_all() {
+    # Usage: n1_queue_add_reject_all <queue.md> <reason> — N1-617: the runner ends (step done or halted) with rows
+    # still staged: drop each with a ticket_add_rejected event so a late --add is reported, never silently lost.
+    local q="$1" dir f k
+    dir=$(dirname -- "$q")
+    for f in "$dir"/.add/*.row; do
+        [ -f "$f" ] || continue
+        k=$(basename -- "$f" .row); rm -f "$f"
+        n1_queue_event "$dir/events.jsonl" "$(n1_read_frontmatter "$q" queue_id)" "$(n1_read_frontmatter "$q" run_id)" \
+            ticket_add_rejected ticket="$k" reason="$2"
+    done
+    return 0
+}
+
 n1_queue_rerun_release() {
     # Usage: n1_queue_rerun_release <queue.md> < done-keys — N1-536 (--run on a done, halted or interrupted queue).
     # stdin: ticket keys whose tracker status is done-class (run.md reads the tracker; this helper never does).
@@ -2132,6 +2289,8 @@ n1_queue_watch() {
                         printf 'n1-queue %s: %s still hold the slot after their PR; %s\n' "$q" "$t" "$reason" ;;
                     ticket_finished)
                         printf 'n1-queue %s: %s finished: %s%s%s\n' "$q" "$t" "$out" "${pr:+ $pr}" "${reason:+ ($reason)}" ;;
+                    ticket_add_rejected)   # N1-617: an --add reported as queued was dropped by the runner
+                        printf 'n1-queue %s: add of %s was dropped (%s)\n' "$q" "$t" "$reason" ;;
                     halted|queue_done)
                         [ "$ev" = halted ] && ev=halted || ev=finished
                         printf 'n1-queue %s: %s%s. Watch ended.\n' "$q" "$ev" "${reason:+: $reason}"
@@ -2139,7 +2298,7 @@ n1_queue_watch() {
                 esac
             done < <(sed -n "$((seen + 1)),${total}p" "$events" | jq -rR --arg run "$run" '
                 fromjson? | objects | select(.run_id == $run)
-                | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "escalation_retracted" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "stalled" or .event == "worker_stopped" or .event == "worker_owed" or .event == "slot_held" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
+                | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "escalation_retracted" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "stalled" or .event == "worker_stopped" or .event == "worker_owed" or .event == "slot_held" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done" or .event == "ticket_add_rejected")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
                 | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c\u00ad\u200b-\u200d\u2060-\u2064\ufeff\\x{E0000}-\\x{E007F}]"; " ")) as $arr
                 # N1-60 [CR-4]: a packed-question reason is already capped at write time
@@ -2184,6 +2343,7 @@ n1_queue_status_table() {
     agents_json=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null)
     now=$(date +%s)
     n1_queue_interrupted "$file" && gone=1
+    local added; added=$(jq -r 'select(.event == "ticket_added") | .ticket' "$events" 2>/dev/null)   # N1-617
 
     while IFS=$'\t' read -r num ticket repo n1h model status; do
         local state="$status" step="" elapsed="" cost="—" pr="" attach="" sid
@@ -2230,7 +2390,8 @@ n1_queue_status_table() {
                 ;;
         esac
         local cln; cln=$(sed -n 's/^- \*\*Cleanup:\*\* //p' "$n1h/memory/$ticket/overview.md" 2>/dev/null | head -1)
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ticket" "$state" "$step" "$elapsed" "$cost" "$pr" "$attach" "$(_n1_queue_sanitize_cell "$cln")"
+        local tk="$ticket"; grep -qxF -- "$ticket" <<< "$added" && tk="$ticket (added)"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$tk" "$state" "$step" "$elapsed" "$cost" "$pr" "$attach" "$(_n1_queue_sanitize_cell "$cln")"
     done < <(awk -F'|' '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) } $2 ~ /^[0-9]+$/ && NF >= 9 { printf "%s\t%s\t%s\t%s\t%s\t%s\n", $2, $3, $5, $6, $7, $8 }' "$file")
 }
 

@@ -1253,6 +1253,48 @@ test_runner_queue_branches() {
 }
 
 
+# claude_hook <tmp> — wrap the fake claude so the n-th `agents` call (one per tick) first runs $tmp/fake/agents.<n>
+claude_hook() {
+    mv "$1/bin/claude" "$1/bin/claude.real"
+    printf '#!/usr/bin/env bash\nif [ "$1" = agents ]; then n=$(( $(cat "%s/agents.n" 2>/dev/null || echo 0) + 1 )); echo $n > "%s/agents.n"; [ -f "%s/fake/agents.$n" ] && bash "%s/fake/agents.$n"; [ -f "%s/fake/agents-down" ] && exit 1; fi\nexec "%s/bin/claude.real" "$@"\n' \
+        "$1" "$1" "$1" "$1" "$1" "$1" > "$1/bin/claude"
+    chmod +x "$1/bin/claude"
+}
+
+# N1-617 AC2: a row staged with --add while the runner is already running (2nd tick, T-A still working) is appended on a later
+# tick and runs after the original row, no restart. Bugs caught: the bg loop applies the spool only at start; the added row runs before the pending ones.
+test_add_bg_pickup() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working working done"
+    echo done > "$tmp/fake/states.T-2"
+    claude_hook "$tmp"
+    printf 'mkdir -p "%s/.add"; printf "Fix T-2\\t%s\\t%s\\tsonnet\\t\\t\\t\\t\\t\\t\\n" > "%s/.add/T-2.row"\n' \
+        "$tmp" "$tmp" "$tmp/n1home" "$tmp" > "$tmp/fake/agents.2"
+    run_bg_queue "$tmp" > /dev/null
+    assert_eq "add-bg: T-2 appended as #2 and ran to pr" "T-2|pr" "$(plan_cell "$tmp/queue.md" 2 3)|$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "add-bg: ticket_added recorded" "T-2" "$(jq -r 'select(.event == "ticket_added") | .ticket' "$tmp/events.jsonl")"
+    assert_eq "add-bg: T-A launched before T-2" "yes" \
+        "$([ "$(grep -n '^| T-A | [0-9]' "$tmp/queue.md" | cut -d: -f1)" -lt "$(grep -n '^| T-2 | [0-9]' "$tmp/queue.md" | cut -d: -f1)" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+
+# N1-617: a row still staged when the runner halts is rejected (queue-halted), never appended to the Plan.
+# Bug caught: halt_now leaves the spool row behind, so a --add reported as queued vanishes with no event.
+test_add_bg_halt_rejects() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working"
+    claude_hook "$tmp"; : > "$tmp/fake/agents-down"
+    mkdir -p "$tmp/.add"
+    printf 'Fix T-2\t%s\t%s\tsonnet\t\t\t\t\t\t\n' "$tmp" "$tmp/n1home" > "$tmp/.add/T-2.row"
+    run_bg_queue "$tmp" > /dev/null
+    assert_eq "add-bg-halt: halted" "halted" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "add-bg-halt: rejection recorded" "T-2 queue-halted" "$(jq -r 'select(.event == "ticket_add_rejected") | "\(.ticket) \(.reason)"' "$tmp/events.jsonl")"
+    assert_eq "add-bg-halt: no row appended, spool empty" "0|0" "$(grep -c '^| T-2 |' "$tmp/queue.md" || true)|$(ls "$tmp/.add" | wc -l | tr -d ' ')"
+    rm -rf "$tmp"
+}
+
+
 n1_only_filter
 test_bg_pr_lifecycle
 test_runner_three_strikes
@@ -1303,6 +1345,8 @@ test_live_by_name
 test_bg_launch_guard
 test_runner_lock_atomic
 test_runner_queue_chain_cut
+test_add_bg_pickup
+test_add_bg_halt_rejects
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

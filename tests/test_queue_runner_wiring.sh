@@ -377,6 +377,27 @@ test_discard_wiring() {
     assert_eq "discard-wiring: architecture documents --discard" "yes" "$(_hasF 'n1-queue --discard <id>' "$REPO_ROOT/references/architecture.md")"
 }
 
+# N1-617: --add routing, usage strings, step text and runner hooks.
+test_add_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue" r="$REPO_ROOT/scripts/n1-queue-run.sh"
+    _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
+    assert_eq "add-wiring: argument-hint offers --add" "yes" "$(grep -q '^argument-hint:.*\[--add \[<id>\] <ticket|url>\.\.\.\]' "$s/SKILL.md" && echo yes || echo no)"
+    assert_eq "add-wiring: description usage offers --add" "yes" "$(grep -q '^description:.*\[--add \[<id>\] <ticket|url>\.\.\.\]' "$s/SKILL.md" && echo yes || echo no)"
+    assert_eq "add-wiring: step 1 routes --add" "yes" "$(_hasF 'If `--add`: read and follow `<N1_ROOT>/skills/n1-queue/steps/add.md`. **STOP.**' "$s/SKILL.md")"
+    assert_eq "add-wiring: input.md lists the operands" "yes" "$(_hasF '`--add [<id>] <ticket|url>...`' "$s/steps/input.md")"
+    assert_eq "add-wiring: URL resolved from a single-quoted word" "yes|no" "$(_hasF "for ITEM in '<OPERAND_1>'" "$s/steps/add.md")|$(_hasF 'n1_extract_ticket_from_url "<url>"' "$s/steps/add.md")"
+    assert_eq "add-wiring: step gates the queue" "yes" "$(_hasF 'n1_queue_add_gate "$QUEUE_FILE"' "$s/steps/add.md")"
+    assert_eq "add-wiring: step resolves an omitted id" "yes" "$(_hasF 'n1_queue_active_ids "$N1_HOME"' "$s/steps/add.md")"
+    assert_eq "add-wiring: step stages" "yes" "$(_hasF 'n1_queue_add_stage "$QUEUE_FILE"' "$s/steps/add.md")"
+    assert_eq "add-wiring: late add documented" "yes" "$(_hasF 'A late add can start work in a queue that is about to finish.' "$s/steps/add.md")"
+    assert_eq "add-wiring: runner applies in both loops" "2" "$(grep -c 'n1_queue_apply_adds "$QUEUE"' "$r")"
+    assert_eq "add-wiring: runner sweeps on halt and done" "2" "$(grep -c 'n1_queue_add_reject_all "$QUEUE"' "$r")"
+    # The finish sweep must follow `step done`: the stager re-reads step after claiming, so the reverse order orphans a row.
+    assert_eq "add-wiring: finish sweep follows step done" "yes" \
+        "$([ "$(grep -n 'step done$' "$r" | tail -1 | cut -d: -f1)" -lt "$(grep -n 'n1_queue_add_reject_all "$QUEUE" queue-finished' "$r" | cut -d: -f1)" ] && echo yes || echo no)"
+    assert_eq "add-wiring: events documented" "yes|yes" "$(_hasF '`ticket_added`' "$REPO_ROOT/references/architecture.md")|$(_hasF '`ticket_add_rejected`' "$REPO_ROOT/references/architecture.md")"
+}
+
 # N1-61: placeholder titles and form-dump descriptions are repaired at intake.
 test_form_repair_wiring() {
     local pa="$REPO_ROOT/references/title-form-repair.md" m='*Normalized by N1*'
@@ -640,6 +661,7 @@ test_retry_wiring
 test_rerun_wiring
 test_close_wiring
 test_discard_wiring
+test_add_wiring
 test_form_repair_wiring
 test_release_wiring
 test_answer_wiring

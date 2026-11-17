@@ -261,6 +261,22 @@ test_orca_stop_notice_deferral_survives_restart() {
 }
 
 
+# N1-617 AC2: Orca backend; the row is staged mid-run (on the 2nd inbox check) while T-A is in flight.
+# Bugs caught: the Orca loop never applies the spool mid-run; the added row is never launched.
+test_add_orca_pickup() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = 2 | .queue.subtaskTimeoutMinutes = 600'
+    wl_set "$tmp" "$(wl_row T-A running)"; touch "$tmp/fake/nodone.T-A"
+    printf 'mkdir -p "%s/.add"; printf "Fix T-2\\t%s\\t%s\\tsonnet\\t\\t\\t\\t\\t\\t\\n" > "%s/.add/T-2.row"\n' \
+        "$tmp" "$tmp" "$tmp/n1home" "$tmp" > "$tmp/fake/at.2"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=8 > /dev/null
+    assert_eq "add-orca: T-2 appended as #2" "T-2" "$(plan_cell "$tmp/queue.md" 2 3)"
+    assert_eq "add-orca: T-2 worker started" "yes" "$([ "$(grep -c -- '--task task-T-2' "$tmp/fake/orca-calls" || true)" -ge 1 ] && echo yes || echo no)"
+    assert_eq "add-orca: ticket_added recorded" "T-2" "$(jq -r 'select(.event == "ticket_added") | .ticket' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+}
+
+
 n1_only_filter
 test_orca_owed_holds_slot
 test_orca_failed_row_keeps_slots
@@ -277,6 +293,7 @@ test_orca_merged_sweep_settles
 test_orca_merged_sweep_marker_state
 test_orca_merged_sweep_skips_active_deferred
 test_orca_merged_sweep_skips_beaconing_deferred
+test_add_orca_pickup
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

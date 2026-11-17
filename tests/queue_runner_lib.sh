@@ -518,6 +518,43 @@ run_id: R1
 EOF
 }
 
+# N1-617: a running list queue for --add helper tests at <tmp>/queue/q1/queue.md (Plan, Excluded, Decisions, Runs).
+# Prints the queue.md path. Repo /r, N1 Home /h on every row.
+mk_add_queue() {
+    local q="$1/queue/q1/queue.md"; mkdir -p "${q%/*}"
+    cat > "$q" <<'EOF'
+---
+queue_id: q1
+run_id: R1
+step: run
+mode: list
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | /r | /h | sonnet | pr | |
+| 2 | T-2 | B | /r | /h | sonnet | in-progress | |
+| 3 | T-3 | C | /r | /h | sonnet | failed | |
+
+## Excluded
+| Ticket | Reason |
+|--------|--------|
+| T-7 | done-before-run |
+
+## Decisions
+| Ticket | Touches | Order | Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|--------------|---------------|-------|
+| T-1 | lib/a.sh | | | | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    printf '%s\n' "$q"
+}
+# add_cells <file> <title> <repo> <home> <model> <reason> [touches] — N1-617: one --add cells line (10 tab fields).
+add_cells() { printf '%s\t%s\t%s\t%s\t%s\t%s\t\t\t\t\n' "$2" "$3" "$4" "$5" "$6" "${7:-}" > "$1"; }
+
 # sched_set <tmp> <max_concurrent|-> [<ticket> <after>]... — N1-303: a planned max_concurrent in mk_bg's
 # frontmatter ("-" = none) and a ## Schedule section (one row per ticket/after pair) before ## Runs.
 sched_set() {
