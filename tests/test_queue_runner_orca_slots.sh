@@ -293,7 +293,7 @@ test_orca_merged_sweep_settles
 test_orca_merged_sweep_marker_state
 test_orca_merged_sweep_skips_active_deferred
 test_orca_merged_sweep_skips_beaconing_deferred
+test_add_orca_pickup
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
-test_add_orca_pickup

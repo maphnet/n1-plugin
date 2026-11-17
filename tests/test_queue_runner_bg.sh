@@ -1253,7 +1253,7 @@ test_runner_queue_branches() {
 }
 
 
-# N1-617 AC2: a row staged with --add while the runner runs is appended at a tick and runs after the original rows,
+# N1-617 AC2: a row staged with --add before the runner starts is appended at its first tick and runs after the original rows,
 # no restart. Bugs caught: the bg loop never applies the spool; the added row runs before the pending ones.
 test_add_bg_pickup() {
     local tmp; tmp=$(mktemp -d)
@@ -1320,7 +1320,7 @@ test_live_by_name
 test_bg_launch_guard
 test_runner_lock_atomic
 test_runner_queue_chain_cut
+test_add_bg_pickup
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
-test_add_bg_pickup
