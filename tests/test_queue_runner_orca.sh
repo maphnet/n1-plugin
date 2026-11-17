@@ -665,15 +665,21 @@ test_orca_same_launch_reason_halts() {
 
 # N1-268 AC1. Bug caught (run 20261101T131600Z): halt() exited with a worker in flight; the worker merged its PR
 # unsupervised, its Runs row stayed blank and its identity sentinel stayed.
-test_orca_halt_keeps_supervising() {
-    local tmp; tmp=$(mktemp -d)
+# N1-619: halt_fixture <tmp> <repo-nwo> — the halt-supervise fixture; the stub gh answers pr view MERGED, repo view <repo-nwo>.
+halt_fixture() {
+    local tmp="$1"
     mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done" "T-D:done" "T-E:done"; mk_orca "$tmp"
     cfg_set "$tmp" '.queue.maxConcurrent = 3 | .queue.subtaskTimeoutMinutes = 5'
     echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"   # T-A: live worker at the halt
     printf '{"path":"/orca/wt/T-B"},{"path":"/orca/wt/T-C"},{"path":"/orca/wt/T-D"}' > "$tmp/fake/worktrees"   # three launch strikes
     printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/late"
     printf 'cp "%s" "%s"; rm -f "%s"\n' "$tmp/fake/late" "$tmp/n1home/memory/T-A/overview.md" "$tmp/fake/nodone.T-A" > "$tmp/fake/at.4"
-    printf '#!/bin/sh\ncase "$*" in *"pr view"*) echo MERGED ;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
+    printf '#!/bin/sh\ncase "$*" in *"pr view"*) echo MERGED ;; *"repo view"*) echo %s ;; esac\n' "$2" > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
+}
+
+test_orca_halt_keeps_supervising() {
+    local tmp; tmp=$(mktemp -d)
+    halt_fixture "$tmp" o/r
     assert_eq "orca-halt-supervise: final halt (exit 2)" "2" "$(run_orca_queue "$tmp")"
     assert_eq "orca-halt-supervise: step halted at the end" "halted" "$(n1_read_frontmatter "$tmp/queue.md" step)"
     assert_eq "orca-halt-supervise: drain announced once" "1" "$(grep -c '"halt_draining"' "$tmp/events.jsonl" || true)"
@@ -682,6 +688,17 @@ test_orca_halt_keeps_supervising() {
         "$(jq -r 'select((.event=="ticket_finished" and .outcome=="merged") or .event=="halted") | .event' "$tmp/events.jsonl" | tr '\n' ' ' | sed 's/ $//')"
     assert_eq "orca-halt-supervise: identity removed" "no" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
     assert_eq "orca-halt-supervise: no launch after the halt" "0" "$(grep -c 'task-T-E' "$tmp/fake/started" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-619. Bug caught: the worker-merge fallback recorded merged for a child-written PR URL of another repository.
+test_orca_halt_fallback_repo_mismatch() {
+    local tmp; tmp=$(mktemp -d)
+    halt_fixture "$tmp" x/y
+    assert_eq "orca-fallback-repo-mismatch: final halt (exit 2)" "2" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-fallback-repo-mismatch: not recorded merged" "no" "$([ "$(_n1_queue_run_outcome "$tmp/queue.md" T-A)" = merged ] && echo yes || echo no)"
+    assert_eq "orca-fallback-repo-mismatch: no merged event" "0" "$(jq -r 'select(.event=="ticket_finished" and .outcome=="merged") | .ticket' "$tmp/events.jsonl" | grep -c . || true)"
+    assert_eq "orca-fallback-repo-mismatch: row stays pr" "T-A" "$(n1_queue_pending_rows "$tmp/queue.md" pr | cut -f2 | grep -x T-A || true)"
     rm -rf "$tmp"
 }
 
@@ -1372,6 +1389,7 @@ test_orca_same_reason_one_strike
 test_orca_mixed_reasons_halt
 test_orca_same_launch_reason_halts
 test_orca_halt_keeps_supervising
+test_orca_halt_fallback_repo_mismatch
 test_orca_inbox_down_hard_halt
 test_orca_stop_marker
 test_orca_stop_marker_forged
