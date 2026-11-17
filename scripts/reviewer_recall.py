@@ -145,3 +145,135 @@ def load_cases(path):
     rows = read_jsonl(path)
     meta = next((r for r in rows if r.get("kind") == "meta"), {})
     return meta, [r for r in rows if r.get("kind") != "meta"]
+
+
+SHA_SOURCE = "telemetry step:review head (sha.tsv reviewhead)"
+TICKET_KEYS = ("replay_sha", "sha_source", "first_head_from", "branch_point", "diff_lines", "reachable")
+
+
+def git(repo, *args, check=True, timeout=120):
+    """git in repo through persona_ab.run_group (scrubbed env, own process group)."""
+    proc = ab.run_group(["git", *[str(a) for a in args]], str(repo), timeout, text=True)
+    if check and proc.returncode != 0:
+        raise RuntimeError(f"git {' '.join(map(str, args))} failed: {proc.stderr.strip()[-300:]}")
+    return proc
+
+
+def commit_exists(repo, sha):
+    return bool(sha) and git(repo, "cat-file", "-e", f"{sha}^{{commit}}", check=False).returncode == 0
+
+
+def diff_lines(repo, base, head):
+    """insertions + deletions of `git diff --shortstat base..head`."""
+    out = git(repo, "diff", "--shortstat", f"{base}..{head}").stdout
+    return sum(int(n) for n in re.findall(r"(\d+) (?:insertion|deletion)", out))
+
+
+def read_tsv(path):
+    """Data rows as lists, header skipped (sha.tsv repeats the `reach` column name, so index by position)."""
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    return [line.split("\t") for line in lines[1:] if line.strip()]
+
+
+def first_head_from(ticket_dir):
+    """`from` SHA of the earliest step:"head" event in telemetry/runs/*.jsonl, or None."""
+    events = []
+    for f in sorted((Path(ticket_dir) / "telemetry" / "runs").glob("*.jsonl")):
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(rec, dict):
+                continue
+            for s in rec.get("steps") or []:
+                meta = s.get("metadata") or {}
+                if s.get("step") == "head" and meta.get("from"):
+                    events.append((s.get("completed_at") or "~", meta["from"]))
+    return min(events)[1] if events else None
+
+
+def cmd_build(args):
+    if args.cases.exists() and not args.force:
+        print(f"{args.cases} exists; pass --force to rebuild (the test set must stay fixed)", file=sys.stderr)
+        return 1
+    classes = {r[0]: (r[1], r[2] if len(r) > 2 else "") for r in read_tsv(args.findings)}
+    tickets, findings = {}, []
+    for row in read_tsv(args.shas):
+        # sha.tsv columns: ticket, group (A case | C control), reviewhead, reach, codex7, reach, prefix, reach, branchpoint
+        ticket, group, sha = row[0], row[1], row[2].strip()
+        bp_file = args.memory_root / ticket / "branch-point"
+        bp = (bp_file.read_text(encoding="utf-8").strip() if bp_file.is_file() else "") or row[8].strip()
+        reachable = commit_exists(args.repo, sha) and commit_exists(args.repo, bp)
+        tickets[ticket] = {"group": group, "replay_sha": sha, "sha_source": SHA_SOURCE,
+                           "first_head_from": first_head_from(args.memory_root / ticket), "branch_point": bp,
+                           "diff_lines": diff_lines(args.repo, bp, sha) if reachable else None,
+                           "reachable": reachable}
+        if group != "A":
+            continue
+        triage = args.memory_root / ticket / "codex-triage.posted.md"
+        for f in parse_auto_fixed(triage.read_text(encoding="utf-8") if triage.is_file() else ""):
+            fid = f"{ticket}#{f['n']}"
+            cls, why = classes.get(fid, ("unknown", "not in findings.tsv"))
+            findings.append({"id": fid, "kind": "finding", "ticket": ticket, "class": cls,
+                             "answer_key": f["answer_key"], "severity": f["severity"], "file": f["file"],
+                             "codex_text": f["codex_text"], "evidence": why})
+    missed = sorted({f["ticket"] for f in findings if f["class"] == "missed" and tickets[f["ticket"]]["reachable"]})
+    candidates = {t: v["diff_lines"] for t, v in tickets.items() if v["group"] == "C" and v["reachable"]}
+    pairs, unmatched = match_controls({t: tickets[t]["diff_lines"] for t in missed}, candidates)
+    if len(missed) < args.min_pairs or len(pairs) < args.min_pairs:
+        print(f"need {args.min_pairs} missed tickets and matched controls; have {len(missed)} missed, "
+              f"{len(pairs)} pairs, unmatched {unmatched}", file=sys.stderr)
+        return 1
+    tune, _ = split_tickets(missed, args.seed, args.tune_frac)
+    split_of = {t: "tune" if t in tune else "test" for t in missed}
+    rows = [{"kind": "meta", "seed": args.seed, "tune_frac": args.tune_frac,
+             "built_with": git(REPO, "rev-parse", "HEAD").stdout.strip(), "unmatched": unmatched}]
+    for f in findings:
+        t = tickets[f["ticket"]]
+        rows.append({**f, **{k: t[k] for k in TICKET_KEYS}, "split": split_of.get(f["ticket"])})
+    for m, c in sorted(pairs.items()):
+        t = tickets[c]
+        rows.append({"id": c, "kind": "control", "ticket": c, **{k: t[k] for k in TICKET_KEYS},
+                     "matched_to": m, "delta_lines": t["diff_lines"] - tickets[m]["diff_lines"],
+                     "split": split_of[m]})
+    args.cases.parent.mkdir(parents=True, exist_ok=True)
+    args.cases.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    print(f"{args.cases}: {len(findings)} findings, {len(missed)} missed tickets, {len(pairs)} controls, "
+          f"tune {len(tune)} / test {len(missed) - len(tune)} tickets", file=sys.stderr)
+    return 0
+
+
+def add_repo_args(sp):
+    sp.add_argument("--repo", type=Path, default=REPO,
+                    help="git repo holding the replay SHAs (default: this checkout)")
+    sp.add_argument("--memory-root", type=Path, help="per-ticket memory root (default $N1_HOME/memory)")
+
+
+COMMANDS = {"build": cmd_build}
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description="Measure N1 code-reviewer recall against Codex Auto-Fixed findings.")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    b = sub.add_parser("build", help="write cases.jsonl")
+    b.add_argument("--findings", required=True, type=Path, help="findings.tsv (finding, class, rationale)")
+    b.add_argument("--shas", required=True, type=Path, help="sha.tsv (ticket, group A|C, reviewhead, ..., branchpoint)")
+    b.add_argument("--cases", required=True, type=Path)
+    b.add_argument("--seed", type=int, default=629)
+    b.add_argument("--tune-frac", type=float, default=0.5)
+    b.add_argument("--force", action="store_true", help="overwrite an existing cases.jsonl")
+    b.add_argument("--min-pairs", type=int, default=15, help=argparse.SUPPRESS)
+    add_repo_args(b)
+    args = p.parse_args(argv)
+    if getattr(args, "memory_root", False) is None:
+        if not os.environ.get("N1_HOME"):
+            p.error("set N1_HOME or pass --memory-root")
+        args.memory_root = Path(os.environ["N1_HOME"]) / "memory"
+    if getattr(args, "memory_root", None):
+        args.memory_root = args.memory_root.resolve()  # the reviewer runs with cwd=<worktree>
+    return COMMANDS[args.cmd](args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

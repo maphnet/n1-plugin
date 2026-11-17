@@ -82,5 +82,102 @@ class ParserTest(unittest.TestCase):
         self.assertEqual(rr.parse_auto_fixed("### Summary\nnothing\n"), [])
 
 
+GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@localhost", "-c", "commit.gpgsign=false",
+       "-c", "init.defaultBranch=main"]
+TRIAGE = ("## Codex\n\n### Auto-Fixed\n- [P1] Echo drops the last line (a.sh:2): fixed.\n"
+          "- **Second bug** (`a.sh`): fixed.\n\n### Dismissed by validator\n- none\n")
+
+
+def sh(cwd, *args):
+    return subprocess.run(GIT + [str(a) for a in args], cwd=cwd, check=True,
+                          capture_output=True, text=True).stdout.strip()
+
+
+def make_repo(root):
+    """Base commit, then a case commit (+2 lines) and a control commit (+3 lines vs base)."""
+    repo = root / "repo"
+    (repo / "agents").mkdir(parents=True)
+    sh(repo, "init", "-q")
+    (repo / "CLAUDE.md").write_text("# rules\n")
+    (repo / "agents" / "code-reviewer.md").write_text(
+        "---\nname: code-reviewer\ntools: Read, Grep, Glob, Write\neffort: high\n---\nReview the diff.\n")
+    (repo / "a.sh").write_text("echo a\n")
+    sh(repo, "add", "-A")
+    sh(repo, "commit", "-qm", "base")
+    base = sh(repo, "rev-parse", "HEAD")
+    (repo / "a.sh").write_text("echo a\necho b\necho c\n")
+    sh(repo, "commit", "-qam", "case change")
+    head_a = sh(repo, "rev-parse", "HEAD")
+    (repo / "a.sh").write_text("echo a\necho b\necho c\necho d\n")
+    sh(repo, "commit", "-qam", "control change")
+    return repo, base, head_a, sh(repo, "rev-parse", "HEAD")
+
+
+def make_memory(root, base):
+    mem = root / "memory"
+    for t in ("N1-1", "N1-2"):
+        (mem / t).mkdir(parents=True)
+        (mem / t / "branch-point").write_text(base + "\n")
+    (mem / "N1-1" / "codex-triage.posted.md").write_text(TRIAGE)
+    (mem / "N1-1" / "ticket.md").write_text("# ticket\n")
+    runs = mem / "N1-1" / "telemetry" / "runs"
+    runs.mkdir(parents=True)
+    (runs / "r.jsonl").write_text(json.dumps({"steps": [
+        {"step": "head", "completed_at": "2026-01-02T00:00:00Z", "metadata": {"head": "x", "from": "late"}},
+        {"step": "head", "completed_at": "2026-01-01T00:00:00Z", "metadata": {"head": "y", "from": "early"}}]}) + "\n")
+    return mem
+
+
+class Fixture(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="rr-test-"))
+        self.addCleanup(shutil.rmtree, str(self.tmp), True)
+        self.repo, self.base, self.head_a, self.head_c = make_repo(self.tmp)
+        self.mem = make_memory(self.tmp, self.base)
+        self.findings = self.tmp / "findings.tsv"
+        self.findings.write_text("finding\tclass\trationale\nN1-1#1\tmissed\tnot listed\nN1-1#2\tcaught\tCR-1 same bug\n")
+        self.shas = self.tmp / "sha.tsv"
+        self.shas.write_text("ticket\tgroup\treviewhead\treach\tcodex7\treach\tprefix\treach\tbranchpoint\n"
+                             f"N1-1\tA\t{self.head_a}\tY\t\tN\t\tN\t{self.base}\n"
+                             f"N1-2\tC\t{self.head_c}\tY\t\tN\t\tN\t{self.base}\n")
+        self.cases = self.tmp / "cases.jsonl"
+
+    def run_main(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = rr.main([str(a) for a in argv])
+        return rc, out.getvalue(), err.getvalue()
+
+    def build(self, *extra):
+        return self.run_main("build", "--findings", self.findings, "--shas", self.shas, "--cases", self.cases,
+                             "--min-pairs", "1", "--repo", self.repo, "--memory-root", self.mem, *extra)
+
+
+class BuildTest(Fixture):
+    def test_build_case_file(self):
+        # Bugs caught: diff size measured on the wrong range (bad size matching); answer key or
+        # severity not taken from the triage block; replay SHA source or first head-event `from`
+        # missing (AC1/D4); test set silently rebuilt without --force; shortfall below 15 accepted.
+        rc, _, err = self.build()
+        self.assertEqual(rc, 0, err)
+        meta, rows = rr.load_cases(self.cases)
+        self.assertEqual(meta["seed"], 629)
+        f1, f2, ctl = rows
+        self.assertEqual((f1["id"], f1["class"], f1["severity"], f1["answer_key"]),
+                         ("N1-1#1", "missed", "P1", "Echo drops the last line (a.sh:2)"))
+        self.assertEqual((f1["replay_sha"], f1["branch_point"], f1["diff_lines"], f1["reachable"]),
+                         (self.head_a, self.base, 2, True))
+        self.assertEqual((f1["first_head_from"], f1["split"]), ("early", "test"))
+        self.assertIn("step:review", f1["sha_source"])
+        self.assertEqual((f2["class"], f2["severity"], f2["split"]), ("caught", None, "test"))
+        self.assertEqual((ctl["kind"], ctl["ticket"], ctl["matched_to"], ctl["diff_lines"], ctl["delta_lines"], ctl["split"]),
+                         ("control", "N1-2", "N1-1", 3, 1, "test"))
+        self.assertEqual(self.build()[0], 1)
+        self.assertEqual(self.build("--force")[0], 0)
+        self.cases = self.tmp / "short.jsonl"
+        self.assertEqual(self.build("--min-pairs", "15")[0], 1)
+        self.assertFalse(self.cases.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
