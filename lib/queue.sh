@@ -1745,6 +1745,70 @@ n1_queue_active_ids() {
     return 0
 }
 
+_n1_queue_add_check() {
+    # Usage: _n1_queue_add_check <queue.md> <KEY> <reason> <repo> <n1home> <model> — N1-617: shared by the skill-side
+    # stage and the runner-side apply. Prints a refusal token and returns 1, or returns 0. Duplicate = a Plan row
+    # (any status) or an ## Excluded row for KEY. A Reason "blocked_on <ID>" needs <ID> to have a Plan row that is not
+    # failed/escalated/skip (n1_queue_held_sweep never releases those). Repo and N1 Home must equal an existing row's
+    # pair (story branches and release_backstop assume the start-time repos).
+    local q="$1" k="$2" b st
+    if awk -F'|' -v k="$k" '/^## /{ s = $0 }
+        /^\|/ && s == "## Plan" { c = $3; n = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); gsub(/^[[:space:]]+|[[:space:]]+$/, "", n); if (n ~ /^[0-9]+$/ && c == k) f = 1 }
+        /^\|/ && s == "## Excluded" { for (i = 2; i < NF; i++) { c = $i; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); if (c == k) f = 1 } }
+        END { exit !f }' "$q"; then echo duplicate; return 1; fi
+    b=$(printf '%s' "$3" | sed -n 's/^blocked_on \([A-Za-z0-9_-]*\).*/\1/p')
+    if [ -n "$b" ]; then
+        st=$(n1_queue_ticket_status "$q" "$b")
+        [ -n "$st" ] || { echo "blocker-not-in-queue $b"; return 1; }
+        case "$st" in failed|escalated|skip) echo "blocker-closed $b"; return 1 ;; esac
+    fi
+    R="$4" H="$5" awk -F'\t' '$3 == ENVIRON["R"] && $4 == ENVIRON["H"] { f = 1 } END { exit !f }' \
+        < <(n1_queue_pending_rows "$q" '.*') || { echo repo-not-in-queue; return 1; }
+    [[ "$6" =~ ^[A-Za-z0-9._-]+$ ]] || { echo invalid-model; return 1; }
+    return 0
+}
+
+n1_queue_add_stage() {
+    # Usage: n1_queue_add_stage <queue.md> <KEY> <cells-file> — N1-617 (skill side of --add): validate one ticket and
+    # stage it at <queue-dir>/.add/<KEY>.row for the runner (n1_queue_apply_adds). <cells-file> holds one line of 10
+    # tab fields: Title Repo N1Home Model Reason Touches Order Pre-Decision DescChecksum Notes (free text written by the
+    # file-write mechanism, never a shell argument). Every field is sanitized. Title and Desc Checksum come from
+    # desc/<KEY>.title|txt when present (as run.md § Write plan). The claim is a hard link: a second stage of the same
+    # key fails with EEXIST. Never touches queue.md.
+    local q="$1" k="$2" src="$3" dir id line i tmp why
+    local -a c=()
+    [[ "$k" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] || { echo "n1-queue: invalid ticket id: $k" >&2; return 1; }
+    [ -f "$q" ] && [ -f "$src" ] || { echo "n1-queue: $k: queue or cells file missing" >&2; return 1; }
+    dir=$(dirname -- "$q"); id=$(n1_read_frontmatter "$q" queue_id); id="${id:-$(basename -- "$dir")}"
+    IFS= read -r line < "$src" || [ -n "$line" ] || { echo "n1-queue: $k: empty cells file" >&2; return 1; }
+    for i in 1 2 3 4 5 6 7 8 9 10; do c+=("$(_n1_queue_sanitize_cell "$(printf '%s' "$line" | cut -f"$i")")"); done
+    [ -f "$dir/desc/$k.title" ] && c[0]=$(_n1_queue_sanitize_cell "$(cat "$dir/desc/$k.title")") \
+        && c[8]=$(_n1_queue_sanitize_cell "$(n1_queue_content_hash "$dir/desc/$k.title" "$dir/desc/$k.txt" 2>/dev/null)")
+    if ! why=$(_n1_queue_add_check "$q" "$k" "${c[4]}" "${c[1]}" "${c[2]}" "${c[3]}"); then
+        case "$why" in
+            duplicate) echo "n1-queue: $k is already in queue $id" >&2 ;;
+            blocker-not-in-queue*) echo "n1-queue: $k is blocked by ${why#* } (not in queue)" >&2 ;;
+            blocker-closed*) echo "n1-queue: $k is blocked by ${why#* }, which is failed, escalated or skipped in queue $id" >&2 ;;
+            repo-not-in-queue) echo "n1-queue: $k resolves to a repo or N1 Home not in queue $id" >&2 ;;
+            *) echo "n1-queue: $k has an invalid model" >&2 ;;
+        esac
+        return 1
+    fi
+    mkdir -p "$dir/.add" || return 1
+    tmp=$(mktemp "$dir/.add/.tmp.XXXXXX") || return 1
+    (IFS=$'\t'; printf '%s\n' "${c[*]}") > "$tmp"
+    if ! ln "$tmp" "$dir/.add/$k.row" 2>/dev/null; then
+        rm -f "$tmp"; echo "n1-queue: $k is already being added to queue $id" >&2; return 1
+    fi
+    rm -f "$tmp"
+    # The runner sweeps .add/ right after it writes step done or halted. A claim made after the gate but before that
+    # write is swept; a claim made after it would be orphaned, so re-read the step once the file exists.
+    case "$(n1_read_frontmatter "$q" step)" in done|halted)
+        rm -f "$dir/.add/$k.row"; echo "n1-queue: queue $id is no longer running; $k was not added" >&2; return 1 ;;
+    esac
+    echo "Add queued: $k (the runner appends it within queue.pollSeconds)"
+}
+
 n1_queue_rerun_release() {
     # Usage: n1_queue_rerun_release <queue.md> < done-keys — N1-536 (--run on a done, halted or interrupted queue).
     # stdin: ticket keys whose tracker status is done-class (run.md reads the tracker; this helper never does).

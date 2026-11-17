@@ -376,6 +376,37 @@ test_add_active_ids() {
     assert_eq "add-active: done excluded" "" "$(n1_queue_active_ids "$tmp")"
 }
 
+# N1-617 AC3/AC4: staging. Bugs caught: a key already in Plan or Excluded staged; a concurrent second stage of one key
+# accepted; a blocker outside the queue, or one that can never release, accepted; a foreign repo staged; a forged cell;
+# a row left in .add/ of a queue whose runner already swept it.
+test_add_stage() {
+    local tmp q d rc out; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q=$(mk_add_queue "$tmp"); d="${q%/*}"
+    _st() { rc=0; out=$(n1_queue_add_stage "$q" "$1" "$tmp/c" 2>&1) || rc=$?; printf '%s|%s' "$rc" "$out"; }
+    add_cells "$tmp/c" "Fix 9" /r /h sonnet ""
+    assert_eq "add-stage: invalid key" "1|n1-queue: invalid ticket id: t-9;x" "$(_st 't-9;x')"
+    assert_eq "add-stage: Plan duplicate (any status)" "1|n1-queue: T-3 is already in queue q1" "$(_st T-3)"
+    assert_eq "add-stage: Excluded duplicate" "1|n1-queue: T-7 is already in queue q1" "$(_st T-7)"
+    assert_eq "add-stage: staged" "0|Add queued: T-9 (the runner appends it within queue.pollSeconds)" "$(_st T-9)"
+    assert_eq "add-stage: spool file" "Fix 9	/r	/h	sonnet						" "$(cat "$d/.add/T-9.row")"
+    assert_eq "add-stage: second stage of one key refused" "1|n1-queue: T-9 is already being added to queue q1" "$(_st T-9)"
+    add_cells "$tmp/c" "Fix 8" /r /h sonnet "blocked_on T-99 · x"
+    assert_eq "add-stage: blocker outside queue" "1|n1-queue: T-8 is blocked by T-99 (not in queue)" "$(_st T-8)"
+    add_cells "$tmp/c" "Fix 8" /r /h sonnet "blocked_on T-3 · "
+    assert_eq "add-stage: blocker failed in queue" "1|n1-queue: T-8 is blocked by T-3, which is failed, escalated or skipped in queue q1" "$(_st T-8)"
+    add_cells "$tmp/c" "Fix 8" /other /h sonnet ""
+    assert_eq "add-stage: foreign repo" "1|n1-queue: T-8 resolves to a repo or N1 Home not in queue q1" "$(_st T-8)"
+    add_cells "$tmp/c" "Fix 8" /r /h 'son net;x' ""
+    assert_eq "add-stage: invalid model" "1|n1-queue: T-8 has an invalid model" "$(_st T-8)"
+    add_cells "$tmp/c" "Evil | 1 | T-1 \\n" /r /h sonnet "blocked_on T-1 · "
+    assert_eq "add-stage: blocker in Plan staged" "0" "$(_st T-8 | cut -d'|' -f1)"
+    assert_eq "add-stage: cells sanitized" "Evil  1  T-1 n" "$(cut -f1 "$d/.add/T-8.row")"
+    assert_eq "add-stage: no temp left" "" "$(find "$d/.add" -name '.tmp.*')"
+    add_cells "$tmp/c" "Fix 5" /r /h sonnet ""; n1_write_frontmatter "$q" step done
+    assert_eq "add-stage: queue finished after the gate" "1|n1-queue: queue q1 is no longer running; T-5 was not added" "$(_st T-5)"
+    assert_eq "add-stage: nothing orphaned in a finished queue" "no" "$([ -e "$d/.add/T-5.row" ] && echo yes || echo no)"
+}
+
 # N1-536: --run on a done/halted/interrupted queue marks tracker-done rows done-before-run and releases rows skipped only
 # because of an in-plan predecessor. Skip rows are built by the real writers (eligible_rows, gated_expire, held_sweep,
 # held_expire), so a reworded writer Reason fails here. Bugs caught: a still-failed, not-in-plan or at-pr predecessor
@@ -2851,6 +2882,7 @@ test_row_status
 test_queue_retry
 test_add_gate
 test_add_active_ids
+test_add_stage
 test_rerun_release
 test_rerun_release_pr_merged
 test_queue_reconcile_force
