@@ -385,6 +385,7 @@ test_add_wiring() {
     assert_eq "add-wiring: description usage offers --add" "yes" "$(grep -q '^description:.*\[--add \[<id>\] <ticket|url>\.\.\.\]' "$s/SKILL.md" && echo yes || echo no)"
     assert_eq "add-wiring: step 1 routes --add" "yes" "$(_hasF 'If `--add`: read and follow `<N1_ROOT>/skills/n1-queue/steps/add.md`. **STOP.**' "$s/SKILL.md")"
     assert_eq "add-wiring: input.md lists the operands" "yes" "$(_hasF '`--add [<id>] <ticket|url>...`' "$s/steps/input.md")"
+    assert_eq "add-wiring: URL resolved from a single-quoted word" "yes|no" "$(_hasF "for ITEM in '<OPERAND_1>'" "$s/steps/add.md")|$(_hasF 'n1_extract_ticket_from_url "<url>"' "$s/steps/add.md")"
     assert_eq "add-wiring: step gates the queue" "yes" "$(_hasF 'n1_queue_add_gate "$QUEUE_FILE"' "$s/steps/add.md")"
     assert_eq "add-wiring: step resolves an omitted id" "yes" "$(_hasF 'n1_queue_active_ids "$N1_HOME"' "$s/steps/add.md")"
     assert_eq "add-wiring: step stages" "yes" "$(_hasF 'n1_queue_add_stage "$QUEUE_FILE"' "$s/steps/add.md")"

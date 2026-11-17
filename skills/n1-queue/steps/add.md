@@ -4,7 +4,21 @@ Appends tickets to a running list or tag queue. Restarting the runner is not nee
 
 ## 1. Operands
 
-Operands are the tokens after `--add`. The first operand is the queue id only when at least one more operand follows, it matches `^[A-Za-z0-9][A-Za-z0-9._-]*$` and `$N1_HOME/queue/<operand>/queue.md` exists (a story queue id looks like a ticket key, so a lone operand is always a ticket). All other operands are tickets. Resolve a tracker URL with `n1_extract_ticket_from_url "<url>" "$N1_HOME/config.json"` and uppercase every key. A key that does not match `^[A-Z][A-Z0-9_]*-[0-9]+$` is refused: "Invalid ticket id or unknown queue: <token>." With no valid ticket left, print "Usage: /n1:n1-queue --add [<id>] <ticket|url>..." **STOP.**
+Operands are the tokens after `--add`. The first operand is the queue id only when at least one more operand follows, it matches `^[A-Za-z0-9][A-Za-z0-9._-]*$` and `$N1_HOME/queue/<operand>/queue.md` exists (a story queue id looks like a ticket key, so a lone operand is always a ticket). All other operands are tickets. A token that contains `'` is prose and is never passed to bash. Resolve the other operands in one bash call, one single-quoted word per operand (candidate operands only: the first one is dropped from the list when it is the queue id):
+
+```bash
+source ~/.n1/preamble.sh
+KEYS=""; BAD=""
+for ITEM in '<OPERAND_1>' '<OPERAND_2>'; do
+  case "$ITEM" in http://*|https://*) K=$(n1_extract_ticket_from_url "$ITEM" "$N1_HOME/config.json") || K="" ;; *) K="$ITEM" ;; esac
+  K="${K^^}"
+  if [[ "$K" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]]; then case " $KEYS " in *" $K "*) ;; *) KEYS="$KEYS $K" ;; esac
+  else BAD="$BAD ${ITEM//[^A-Za-z0-9._:-]/_}"; fi
+done
+echo "KEYS=$KEYS"; echo "BAD=$BAD"
+```
+
+`KEYS` keeps the given order with duplicates dropped. Each `BAD` item (sanitized form) is refused: "Invalid ticket id or unknown queue: <item>." With no `KEYS`, print "Usage: /n1:n1-queue --add [<id>] <ticket|url>..." **STOP.**
 
 ```bash
 source ~/.n1/preamble.sh
@@ -33,11 +47,11 @@ On a non-zero exit, relay the line as is. The queue may be unknown, story mode, 
 Apply the list-mode checks of `<N1_ROOT>/skills/n1-queue/steps/intake.md` to each ticket. Refuse a ticket with a one-line reason, and keep going with the next ticket:
 - **Readable and open:** the ticket is read with the tracker read operation. A ticket that is not found, or has a done-class status, is refused (`not found`, `already done`).
 - **Story check:** a Story or Epic is refused: `is a Story/Epic; run it with --story <ID>`.
-- **Blocker check:** follow `<N1_ROOT>/references/blocker-check.md`. If there are no open blockers, Reason is empty. If there is exactly one open blocker and it has a Plan row in this queue, Reason is `blocked_on <ID> · ` (the row starts `held`). Any other blocker is refused: `blocked by <ID> (not in queue)`.
+- **Blocker check:** follow `<N1_ROOT>/references/blocker-check.md`. If there are no open blockers, Reason is empty. If there is exactly one open blocker and it has a Plan row in this queue, Reason is `blocked_on <ID> · ` (the row starts `held`). A blocker that has no Plan row in this queue is refused: `blocked by <ID> (not in queue)`. Two or more open blockers are refused: `blocked by <ID>, <ID> (more than one open blocker)`.
 - **Description quality:** apply intake.md § Description quality (a `Refined by N1` block counts as Adequate). Poor is refused: `description quality Poor; run /n1:n1-refine <KEY> first`. No interactive repair.
 - **Model, Repo and N1 Home:** as intake.md resolves them for this queue's mode. A Repo or N1 Home pair that no existing Plan row has is refused at staging.
 
-Then run `<N1_ROOT>/skills/n1-queue/steps/preview.md` § Plan-Resolve step 1 (brief and description snapshot) for the accepted tickets only; it writes `desc/<KEY>.title|txt`. Skip the rest of Plan-Resolve: step 2 (duplicates; the stage helper checks), step 3 (overlap order) and step 4 (stop-list pre-scan, which asks the user one question per flagged ticket and would break the never-ask rule). Pre-Decision stays empty, the default "ask at runtime" behavior: the child pauses on a security, architecture or public-API escalation, as today.
+Then run `<N1_ROOT>/skills/n1-queue/steps/preview.md` § Plan-Resolve step 1 (brief and description snapshot) for the accepted tickets only; it writes `desc/<KEY>.title|txt`. Its ` · repaired` and ` · briefed` Reason suffixes are not copied into the staged Reason cell; Reason holds only the `blocked_on <ID> · ` prefix or stays empty. Skip the rest of Plan-Resolve: step 2 (duplicates; the stage helper checks), step 3 (overlap order) and step 4 (stop-list pre-scan, which asks the user one question per flagged ticket and would break the never-ask rule). Pre-Decision stays empty, the default "ask at runtime" behavior: the child pauses on a security, architecture or public-API escalation, as today.
 
 ## 4. Stage
 
