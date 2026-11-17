@@ -156,6 +156,7 @@ merged_sweep_run() {   # <tmp> <worker-list liveness verdict>: T-A pr (GitHub UR
     touch "$tmp/fake/nodone.T-A"
     printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
     echo OPEN > "$tmp/fake/gh-state"
+    echo o/r > "$tmp/fake/gh-repo"   # N1-609: reconcile checks the PR belongs to the row's repo, so fake gh must answer repo view
     orca_msg escalation task-T-A m-stop1 finished "Worker stopped without reporting" "Worker ended its turn" > "$tmp/fake/q.stop"
     printf 'cp "%s" "%s"; echo MERGED > "%s"\n' "$tmp/fake/q.stop" "$tmp/fake/question" "$tmp/fake/gh-state" > "$tmp/fake/at.3"
     # $3 = idle (ticket memory old) or active (a resumed worker keeps writing it, so it is fresh)
