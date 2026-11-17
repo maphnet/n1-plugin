@@ -483,7 +483,152 @@ def cmd_grade(args):
     return 2 if rejected else 0
 
 
-COMMANDS = {"build": cmd_build, "replay": cmd_replay, "grade": cmd_grade}
+def compute_report(meta, cases, replays, grades, manual):
+    """Pure aggregation, no claude calls. Raises ValueError when replay rows mix persona commits."""
+    commits = sorted({r["persona_commit"] for r in replays if r.get("persona_commit")})
+    if len(commits) > 1:
+        raise ValueError(f"replay rows mix persona commits {commits}; report one persona version at a time")
+    findings = [c for c in cases if c["kind"] == "finding"]
+    missed = [c for c in findings if c["class"] == "missed"]
+    cls = Counter(c["class"] for c in findings)
+    n_final = cls["caught"] + cls["missed"]
+    final = {"caught": cls["caught"], "missed": cls["missed"], "partial": cls["partial"],
+             "unknown": cls["unknown"], "n": n_final, "ci": list(wilson(cls["caught"], n_final))}
+    ok_grades = {g["id"]: g for g in grades if g.get("status") == "ok"}
+    ok = [r for r in replays if r.get("status") == "ok"]
+    raw, over = {}, {}
+    for s in ("tune", "test"):
+        vs = [ok_grades[c["id"]]["verdict"] for c in missed if c.get("split") == s and c["id"] in ok_grades]
+        k, m = vs.count("caught"), vs.count("missed")
+        raw[s] = {"total": sum(1 for c in missed if c.get("split") == s), "caught": k, "n": k + m,
+                  "partial": vs.count("partial"), "ci": list(wilson(k, k + m))}
+        for kind in ("control", "missed"):
+            ns = [r["n_findings"] for r in ok if r.get("split") == s and r["kind"] == kind and not r.get("unparsed")]
+            over[f"{s}_{kind}"] = {"tickets": len(ns), "mean": statistics.mean(ns) if ns else None,
+                                   "median": ab._median(ns)}
+    by_file = {}
+    for c in missed:
+        if c.get("file"):
+            by_file.setdefault(c["file"].split(":")[0], []).append(c)
+    recurring = {f: sorted(c["id"] for c in cs) for f, cs in sorted(by_file.items())
+                 if len({c["ticket"] for c in cs}) >= 2}
+    lines_of = {c["ticket"]: c.get("diff_lines") for c in findings}
+    pairs = [{"missed": c["matched_to"], "control": c["ticket"], "split": c.get("split"),
+              "missed_lines": lines_of.get(c["matched_to"]), "control_lines": c.get("diff_lines"),
+              "delta": c.get("delta_lines")} for c in cases if c["kind"] == "control"]
+    exclusions = {
+        "unreachable": sorted({c["ticket"] for c in cases if c.get("reachable") is False}
+                              | {r["id"] for r in replays if r.get("status") == "unreachable"}),
+        "replay_error": sorted(r["id"] for r in replays if r.get("status") in ("error", "timeout")),
+        "unparsed": sorted(r["id"] for r in ok if r.get("unparsed")),
+        "judge_error": sorted(g["id"] for g in grades if g.get("status") != "ok")}
+    persona = next((r for r in replays if r.get("persona_commit")), {})
+    return {"persona_commit": persona.get("persona_commit"), "persona_sha256": persona.get("persona_sha256"),
+            "seed": meta.get("seed"), "tune_frac": meta.get("tune_frac"),
+            "split_tickets": {s: len({c["ticket"] for c in missed if c.get("split") == s}) for s in ("tune", "test")},
+            "final": final, "raw": raw, "overflag": over, "pairs": pairs, "recurring": recurring,
+            "exclusions": exclusions, "manual": manual,
+            "cost_usd": {"replay": round(sum(r.get("cost_usd") or 0 for r in replays), 4),
+                         "judge": round(sum(g.get("cost_usd") or 0 for g in grades), 4)}}
+
+
+def _num(x):
+    return "-" if x is None else f"{x:.2f}"
+
+
+def _rate(k, n, ci):
+    if not n:
+        return f"{k}/0 (no denominator)"
+    return f"{k}/{n} = {k / n:.0%} (95% Wilson {ci[0]:.0%} to {ci[1]:.0%})"
+
+
+def manual_line(manual):
+    if not manual:
+        return "manual check: pending (run grade first)"
+    if manual.get("disagreements") is None:
+        return (f"manual check: pending (confirm the {manual['sample']} verdicts in grade-sample.md, "
+                "then write the disagreement count to grade-sample.confirmed)")
+    return f"manual check: {manual['sample'] - manual['disagreements']}/{manual['sample']} agree"
+
+
+def render_report(rep, cases, grades):
+    f, raw, ov = rep["final"], rep["raw"], rep["overflag"]
+    g_by = {g["id"]: g for g in grades}
+    L = ["# Reviewer recall report (N1-629)", "",
+         f"- Persona commit: {rep['persona_commit']} (sha256 {rep['persona_sha256']})",
+         f"- Replay run: {rep.get('run_dir')}",
+         f"- Script commit: {rep.get('script_commit')}",
+         f"- Seed {rep['seed']}, tune_frac {rep['tune_frac']}; missed tickets tune {rep['split_tickets']['tune']}, "
+         f"test {rep['split_tickets']['test']}; missed findings tune {raw['tune']['total']}, test {raw['test']['total']}",
+         "", "## Final-verdict recall (stored review history)", "",
+         f"caught / (caught + missed): {_rate(f['caught'], f['n'], f['ci'])}. "
+         f"Excluded from the denominator: partial {f['partial']}, unknown {f['unknown']}. "
+         "Cycle-0 reviewer text was overwritten for many tickets, so `missed` is an upper bound.",
+         "", "## Raw recall (replay, current persona)", "",
+         "Conditional on a historical miss: the share of earlier misses the current reviewer now catches. "
+         "Headline: test split.", ""]
+    for s in ("test", "tune"):
+        r = raw[s]
+        L.append(f"- {s}: {_rate(r['caught'], r['n'], r['ci'])}; partial verdicts (excluded): {r['partial']}")
+    L += ["", "## Control over-flag rate (findings per ticket)", "",
+          "| split | controls mean (n) | controls median | missed-ticket mean (n) | missed-ticket median |",
+          "|---|---|---|---|---|"]
+    for s in ("test", "tune"):
+        c, m = ov[f"{s}_control"], ov[f"{s}_missed"]
+        L.append(f"| {s} | {_num(c['mean'])} ({c['tickets']}) | {_num(c['median'])} | "
+                 f"{_num(m['mean'])} ({m['tickets']}) | {_num(m['median'])} |")
+    L += ["", "| missed ticket | control | split | diff lines missed / control | delta |", "|---|---|---|---|---|"]
+    for p in rep["pairs"]:
+        L.append(f"| {p['missed']} | {p['control']} | {p['split']} | {p['missed_lines']} / {p['control_lines']} | {p['delta']} |")
+    L += ["", "## Per-case results", "", "| id | class | split | severity | replay verdict | reason | judge cost |",
+          "|---|---|---|---|---|---|---|"]
+    for c in (c for c in cases if c["kind"] == "finding"):
+        g = g_by.get(c["id"], {})
+        L.append(f"| {c['id']} | {c['class']} | {c.get('split') or '-'} | {c.get('severity') or '-'} | "
+                 f"{g.get('verdict') or '-'} | {(g.get('reason') or '').replace('|', '/')} | {_num(g.get('cost_usd'))} |")
+    L += ["", "## Exclusions", ""]
+    for k, ids in rep["exclusions"].items():
+        L.append(f"- {k}: {', '.join(ids) if ids else 'none'}")
+    L += ["", "## Costs and caveats", "",
+          f"- Cost USD: replay {rep['cost_usd']['replay']}, judge {rep['cost_usd']['judge']}",
+          f"- {manual_line(rep['manual'])}",
+          "- The judge model grades the same model family as the reviewer (self-grading bias); the manual sample is the check.",
+          "- Test n is small, so Wilson intervals are wide and cannot detect a small persona change.",
+          "- Replay gives the reviewer a pre-computed diff and no Bash, unlike live dispatch; ~/.claude/CLAUDE.md still loads.",
+          "- Replay inputs omit implementation.md and qa.md (they can carry post-review fix text), so the "
+          "test-weakening guard sees no citation and can add findings on missed and control tickets alike.",
+          "", "## Recurring misses (same file in 2+ tickets)", ""]
+    L += [f"- {f}: {', '.join(ids)}" for f, ids in rep["recurring"].items()] or ["- none"]
+    return "\n".join(L) + "\n"
+
+
+def cmd_report(args):
+    meta, cases = load_cases(args.cases)
+    run_dir = Path(args.replay)
+    replays, grades = read_jsonl(run_dir / "replay.jsonl"), read_jsonl(run_dir / "grades.jsonl")
+    manual = None
+    sample, confirmed = run_dir / "grade-sample.md", run_dir / "grade-sample.confirmed"
+    if sample.is_file():
+        m = re.match(r"sample: (\d+)", sample.read_text(encoding="utf-8"))
+        manual = {"sample": int(m.group(1)) if m else 0, "disagreements": None}
+        if confirmed.is_file():
+            d = re.match(r"\s*(\d+)", confirmed.read_text(encoding="utf-8"))
+            manual["disagreements"] = int(d.group(1)) if d else None
+    try:
+        rep = compute_report(meta, cases, replays, grades, manual)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 1
+    rep["run_dir"] = str(run_dir)
+    rep["script_commit"] = git(REPO, "rev-parse", "HEAD").stdout.strip()
+    args.report_out.parent.mkdir(parents=True, exist_ok=True)
+    args.report_out.write_text(render_report(rep, cases, grades), encoding="utf-8")
+    args.report_out.with_suffix(".json").write_text(json.dumps(rep, indent=2) + "\n", encoding="utf-8")
+    print(args.report_out)
+    return 0
+
+
+COMMANDS = {"build": cmd_build, "replay": cmd_replay, "grade": cmd_grade, "report": cmd_report}
 
 
 def main(argv=None):
@@ -520,6 +665,10 @@ def main(argv=None):
     g.add_argument("--timeout", type=int, default=180, help="seconds per judge call")
     g.add_argument("--max-budget-usd", type=float, default=0.5, help="spend cap per judge call")
     g.add_argument("--claude", default="claude", help=argparse.SUPPRESS)
+    rp = sub.add_parser("report", help="write report.md and report.json (no claude calls)")
+    rp.add_argument("--cases", required=True, type=Path)
+    rp.add_argument("--replay", required=True, type=Path, help="replay run dir holding replay.jsonl and grades.jsonl")
+    rp.add_argument("--report-out", required=True, type=Path, help="report .md path; .json is written beside it")
     args = p.parse_args(argv)
     if getattr(args, "memory_root", False) is None:
         if not os.environ.get("N1_HOME"):

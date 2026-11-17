@@ -304,5 +304,69 @@ class GradeTest(ClaudeFixture):
         self.assertEqual((g["status"], g["verdict"]), ("error", None))
 
 
+def finding(fid, cls, split, file="lib/q.sh:1"):
+    return {"id": fid, "kind": "finding", "ticket": fid.split("#")[0], "class": cls, "split": split,
+            "answer_key": "k", "codex_text": "c", "severity": "P2", "file": file, "diff_lines": 10}
+
+
+def replay_row(t, kind, split, n):
+    return {"id": t, "ticket": t, "kind": kind, "split": split, "status": "ok", "n_findings": n,
+            "unparsed": False, "persona_commit": "abc", "persona_sha256": "f" * 64, "cost_usd": 0.5}
+
+
+class ReportTest(unittest.TestCase):
+    def fixture(self):
+        meta = {"kind": "meta", "seed": 629, "tune_frac": 0.5}
+        cases = [finding("N1-1#1", "missed", "test"), finding("N1-2#1", "missed", "test", "lib/q.sh"),
+                 finding("N1-3#1", "missed", "tune", "x.sh"), finding("N1-4#1", "caught", None),
+                 finding("N1-5#1", "partial", None), finding("N1-6#1", "unknown", None),
+                 {"id": "N1-9", "kind": "control", "ticket": "N1-9", "split": "test", "matched_to": "N1-1",
+                  "diff_lines": 12, "delta_lines": 2, "reachable": True}]
+        replays = [replay_row("N1-1", "missed", "test", 2), replay_row("N1-2", "missed", "test", 4),
+                   replay_row("N1-3", "missed", "tune", 1), replay_row("N1-9", "control", "test", 3)]
+        grades = [{"id": "N1-1#1", "status": "ok", "verdict": "caught", "reason": "same", "cost_usd": 0.1},
+                  {"id": "N1-2#1", "status": "ok", "verdict": "missed", "reason": "other", "cost_usd": 0.1},
+                  {"id": "N1-3#1", "status": "error", "verdict": None, "reason": None, "cost_usd": 0.1}]
+        return meta, cases, replays, grades
+
+    def test_recall_overflag_exclusions(self):
+        # Bugs caught: partial/unknown or judge errors entering a denominator (D3); tune and test
+        # pooled; controls mixed into recall; recurring-miss list (AC5 input) grouping by full
+        # file:line instead of file; two persona versions silently pooled in one report (D6).
+        meta, cases, replays, grades = self.fixture()
+        r = rr.compute_report(meta, cases, replays, grades, None)
+        self.assertEqual((r["final"]["caught"], r["final"]["n"], r["final"]["partial"], r["final"]["unknown"]), (1, 4, 1, 1))
+        self.assertEqual((r["raw"]["test"]["caught"], r["raw"]["test"]["n"]), (1, 2))
+        self.assertEqual(r["raw"]["test"]["ci"], list(rr.wilson(1, 2)))
+        self.assertEqual(r["raw"]["tune"]["n"], 0)
+        self.assertEqual(r["exclusions"]["judge_error"], ["N1-3#1"])
+        self.assertEqual((r["overflag"]["test_control"]["mean"], r["overflag"]["test_missed"]["mean"]), (3, 3))
+        self.assertEqual(r["recurring"], {"lib/q.sh": ["N1-1#1", "N1-2#1"]})
+        replays[0]["persona_commit"] = "other"
+        with self.assertRaises(ValueError):
+            rr.compute_report(meta, cases, replays, grades, None)
+
+    def test_cli_report_and_manual_check_status(self):
+        # Bug caught: the manual check (D5) reported as done before a human confirmed the sample.
+        meta, cases, replays, grades = self.fixture()
+        tmp = Path(tempfile.mkdtemp(prefix="rr-report-"))
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        (tmp / "cases.jsonl").write_text("".join(json.dumps(r) + "\n" for r in [meta] + cases))
+        run = tmp / "run"
+        run.mkdir()
+        (run / "replay.jsonl").write_text("".join(json.dumps(r) + "\n" for r in replays))
+        (run / "grades.jsonl").write_text("".join(json.dumps(r) + "\n" for r in grades))
+        (run / "grade-sample.md").write_text("sample: 5\n")
+        argv = ["report", "--cases", str(tmp / "cases.jsonl"), "--replay", str(run), "--report-out", str(tmp / "report.md")]
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(rr.main(argv), 0)
+        self.assertIn("manual check: pending", (tmp / "report.md").read_text())
+        self.assertEqual(json.loads((tmp / "report.json").read_text())["raw"]["test"]["caught"], 1)
+        (run / "grade-sample.confirmed").write_text("1\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            rr.main(argv)
+        self.assertIn("manual check: 4/5 agree", (tmp / "report.md").read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
