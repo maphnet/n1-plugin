@@ -219,6 +219,7 @@ release_backstop() {
 # halt_now <message> — record and stop the runner (exit 2).
 halt_now() {
     n1_write_frontmatter "$QUEUE" step halted
+    n1_queue_add_reject_all "$QUEUE" queue-halted   # N1-617: staged --add rows never run in a halted queue
     ev halted reason="$1"
     release_backstop
     echo "$1"
@@ -1252,6 +1253,7 @@ run_bg() {
         fi
         AGENT_FAILS=0
         drain_stop "$AGENTS"
+        n1_queue_apply_adds "$QUEUE" || true   # N1-617: rows staged by n1-queue --add join the Plan here
         WORKING=0
         while IFS=$'\t' read -r -u 3 NUM TICKET REPO N1H MODEL STATUS; do
             SID=$(n1_queue_session_id "$QUEUE" "$TICKET")
@@ -1678,6 +1680,8 @@ run_orca() {
         # N1-281: durable worker state every tick (the inbox is only the fast path). A failed read keeps the last
         # list and disables the absence rule below (LIVE_OK=0).
         if L=$(n1_orca_liveness "$ORCA_RUN"); then LIVE="$L"; LIVE_OK=1; else LIVE_OK=0; fi
+        # N1-617: rows staged by n1-queue --add join the Plan here, before the launch loop and the held sweep.
+        [ -n "$HALT_DRAIN" ] || n1_queue_apply_adds "$QUEUE" || true
         # N1-268: n1-queue --stop (user-confirmed) left a marker: close each unsettled worker's own terminal and record
         # it stopped (a merged PR is only recorded), then stop launching; the loop ends through the end-of-queue
         # branch and the final halt. A worker whose close failed keeps its row and identity and is supervised on.
@@ -2087,6 +2091,7 @@ if [ -n "$COORD" ] && [ "$(count_rows awaiting-human)" = 0 ]; then n1_orca_coord
 release_backstop
 ev queue_done reason="$DIGEST"
 n1_write_frontmatter "$QUEUE" step done
+n1_queue_add_reject_all "$QUEUE" queue-finished   # N1-617: a late --add is reported, never silently lost
 drain_wait
 strip_pid
 exit 0

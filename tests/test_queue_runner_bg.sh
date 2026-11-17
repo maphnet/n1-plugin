@@ -1253,6 +1253,23 @@ test_runner_queue_branches() {
 }
 
 
+# N1-617 AC2: a row staged with --add while the runner runs is appended at a tick and runs after the original rows,
+# no restart. Bugs caught: the bg loop never applies the spool; the added row runs before the pending ones.
+test_add_bg_pickup() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:done"
+    echo done > "$tmp/fake/states.T-2"
+    printf 'Fix T-2\t%s\t%s\tsonnet\t\t\t\t\t\t\n' "$tmp" "$tmp/n1home" > "$tmp/cells"
+    n1_queue_add_stage "$tmp/queue.md" T-2 "$tmp/cells" > /dev/null
+    run_bg_queue "$tmp" > /dev/null
+    assert_eq "add-bg: T-2 appended as #2 and ran to pr" "T-2|pr" "$(plan_cell "$tmp/queue.md" 2 3)|$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "add-bg: ticket_added recorded" "T-2" "$(jq -r 'select(.event == "ticket_added") | .ticket' "$tmp/events.jsonl")"
+    assert_eq "add-bg: T-A launched before T-2" "yes" \
+        "$([ "$(grep -n '^| T-A | [0-9]' "$tmp/queue.md" | cut -d: -f1)" -lt "$(grep -n '^| T-2 | [0-9]' "$tmp/queue.md" | cut -d: -f1)" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+
 n1_only_filter
 test_bg_pr_lifecycle
 test_runner_three_strikes
@@ -1306,3 +1323,4 @@ test_runner_queue_chain_cut
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
+test_add_bg_pickup
