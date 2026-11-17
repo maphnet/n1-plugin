@@ -379,7 +379,11 @@ def cmd_replay(args):
     run_dir = (Path(args.run_dir) if args.run_dir else new_run_dir(args.out)).resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
     out_file = run_dir / "replay.jsonl"
-    done = {r["id"] for r in read_jsonl(out_file)}
+    existing = read_jsonl(out_file)
+    kept = [r for r in existing if r.get("status") in ("ok", "unreachable")]
+    if len(kept) != len(existing):  # drop stale error/timeout rows so a retry does not leave duplicates
+        out_file.write_text("".join(json.dumps(r) + "\n" for r in kept), encoding="utf-8")
+    done = {r["id"] for r in kept}
     meta, body, commit, digest = persona_info(args.persona)
     prompt_file = run_dir / "persona.md"
     prompt_file.write_text(body, encoding="utf-8")

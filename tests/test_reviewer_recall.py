@@ -262,6 +262,22 @@ class ReplayTest(ClaudeFixture):
         self.assertEqual(len(self.calls()), 2)
         self.assertEqual(len(rr.read_jsonl(run_dir / "replay.jsonl")), 2)
 
+    def test_resume_retries_error_rows_without_duplicates(self):
+        # Bug caught: a resumed loop skips tickets whose earlier row was error/timeout, or keeps the
+        # stale row next to the retry so the ticket is counted twice.
+        rc, run_dir, err = self.replay("--split", "all")
+        self.assertEqual(rc, 0, err)
+        f = run_dir / "replay.jsonl"
+        rows = rr.read_jsonl(f)
+        rows[0]["status"] = "error"
+        f.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        rc, _, err = self.replay("--split", "all", "--run-dir", run_dir)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(len(self.calls()), 3)
+        after = rr.read_jsonl(f)
+        self.assertEqual(sorted(r["id"] for r in after), ["N1-1", "N1-2"])
+        self.assertEqual({r["status"] for r in after}, {"ok"})
+
     def test_unreachable_sha_is_a_status_not_a_crash(self):
         # Bug caught: a garbage-collected squash-merge SHA aborts the loop or is counted as a miss.
         rows = rr.read_jsonl(self.cases)
