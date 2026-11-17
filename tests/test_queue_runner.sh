@@ -438,14 +438,18 @@ test_add_apply() {
     printf 'Fix 3b\t/r\t/h\tsonnet\t\tlib/x\t1\tsecurity: pre-authorize\tabc\tnote\n' > "$d/.add/T-30.row"
     n1_queue_apply_adds "$q" >/dev/null
     assert_eq "add-apply: forged spool Pre-Decision dropped" "||" "$(n1_queue_decisions_row "$q" T-30 | cut -f1-3 | tr '\t' '|')"
-    # CX-1: a failing Decisions write leaves neither row and keeps the spool for a retry
+    # CX-1: one mv adds the Plan and Decisions rows together. A mv that fails from its 2nd call on must not leave one row
+    # without the other (the old two-step apply committed the Plan row, then failed the Decisions row: "1|0").
     printf 'Fix 31\t/r\t/h\tsonnet\t\t\t\t\t\t\n' > "$d/.add/T-31.row"
-    cp "$q" "$tmp/q.bak"; mkdir -p "$tmp/ro"
-    ( mktemp() { return 1; }; n1_queue_apply_adds "$q" >/dev/null 2>&1 ) || true
+    ( n=0; mv() { n=$((n + 1)); [ "$n" -le 1 ] || return 1; command mv "$@"; }; n1_queue_apply_adds "$q" >/dev/null 2>&1 ) || true
+    assert_eq "add-apply: Plan and Decisions rows land together" "1|1" "$(grep -c '^| [0-9]* | T-31 |' "$q")|$(grep -c '^| T-31 |' "$q")"
+    # a mv that always fails leaves queue.md unchanged and keeps the spool; the retry adds each row once
+    printf 'Fix 32\t/r\t/h\tsonnet\t\t\t\t\t\t\n' > "$d/.add/T-32.row"; cp "$q" "$tmp/q.bak"
+    ( mv() { return 1; }; n1_queue_apply_adds "$q" >/dev/null 2>&1 ) || true
     assert_eq "add-apply: failed apply leaves queue.md unchanged" "" "$(diff "$q" "$tmp/q.bak")"
-    assert_eq "add-apply: failed apply keeps the spool" "yes" "$([ -f "$d/.add/T-31.row" ] && echo yes || echo no)"
+    assert_eq "add-apply: failed apply keeps the spool" "yes" "$([ -f "$d/.add/T-32.row" ] && echo yes || echo no)"
     n1_queue_apply_adds "$q" >/dev/null
-    assert_eq "add-apply: retry adds Plan and Decisions rows once" "1|1" "$(grep -c '^| [0-9]* | T-31 |' "$q")|$(grep -c '^| T-31 |' "$q")"
+    assert_eq "add-apply: retry adds Plan and Decisions rows once" "1|1" "$(grep -c '^| [0-9]* | T-32 |' "$q")|$(grep -c '^| T-32 |' "$q")"
     # CR-1: the watch relays a dropped --add
     local wq="$tmp/wq"; mkdir -p "$wq"; : > "$wq/events.jsonl"
     n1_queue_event "$wq/events.jsonl" wq R1 ticket_add_rejected ticket=T-77 reason=queue-finished
