@@ -47,6 +47,14 @@ git fetch -q origin "$PR_BASE" 2>/dev/null && REVIEW_BASE=$(git merge-base "orig
 ```
 `base:invalid` / `base:unresolved` → "Cannot resolve the PR base for the --full review." **STOP.**
 
+Write the base-revision CLAUDE.md, substituting the `REVIEW_BASE` computed above (never fails; falls back to the worktree copy):
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/review-step.sh"
+n1_review_claude_base "$PWD" "<REVIEW_BASE>"
+```
+Pass the printed `CLAUDE_MD=` path to every reviewer and the Phase 3 verifier, and a non-empty `CLAUDE_DIFF=` path to code-reviewer.
+
 Read N1 memory if available:
 - `$N1_HOME/memory/$ID/ticket.md` — original requirements
 - `$N1_HOME/memory/$ID/brainstorm.md` — scope and approach decisions
@@ -73,6 +81,7 @@ Prepare shared review context:
 - Implementation details (from implementation.md)
 - QA results (from qa.md, if available)
 - Base SHA: `${REVIEW_BASE}`
+- Base CLAUDE.md: `CLAUDE_MD`; CLAUDE.md diff: `CLAUDE_DIFF` (code-reviewer)
 - Head SHA: current `HEAD`
 
 Spawn the selected reviewers simultaneously (code-reviewer always; security-reviewer iff `SECURITY_RELEVANT`). Each returns findings ranked by priority (Critical → High → Medium → Low).
@@ -93,7 +102,7 @@ Resolve the adversarial verifier with `n1_resolve_agent code-reviewer review`.
 
 **Adversarial kill mandate:** The verification agent's job is to **disprove** each finding, not confirm it. Default disposition is FALSE POSITIVE — a finding survives only if the verifier fails to refute it after genuinely trying.
 
-**Context asymmetry:** Pass to the verification agent ONLY the finding claim (title, file:line, and a one-line description of the alleged issue). Do NOT pass the original agent's reasoning, evidence, or recommended fix — this prevents anchoring bias. The verifier must build its own case from the code.
+**Context asymmetry:** Pass to the verification agent ONLY the finding claim (title, file:line, and a one-line description of the alleged issue). Do NOT pass the original agent's reasoning, evidence, or recommended fix — this prevents anchoring bias. The verifier must build its own case from the code. Also pass the `CLAUDE_MD` path: a reference document, not reasoning.
 
 The verification agent MUST for each finding:
 1. **Read the actual code** at the referenced file:line

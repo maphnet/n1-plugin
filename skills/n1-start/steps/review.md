@@ -7,7 +7,7 @@ source "$N1_ROOT/lib/review-step.sh"
 n1_step_begin "review" 9
 n1_review_entry "<worktree dir>" || exit 1
 ```
-Output: `BASE_BRANCH= RELATED_ENABLED= CYCLE= INCREMENTAL=`, `TREE_BEFORE=` and, on `INCREMENTAL=true`, `FIX_FILES=`. Non-zero exit (missing implementation.md, invalid story base): stop the step. The call also removes stale reviewer files and writes review-spec.md and qa-facts.md.
+Output: `BASE_BRANCH= RELATED_ENABLED= CYCLE= INCREMENTAL=`, `TREE_BEFORE=`, `CLAUDE_MD=`, `CLAUDE_DIFF=` and, on `INCREMENTAL=true`, `FIX_FILES=`. Non-zero exit (missing implementation.md, invalid story base): stop the step. The call also removes stale reviewer files and writes review-spec.md and qa-facts.md.
 
 If `RELATED_ENABLED=true`, read `procedures/review-xrepo.md` and follow it before spawning reviewers.
 
@@ -23,7 +23,7 @@ Run **Ensure Dependencies(`<ID>`)** first. > **ORCHESTRATOR GUARDRAIL (review): 
 
 **Review tier gate:** If `REVIEW_TIER=SKIP`: record `"Review skipped: DOC_CONFIG_ONLY diff."` in `$N1_HOME/memory/$ID/review.md`, write `## Review` with `PASS (skipped — doc/config only)` to overview, run `n1_step_end "review" 9 "success" "{\"head\":\"$(git rev-parse HEAD)\"}"`, and proceed to next step. If `REVIEW_TIER=NARROW`: spawn code-reviewer with scope restricted to TQ findings only — instruct: "Scope: test quality (TQ) findings only. Do NOT review correctness, design, architecture, or style. Report only [TQ-N] findings (coverage gaps, hollow tests)." If `REVIEW_TIER=FULL`: current behavior (full code-reviewer scope).
 
-**Spawn PARALLEL** code-reviewer+security-reviewer (if `SECURITY_RELEVANT`). Shared: ticket.md, qa-facts.md, base branch, `$N1_HOME/memory/$ID/analysis.md`, Key Decisions+Escalations. Code-reviewer: review-spec.md+plan.md (NOT impl/brainstorm); "cold second pair of eyes"; diff `--name-only`; tier. Security-reviewer: ticket.md+file list+diff (on `INCREMENTAL=true`: fix.diff + `<printed FIX_FILES>`).
+**Spawn PARALLEL** code-reviewer+security-reviewer (if `SECURITY_RELEVANT`). Shared: ticket.md, qa-facts.md, base branch, `$N1_HOME/memory/$ID/analysis.md`, Key Decisions+Escalations; also the printed `CLAUDE_MD=` path (code-reviewer also `CLAUDE_DIFF=`). Code-reviewer: review-spec.md+plan.md (NOT impl/brainstorm); "cold second pair of eyes"; diff `--name-only`; tier. Security-reviewer: ticket.md+file list+diff (on `INCREMENTAL=true`: fix.diff + `<printed FIX_FILES>`).
 
 ```bash
 source ~/.n1/preamble.sh

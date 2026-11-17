@@ -232,4 +232,12 @@ if [ -e "$MEM/overview.md" ]; then no "fallback without overview.md: creates no 
 printf '%s' "$CB" > "$MEM/branch-point"
 has "entry: resolvable base prints the base copy path" "$(n1_review_entry "$CR" 2>&1)" "CLAUDE_MD=$MEM/claude-base.md"
 
+# N1-627: n1-review Phase 1 fence 4 runs the helper with the substituted REVIEW_BASE
+AN="$REPO_ROOT/skills/n1-review/steps/01-analyze.md"
+F4=$(fence "$AN" 4)
+has "wiring: n1-review fence 4 is the base CLAUDE.md call" "$F4" 'n1_review_claude_base "$PWD" "<REVIEW_BASE>"'
+OUT=$( cd "$CR" && eval "$(sed "s#<REVIEW_BASE>#$CB#" <<<"$F4")" 2>&1 ); rc=$?
+eq "wiring: n1-review fence exits 0" "0" "$rc"
+has "wiring: n1-review fence prints the base copy path" "$OUT" "CLAUDE_MD=$MEM/claude-base.md"
+
 exit $FAIL
