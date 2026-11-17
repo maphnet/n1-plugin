@@ -1809,6 +1809,66 @@ n1_queue_add_stage() {
     echo "Add queued: $k (the runner appends it within queue.pollSeconds)"
 }
 
+n1_queue_apply_adds() {
+    # Usage: n1_queue_apply_adds <queue.md> — N1-617, runner only: the runner is the only writer of queue.md while it
+    # runs, so appending here (between ticks) cannot race its own mktemp+mv rewrites. For each <queue-dir>/.add/*.row
+    # in name order: re-check (_n1_queue_add_check), append the Plan row at max # + 1 (pending, or held for a
+    # "blocked_on <ID>" Reason; n1_queue_held_sweep releases it), insert its ## Decisions row when the section exists,
+    # emit ticket_added, remove the file. A refused or malformed file emits ticket_add_rejected and is removed.
+    local q="$1" dir ev qid run f k line i num st row tmp why
+    local -a c
+    dir=$(dirname -- "$q"); ev="$dir/events.jsonl"
+    [ -d "$dir/.add" ] || return 0
+    qid=$(n1_read_frontmatter "$q" queue_id); run=$(n1_read_frontmatter "$q" run_id)
+    for f in "$dir"/.add/*.row; do
+        [ -f "$f" ] || continue
+        k=$(basename -- "$f" .row); line=""
+        if ! [[ "$k" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] || { ! IFS= read -r line < "$f" && [ -z "$line" ]; }; then
+            rm -f "$f"; n1_queue_event "$ev" "$qid" "$run" ticket_add_rejected ticket="$k" reason=invalid-row; continue
+        fi
+        c=(); for i in 1 2 3 4 5 6 7 8 9 10; do c+=("$(_n1_queue_sanitize_cell "$(printf '%s' "$line" | cut -f"$i")")"); done
+        if ! why=$(_n1_queue_add_check "$q" "$k" "${c[4]}" "${c[1]}" "${c[2]}" "${c[3]}"); then
+            rm -f "$f"; n1_queue_event "$ev" "$qid" "$run" ticket_add_rejected ticket="$k" reason="$why"; continue
+        fi
+        num=$(awk -F'|' '{ gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2) } $2 ~ /^[0-9]+$/ { if ($2 + 0 > max) max = $2 + 0 } END { print max + 1 }' "$q")
+        st=pending; case "${c[4]}" in "blocked_on "*) st=held ;; esac
+        row="| $num | $k | ${c[0]} | ${c[1]} | ${c[2]} | ${c[3]} | $st | ${c[4]} |"
+        tmp=$(mktemp "${q}.XXXXXX") || return 1
+        ROW="$row" awk 'BEGIN { row = ENVIRON["ROW"] }
+            /^## Plan/ { in_plan = 1 }
+            in_plan && /^$/ && !added { print row; added = 1 }
+            { print }
+            END { if (in_plan && !added) print row }' "$q" > "$tmp" && mv "$tmp" "$q" || { rm -f "$tmp"; return 1; }
+        if [ "$(grep -c '^## Decisions$' "$q")" = 1 ]; then
+            tmp=$(mktemp "${q}.XXXXXX") || return 1
+            ROW="| $k |  |  |  |  |  |" awk 'BEGIN { row = ENVIRON["ROW"] }
+                /^## Decisions$/ { d = 1; print; next }
+                d && !added && (/^$/ || /^## /) { print row; added = 1 }
+                { print }
+                END { if (d && !added) print row }' "$q" > "$tmp" && mv "$tmp" "$q" || { rm -f "$tmp"; return 1; }
+            n1_queue_decisions_write_row "$q" "$k" "${c[5]}" "${c[6]}" "${c[7]}" "${c[8]}" "${c[9]}" || true
+        fi
+        rm -f "$f"
+        n1_queue_event "$ev" "$qid" "$run" ticket_added ticket="$k" reason="#$num $st"
+        echo "[$num] $k added ($st)"
+    done
+    return 0
+}
+
+n1_queue_add_reject_all() {
+    # Usage: n1_queue_add_reject_all <queue.md> <reason> — N1-617: the runner ends (step done or halted) with rows
+    # still staged: drop each with a ticket_add_rejected event so a late --add is reported, never silently lost.
+    local q="$1" dir f k
+    dir=$(dirname -- "$q")
+    for f in "$dir"/.add/*.row; do
+        [ -f "$f" ] || continue
+        k=$(basename -- "$f" .row); rm -f "$f"
+        n1_queue_event "$dir/events.jsonl" "$(n1_read_frontmatter "$q" queue_id)" "$(n1_read_frontmatter "$q" run_id)" \
+            ticket_add_rejected ticket="$k" reason="$2"
+    done
+    return 0
+}
+
 n1_queue_rerun_release() {
     # Usage: n1_queue_rerun_release <queue.md> < done-keys — N1-536 (--run on a done, halted or interrupted queue).
     # stdin: ticket keys whose tracker status is done-class (run.md reads the tracker; this helper never does).

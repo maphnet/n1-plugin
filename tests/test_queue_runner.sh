@@ -407,6 +407,54 @@ test_add_stage() {
     assert_eq "add-stage: nothing orphaned in a finished queue" "no" "$([ -e "$d/.add/T-5.row" ] && echo yes || echo no)"
 }
 
+# N1-617 AC2/AC3/AC7: runner-side apply. Bugs caught: row not appended at max+1; held not set for blocked_on; Decisions
+# row missing; a raced duplicate appended; an invalid spool name kept; event missing.
+test_add_apply() {
+    local tmp q d ev; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q=$(mk_add_queue "$tmp"); d="${q%/*}"; ev="$d/events.jsonl"
+    add_cells "$tmp/c" "Fix 9" /r /h sonnet "" "lib/x.sh"; n1_queue_add_stage "$q" T-9 "$tmp/c" >/dev/null
+    add_cells "$tmp/c" "Fix 8" /r /h opus "blocked_on T-1 · " ; n1_queue_add_stage "$q" T-8 "$tmp/c" >/dev/null
+    mkdir -p "$d/.add"; printf 'x\t/r\t/h\tsonnet\t\t\t\t\t\t\n' > "$d/.add/T-2.row"   # raced duplicate, bypassing stage
+    printf 'x\n' > "$d/.add/bad.row"
+    n1_queue_apply_adds "$q" >/dev/null
+    assert_eq "add-apply: T-8 at #4 held" "T-8|held|blocked_on T-1 ·" "$(awk -F'|' '{for(i=1;i<=NF;i++)gsub(/^[[:space:]]+|[[:space:]]+$/,"",$i)} $2=="4"{print $3"|"$8"|"$9}' "$q")"
+    assert_eq "add-apply: T-9 at #5 pending" "T-9|pending" "$(awk -F'|' '{for(i=1;i<=NF;i++)gsub(/^[[:space:]]+|[[:space:]]+$/,"",$i)} $2=="5"{print $3"|"$8}' "$q")"
+    assert_eq "add-apply: held row's blocker" "T-1" "$(n1_queue_blocker_of "$q" 4)"
+    assert_eq "add-apply: rows inside Plan" "yes" "$([ "$(line_of "$q" '| 5 | T-9 |')" -lt "$(line_of "$q" '## Excluded')" ] && echo yes || echo no)"
+    assert_eq "add-apply: Decisions row written" "lib/x.sh" "$(n1_queue_decisions_row "$q" T-9 | cut -f1)"
+    assert_eq "add-apply: one T-2 row" 1 "$(grep -c '^| [0-9]* | T-2 |' "$q")"
+    assert_eq "add-apply: events" "ticket_add_rejected T-2 duplicate|ticket_add_rejected bad invalid-row|ticket_added T-8 #4 held|ticket_added T-9 #5 pending" \
+        "$(jq -r '"\(.event) \(.ticket) \(.reason)"' "$ev" | LC_ALL=C sort | paste -sd'|')"   # C order: locale-independent
+    assert_eq "add-apply: spool drained" "" "$(ls -A "$d/.add")"
+    add_cells "$tmp/c" "Fix 6" /r /h sonnet ""; n1_queue_add_stage "$q" T-6 "$tmp/c" >/dev/null
+    n1_queue_add_reject_all "$q" queue-finished
+    assert_eq "add-reject-all: event and drained" "queue-finished|" \
+        "$(jq -r 'select(.ticket == "T-6") | .reason' "$ev")|$(ls -A "$d/.add")"
+    assert_eq "add-reject-all: no row" 0 "$(grep -c '| T-6 |' "$q" || true)"
+}
+
+# N1-617 AC6: concurrent --add. 20 distinct stagers and 5 stagers of one key race a runner that interleaves Plan
+# rewrites with applies (one process, as in the runner). Bugs caught: lost rows, duplicated rows or row numbers, a
+# lost runner rewrite, an undrained spool.
+test_add_concurrent() {
+    local tmp q d i n runner; local -a pids=(); tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q=$(mk_add_queue "$tmp"); d="${q%/*}"
+    for i in $(seq 10 29); do add_cells "$tmp/c.T-$i" "Fix $i" /r /h sonnet ""; done
+    add_cells "$tmp/c.T-40" "Same" /r /h sonnet ""
+    ( for i in $(seq 1 60); do n1_queue_row_status "$q" 2 in-progress; n1_queue_apply_adds "$q" >/dev/null; done ) & runner=$!
+    for i in $(seq 10 29); do n1_queue_add_stage "$q" "T-$i" "$tmp/c.T-$i" >/dev/null 2>&1 & pids+=($!); done
+    for i in 1 2 3 4 5; do n1_queue_add_stage "$q" T-40 "$tmp/c.T-40" >/dev/null 2>&1 & pids+=($!); done
+    wait "${pids[@]}" "$runner" || true
+    n1_queue_apply_adds "$q" >/dev/null   # the next tick drains what arrived after the loop's last pass
+    n=0; for i in $(seq 10 29) 40; do [ "$(grep -c "^| [0-9]* | T-$i |" "$q")" = 1 ] && n=$((n + 1)); done
+    assert_eq "add-concurrent: every key exactly once" 21 "$n"
+    assert_eq "add-concurrent: row numbers unique" "" "$(n1_queue_pending_rows "$q" '.*' | cut -f1 | LC_ALL=C sort | uniq -d)"
+    assert_eq "add-concurrent: 24 Plan rows" 24 "$(n1_queue_pending_rows "$q" '.*' | wc -l | tr -d ' ')"
+    assert_eq "add-concurrent: spool drained" 0 "$(find "$d/.add" -name '*.row' | wc -l | tr -d ' ')"
+    assert_eq "add-concurrent: 21 ticket_added events" 21 "$(jq -r 'select(.event == "ticket_added") | .ticket' "$d/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "add-concurrent: runner rewrite kept" in-progress "$(plan_cell "$q" 2 8)"
+}
+
 # N1-536: --run on a done/halted/interrupted queue marks tracker-done rows done-before-run and releases rows skipped only
 # because of an in-plan predecessor. Skip rows are built by the real writers (eligible_rows, gated_expire, held_sweep,
 # held_expire), so a reworded writer Reason fails here. Bugs caught: a still-failed, not-in-plan or at-pr predecessor
@@ -2883,6 +2931,8 @@ test_queue_retry
 test_add_gate
 test_add_active_ids
 test_add_stage
+test_add_apply
+test_add_concurrent
 test_rerun_release
 test_rerun_release_pr_merged
 test_queue_reconcile_force
