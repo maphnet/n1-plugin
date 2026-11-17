@@ -179,5 +179,101 @@ class BuildTest(Fixture):
         self.assertFalse(self.cases.exists())
 
 
+FAKE_CLAUDE = r'''#!/usr/bin/env python3
+import json, os, sys
+a = sys.argv[1:]
+sid = a[a.index("--session-id") + 1]
+prompt = a[a.index("-p") + 1]
+log = os.environ.get("FAKE_CLAUDE_LOG")
+if log:
+    with open(log, "a") as fh:
+        fh.write(json.dumps({"cwd": os.getcwd(), "argv": a, "env": sorted(os.environ)}) + "\n")
+if "against an answer key" in prompt:
+    result = "not json" if os.environ.get("FAKE_JUDGE") == "bad" else '{"verdict":"caught","finding_ref":"CR-1","reason":"same defect"}'
+else:
+    result = ("## Code Review Findings\n\n### High\n- **[CR-1]** Echo drops the last line\n  - File: a.sh:2\n\n"
+              "### Verdict: FAIL\n0 critical, 1 high, 0 medium, 0 low findings\n")
+print(json.dumps({"session_id": sid, "result": result, "total_cost_usd": 0.01,
+                  "usage": {"input_tokens": 1, "output_tokens": 2}}))
+'''
+
+
+class ClaudeFixture(Fixture):
+    def setUp(self):
+        super().setUp()
+        self.claude = self.tmp / "fake-claude"
+        self.claude.write_text(FAKE_CLAUDE)
+        self.claude.chmod(0o755)
+        self.log = self.tmp / "claude.log"
+        self.env = {"FAKE_CLAUDE_LOG": str(self.log), "N1_PROBE": "leak"}
+        self.assertEqual(self.build()[0], 0)
+
+    def calls(self):
+        return [json.loads(l) for l in self.log.read_text().splitlines()] if self.log.exists() else []
+
+    def replay(self, *extra):
+        with mock.patch.dict(os.environ, self.env):
+            rc, out, err = self.run_main("replay", "--cases", self.cases, "--out", self.tmp / "out",
+                                         "--claude", self.claude, "--repo", self.repo, "--memory-root", self.mem,
+                                         "--persona", self.repo / "agents" / "code-reviewer.md", *extra)
+        return rc, Path(out.strip().splitlines()[-1]), err
+
+
+class ReplayTest(ClaudeFixture):
+    def test_one_case_end_to_end_in_detached_worktree(self):
+        # Bugs caught (AC2): reviewer run in the main checkout, with Write or skip-permissions;
+        # worktree left registered or on disk; main checkout HEAD/status changed; persona commit
+        # not recorded (D6); N1_* leaking into the child env; diff not delivered to the reviewer;
+        # the ticket memory dir (codex-triage answer key, stored reviews) readable by the reviewer.
+        head_before = sh(self.repo, "rev-parse", "HEAD")
+        rc, run_dir, err = self.replay("--case", "N1-1#1")
+        self.assertEqual(rc, 0, err)
+        rows = rr.read_jsonl(run_dir / "replay.jsonl")
+        self.assertEqual(len(rows), 1)
+        r = rows[0]
+        self.assertEqual((r["id"], r["kind"], r["status"], r["n_findings"], r["replay_sha"]),
+                         ("N1-1", "missed", "ok", 1, self.head_a))
+        self.assertEqual(r["persona_commit"], sh(self.repo, "log", "-1", "--format=%H", "--", "agents/code-reviewer.md"))
+        self.assertIn("+echo b", (run_dir / "N1-1.diff").read_text())
+        call = self.calls()[0]
+        self.assertEqual(Path(call["cwd"]).resolve(), (run_dir / "wt-N1-1").resolve())
+        self.assertEqual(call["argv"][call["argv"].index("--tools") + 1], "Read,Grep,Glob")
+        self.assertNotIn("--dangerously-skip-permissions", call["argv"])
+        self.assertNotIn("N1_PROBE", call["env"])
+        # answer-key isolation: the reviewer gets copies of the review inputs only, never the ticket memory dir
+        prompt = call["argv"][call["argv"].index("-p") + 1]
+        self.assertNotIn(str(self.mem), prompt)
+        self.assertNotIn(str(self.mem / "N1-1"), call["argv"])
+        self.assertEqual((run_dir / "N1-1.inputs" / "ticket.md").read_text(), "# ticket\n")
+        self.assertFalse((run_dir / "N1-1.inputs" / "codex-triage.posted.md").exists())
+        self.assertFalse((run_dir / "wt-N1-1").exists())
+        self.assertEqual(sh(self.repo, "worktree", "list", "--porcelain").count("worktree "), 1)
+        self.assertEqual(sh(self.repo, "rev-parse", "HEAD"), head_before)
+        self.assertEqual(sh(self.repo, "status", "--porcelain"), "")
+
+    def test_split_loop_covers_controls_and_resumes(self):
+        # Bug caught: the loop skips control tickets, or a resumed loop pays again for
+        # tickets already in replay.jsonl.
+        rc, run_dir, err = self.replay("--split", "all")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(sorted(r["id"] for r in rr.read_jsonl(run_dir / "replay.jsonl")), ["N1-1", "N1-2"])
+        rc, _, err = self.replay("--split", "all", "--run-dir", run_dir)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(len(self.calls()), 2)
+        self.assertEqual(len(rr.read_jsonl(run_dir / "replay.jsonl")), 2)
+
+    def test_unreachable_sha_is_a_status_not_a_crash(self):
+        # Bug caught: a garbage-collected squash-merge SHA aborts the loop or is counted as a miss.
+        rows = rr.read_jsonl(self.cases)
+        for r in rows:
+            if r.get("ticket") == "N1-1":
+                r["replay_sha"] = "0" * 40
+        self.cases.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        rc, run_dir, err = self.replay("--case", "N1-1")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(rr.read_jsonl(run_dir / "replay.jsonl")[0]["status"], "unreachable")
+        self.assertEqual(self.calls(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

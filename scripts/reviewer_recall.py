@@ -250,7 +250,167 @@ def add_repo_args(sp):
     sp.add_argument("--memory-root", type=Path, help="per-ticket memory root (default $N1_HOME/memory)")
 
 
-COMMANDS = {"build": cmd_build}
+def persona_info(path):
+    """(frontmatter, body, last commit touching the persona file, sha256 of the file)."""
+    path = Path(path).resolve()
+    raw = path.read_text(encoding="utf-8")
+    meta, body = ab.strip_frontmatter(raw)
+    commit = git(path.parent, "log", "-1", "--format=%H", "--", path.name).stdout.strip()
+    return meta, body, commit, hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def reviewer_prompt(ticket_dir, base, diff_file, files_file, claude_md, claude_diff):
+    lines = ["Review this change. Inputs:"]
+    for name in MEMORY_INPUTS:
+        f = Path(ticket_dir) / name
+        lines.append(f"- {name}: {f}" if f.is_file() else f"- {name}: not available")
+    lines += [f"- CLAUDE_MD (base copy): {claude_md}" if claude_md else "- CLAUDE_MD: not available",
+              f"- CLAUDE_DIFF: {claude_diff}" if claude_diff else "- CLAUDE_DIFF: (none)",
+              f"- Base branch: {base}",
+              f"- Diff file: {diff_file} (the unified `git diff {base}...HEAD`; it replaces the git commands of Process step 3)",
+              f"- Changed files: {files_file}",
+              "The checked-out tree in your working directory is the post-change code.",
+              "Return the full Output Format report inline. Do not write any file."]
+    return "\n".join(lines)
+
+
+def replay_ticket(case, args, persona, run_dir):
+    """One reviewer run for one ticket in a detached worktree; returns (row, harness session id)."""
+    meta, prompt_file, commit, digest = persona
+    t, sha, base = case["ticket"], case["replay_sha"], case["branch_point"]
+    sid = str(uuid.uuid4())
+    row = {"id": t, "kind": case["kind"], "ticket": t, "split": case.get("split"), "status": "unreachable",
+           "session_id": sid, "persona_commit": commit, "persona_sha256": digest, "replay_sha": sha,
+           "findings_text": None, "n_findings": None, "unparsed": False, "tokens": ab.token_split(None),
+           "cost_usd": 0.0, "wall_ms": 0, "error": None, "raw": None}
+    if not (commit_exists(args.repo, sha) and commit_exists(args.repo, base)):
+        return row, sid
+    wt = run_dir / f"wt-{t}"
+    add = git(args.repo, "worktree", "add", "--detach", wt, sha, check=False)
+    if add.returncode != 0:
+        row.update(status="error", error=add.stderr.strip()[-300:])
+        return row, sid
+    try:
+        diff_file, files_file = run_dir / f"{t}.diff", run_dir / f"{t}.files"
+        diff_file.write_text(git(args.repo, "diff", f"{base}...{sha}").stdout, encoding="utf-8")
+        files_file.write_text(git(args.repo, "diff", "--name-only", f"{base}...{sha}").stdout, encoding="utf-8")
+        claude_md = claude_diff = None
+        shown = git(args.repo, "show", f"{base}:CLAUDE.md", check=False)
+        if shown.returncode == 0:
+            claude_md = run_dir / f"{t}.CLAUDE.md"
+            claude_md.write_text(shown.stdout, encoding="utf-8")
+        cd = git(args.repo, "diff", f"{base}...{sha}", "--", "CLAUDE.md").stdout
+        if cd.strip():
+            claude_diff = run_dir / f"{t}.CLAUDE.diff"
+            claude_diff.write_text(cd, encoding="utf-8")
+        # Copy only the review inputs: the ticket memory dir also holds the answer key
+        # (codex-triage.posted.md, review*.md, implementation.md), so it is never exposed to the reviewer.
+        inputs = run_dir / f"{t}.inputs"
+        inputs.mkdir(exist_ok=True)
+        for name in MEMORY_INPUTS:
+            if (args.memory_root / t / name).is_file():
+                shutil.copy(args.memory_root / t / name, inputs / name)
+        cmd = [args.claude, "-p", reviewer_prompt(inputs, base, diff_file, files_file, claude_md, claude_diff),
+               "--output-format", "json", "--session-id", sid,
+               "--append-system-prompt-file", str(prompt_file), "--tools", REVIEWER_TOOLS,
+               "--add-dir", str(run_dir),
+               "--model", args.model, "--max-budget-usd", str(args.max_budget_usd),
+               "--setting-sources", "", "--strict-mcp-config"]
+        if meta.get("effort"):
+            cmd += ["--effort", meta["effort"]]
+        start = time.monotonic()
+        status, data, err = ab.run_claude(cmd, str(wt), args.timeout)
+        text = (data or {}).get("result") if status == "ok" else None
+        n, unparsed = count_findings(text) if text is not None else (None, False)
+        row.update(status=status, findings_text=text, n_findings=n, unparsed=unparsed,
+                   tokens=ab.token_split(data), cost_usd=float((data or {}).get("total_cost_usd") or 0),
+                   wall_ms=int((time.monotonic() - start) * 1000), error=err, raw=data)
+        return row, sid
+    except RuntimeError as e:  # a failing git diff/show must be an error row, not abort the loop
+        row.update(status="error", error=str(e)[-300:])
+        return row, sid
+    finally:
+        rm = git(args.repo, "worktree", "remove", "--force", wt, check=False)
+        git(args.repo, "worktree", "prune", check=False)
+        if rm.returncode != 0:
+            row["cleanup_error"] = rm.stderr.strip()[-300:]
+
+
+def select_cases(cases, args):
+    """Ticket-level replay units: one per missed ticket with a split, one per control."""
+    units = {}
+    for c in cases:
+        if c["kind"] == "control":
+            units[c["ticket"]] = {**c, "kind": "control"}
+        elif c.get("class") == "missed" and c.get("split"):
+            units.setdefault(c["ticket"], {**c, "kind": "missed"})
+    if args.case:
+        t = args.case.split("#")[0]
+        return [units[t]] if t in units else []
+    return [u for _, u in sorted(units.items())
+            if args.split in ("all", u["split"]) and args.role in ("all", u["kind"])]
+
+
+def new_run_dir(out):
+    if out is None:
+        if not os.environ.get("N1_HOME"):
+            raise SystemExit("set N1_HOME or pass --out")
+        out = Path(os.environ["N1_HOME"]) / "scratch" / "benchmarks"
+    return Path(out) / f"reviewer-recall-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+
+
+def write_summary(run_dir, name, rows, rejected, args):
+    statuses = Counter(r.get("status") for r in rows)
+    summary = {"args": {k: str(v) for k, v in vars(args).items()}, "rows": len(rows), "rejected": rejected,
+               "statuses": dict(statuses), "total_cost_usd": round(sum(r.get("cost_usd") or 0 for r in rows), 4)}
+    (run_dir / f"{name}-summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+
+
+def cmd_replay(args):
+    if not shutil.which(str(args.claude)):
+        print(f"claude binary not found: {args.claude}", file=sys.stderr)
+        return 1
+    _, cases = load_cases(args.cases)
+    todo = select_cases(cases, args)
+    if not todo:
+        print("no matching cases", file=sys.stderr)
+        return 1
+    # absolute: git worktree add runs with cwd=<repo>, so a relative --out would land inside the checkout
+    run_dir = (Path(args.run_dir) if args.run_dir else new_run_dir(args.out)).resolve()
+    run_dir.mkdir(parents=True, exist_ok=True)
+    out_file = run_dir / "replay.jsonl"
+    done = {r["id"] for r in read_jsonl(out_file)}
+    meta, body, commit, digest = persona_info(args.persona)
+    prompt_file = run_dir / "persona.md"
+    prompt_file.write_text(body, encoding="utf-8")
+    rows, rejected, spent = [], 0, 0.0
+    try:
+        with open(out_file, "a", encoding="utf-8") as fh:
+            for i, case in enumerate(todo, 1):
+                if case["ticket"] in done:
+                    continue
+                if args.budget_total_usd is not None and spent >= args.budget_total_usd:
+                    print(f"total budget ${args.budget_total_usd} reached; stopping", file=sys.stderr)
+                    break
+                row, sid = replay_ticket(case, args, (meta, prompt_file, commit, digest), run_dir)
+                spent += row["cost_usd"]
+                reason = ab.validate_row(row, sid)
+                if reason:
+                    rejected += 1
+                    print(f"[{i}/{len(todo)}] REJECTED {case['ticket']}: {reason}", file=sys.stderr)
+                    continue
+                rows.append(row)
+                fh.write(json.dumps(row) + "\n")
+                fh.flush()
+                print(f"[{i}/{len(todo)}] {case['ticket']} {case['kind']}: {row['status']} "
+                      f"findings={row['n_findings']} cost=${row['cost_usd']:.4f}", file=sys.stderr)
+    finally:
+        write_summary(run_dir, "replay", rows, rejected, args)
+        print(run_dir)
+    return 2 if rejected else 0
+
+
+COMMANDS = {"build": cmd_build, "replay": cmd_replay}
 
 
 def main(argv=None):
@@ -265,6 +425,21 @@ def main(argv=None):
     b.add_argument("--force", action="store_true", help="overwrite an existing cases.jsonl")
     b.add_argument("--min-pairs", type=int, default=15, help=argparse.SUPPRESS)
     add_repo_args(b)
+    r = sub.add_parser("replay", help="replay the current reviewer persona on cases (paid claude calls)")
+    r.add_argument("--cases", required=True, type=Path)
+    sel = r.add_mutually_exclusive_group(required=True)
+    sel.add_argument("--case", help="one ticket id (or <ticket>#<n>)")
+    sel.add_argument("--split", choices=("tune", "test", "all"))
+    r.add_argument("--role", choices=("missed", "control", "all"), default="all")
+    r.add_argument("--model", default="sonnet")
+    r.add_argument("--timeout", type=int, default=600, help="seconds per reviewer run")
+    r.add_argument("--max-budget-usd", type=float, default=2.0, help="spend cap per reviewer run")
+    r.add_argument("--budget-total-usd", type=float, help="stop the loop once this much was spent")
+    r.add_argument("--out", type=Path, help="output dir (default $N1_HOME/scratch/benchmarks)")
+    r.add_argument("--run-dir", type=Path, help="resume into an existing run dir; tickets already replayed are skipped")
+    r.add_argument("--persona", type=Path, default=REPO / "agents" / "code-reviewer.md", help=argparse.SUPPRESS)
+    r.add_argument("--claude", default="claude", help=argparse.SUPPRESS)
+    add_repo_args(r)
     args = p.parse_args(argv)
     if getattr(args, "memory_root", False) is None:
         if not os.environ.get("N1_HOME"):
