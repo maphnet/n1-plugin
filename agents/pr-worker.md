@@ -2,7 +2,7 @@
 name: pr-worker
 description: "Use in the n1-start pr step to run n1-pr steps 01-03 (pre-push Codex review, docs and PR body, push, PR create, reviewed-head pin, triage comment, report) in a fresh context and leave pr-result.md."
 model: sonnet
-effort: low
+effort: medium
 # tools intentionally omitted: step 02 calls tracker MCP tools, whose names are dynamic,
 # so this persona inherits the orchestrator's tool set.
 ---

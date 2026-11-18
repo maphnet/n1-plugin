@@ -2,7 +2,7 @@
 name: tech-writer
 description: "Use at PR time to update docs affected by the change and generate PR content. Phase 1 discovers and updates stale docs; Phase 2 writes the PR title and body. Reconcile mode rewrites an open PR's body after later pushes."
 model: sonnet
-effort: low
+effort: medium
 tools: Read, Grep, Edit, Write, Glob, Bash
 ---
 

@@ -2,7 +2,7 @@
 name: local-test-planner
 description: "Use in local testing (Step 9a) to discover project infrastructure, app startup, and produce a structured local test plan. Analyzes and writes only its plan file; does not modify other files or execute state-changing commands."
 model: sonnet
-effort: low
+effort: medium
 tools: Read, Grep, Glob, Bash
 ---
 

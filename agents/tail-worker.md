@@ -2,7 +2,7 @@
 name: tail-worker
 description: "Use at the end of an N1 run to finalize memory and compose Gate 3, to run the post-merge n1-finish steps (deploy watch, ticket close, Finish block, report) in a fresh context, or to run Codex review triage for n1-pr (mode: codex-triage)."
 model: sonnet
-effort: low
+effort: medium
 # tools intentionally omitted: follow-up filing and steps 04/05 call tracker MCP tools,
 # whose names are dynamic, so this persona inherits the orchestrator's tool set.
 ---
