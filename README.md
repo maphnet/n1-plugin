@@ -2,7 +2,7 @@
 
 AI-driven development orchestrator for Claude Code. No one writes the code.
 
-N1 is a Claude Code plugin that orchestrates the full development cycle using 12 specialized agent personas and native skills. Agents handle autonomous work (analysis, QA, review, fixes, PR content); native skills handle interactive steps (brainstorming, planning, implementation dispatch). Adds tracker integration, per-ticket memory, adaptive workflow routing, confidence-based escalation, parallel security review, and a mandatory review loop.
+N1 is a Claude Code plugin that orchestrates the full development cycle using 14 specialized agent personas and native skills. Agents handle autonomous work (analysis, QA, review, fixes, PR content); native skills handle interactive steps (brainstorming, planning, implementation dispatch). Adds tracker integration, per-ticket memory, adaptive workflow routing, confidence-based escalation, parallel security review, and a mandatory review loop.
 
 ## Requirements
 
@@ -83,7 +83,7 @@ Input (ticket or brain dump)
   → Stop after PR + CI: merge the PR, then run /n1:n1-finish
 ```
 
-- **Agent personas:** 12 specialized agents with scoped tools and configurable models
+- **Agent personas:** 14 specialized agents with scoped tools and configurable models
 - **Parallel security review:** code-reviewer and security-reviewer run simultaneously
 - **Adaptive routing:** tasks that don't need a formal plan skip straight to implementation
 - **Resume support:** interrupt anytime, `/n1:n1-start TRID-510` picks up where you left off
@@ -167,14 +167,15 @@ Sentry issues can optionally be promoted to tracker tickets (Jira/YouTrack) duri
 
 ## How It Works
 
-N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation model: 12 specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while native skills handle interactive steps (brainstorming, planning, implementation dispatch). Each agent gets fresh context with scoped tools, enforced at runtime by Claude Code's own agent allowlist.
+N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation model: 14 specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while native skills handle interactive steps (brainstorming, planning, implementation dispatch). Each agent gets fresh context with scoped tools, enforced at runtime by Claude Code's own agent allowlist.
 
 ### Agent Personas
 
 | Agent | Default Model | Effort | Role |
 |-------|---------------|--------|------|
-| product-analyst | sonnet | low | Ticket distillation and requirements extraction |
-| solution-architect | opus | medium | Codebase analysis and architecture assessment |
+| brainstormer | sonnet | medium | Autonomous design brainstorming and approach scoring |
+| product-analyst | sonnet | medium | Ticket distillation and requirements extraction |
+| solution-architect | sonnet | medium | Codebase analysis and architecture assessment |
 | planner | opus | medium | Isolated implementation-plan writing |
 | implementer | sonnet | medium | n1-implement execution wrapper |
 | developer | sonnet | medium | Implementation and review fix cycles |
@@ -182,9 +183,9 @@ N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation
 | security-reviewer | opus | high | Security vulnerability review (OWASP, CWE) |
 | qa-engineer | sonnet | medium | Test design and implementation |
 | local-test-planner | sonnet | medium | Local test plan creation |
-| post-deploy-verifier | sonnet | low | Acceptance-criterion verification after a successful deployment |
-| tail-worker | sonnet | low | Finalize memory, Gate 3 composition and post-merge finish steps in a fresh context |
-| pr-worker | sonnet | low | n1-pr steps 01-03 (pre-push Codex review, docs, push, PR create, pin) in a fresh context |
+| post-deploy-verifier | sonnet | medium | Acceptance-criterion verification after a successful deployment |
+| tail-worker | sonnet | medium | Finalize memory, Gate 3 composition and post-merge finish steps in a fresh context |
+| pr-worker | sonnet | medium | n1-pr steps 01-03 (pre-push Codex review, docs, push, PR create, pin) in a fresh context |
 | tech-writer | sonnet | medium | PR content generation |
 
 Defaults come from agent frontmatter; `models.*` in config is an explicit override that also disables signal-based tier adjustments for that agent.

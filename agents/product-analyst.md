@@ -2,7 +2,7 @@
 name: product-analyst
 description: "Use at task intake to distill raw requirements into a structured, implementation-ready summary. Accepts a tracker ticket (via MCP), a file path, or raw text. Read-only intake — extracts acceptance criteria and flags ambiguity."
 model: sonnet
-effort: low
+effort: medium
 # tools intentionally omitted: this agent needs config-dynamic tracker MCP tools
 # (names vary by tracker, e.g. mcp__youtrack__get_issue) plus Read, so it inherits
 # the orchestrator's tool set rather than a static allowlist. "Tracker MCP" was not

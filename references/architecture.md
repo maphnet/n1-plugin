@@ -492,8 +492,8 @@ Config keys: `release.enabled` (boolean, default `false`), `release.procedure` (
 
 | Agent | Default Model | Effort | Tools | Pipeline Stage |
 |-------|---------------|--------|-------|----------------|
-| product-analyst | sonnet | low | inherits (needs dynamic tracker + error-tracking MCP) | Ticket read, Error intake, Description enrichment |
-| solution-architect | opus | medium | inherits (needs dynamic MCP and WebSearch, WebFetch) | Analysis, Bug investigation, Plan review (CCR) |
+| product-analyst | sonnet | medium | inherits (needs dynamic tracker + error-tracking MCP) | Ticket read, Error intake, Description enrichment |
+| solution-architect | sonnet | medium | inherits (needs dynamic MCP and WebSearch, WebFetch) | Analysis, Bug investigation, Plan review (CCR) |
 | planner | opus | medium | Read, Grep, Glob, Write, Edit, Skill, WebSearch, WebFetch | Plan writing |
 | implementer | sonnet | medium | inherits (needs Skill for n1-implement, Agent for developer subagents) | Implementation (wraps n1-implement) |
 | developer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | Fix cycle, CI fix |
@@ -502,12 +502,16 @@ Config keys: `release.enabled` (boolean, default `false`), `release.procedure` (
 | qa-engineer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | QA |
 | local-test-planner | sonnet | medium | Read, Grep, Glob, Bash | Local testing (plan creation) |
 | tech-writer | sonnet | medium | Read, Grep, Edit, Write, Glob, Bash | Doc update, PR content |
+| brainstormer | sonnet | medium | inherits (needs dynamic MCP) | Design brainstorming |
+| post-deploy-verifier | sonnet | medium | inherits (dynamic observability MCP provider names) | Post-deploy acceptance verification |
+| tail-worker | sonnet | medium | inherits (needs dynamic tracker MCP) | Memory finalize, Gate 3, post-merge finish steps, Codex triage |
+| pr-worker | sonnet | medium | inherits (needs dynamic tracker MCP) | PR step (n1-pr steps 01-03) |
 
 **MCP tool scope.** Agents with an explicit `tools:` frontmatter list (developer, code-reviewer, qa-engineer, security-reviewer, planner, local-test-planner, tech-writer) get no MCP tool definitions in their system prompt: per the [sub-agents docs](https://code.claude.com/docs/en/sub-agents), "MCP tool definitions for excluded tools are not injected into the agent's system prompt". Agents without `tools:` (brainstormer, solution-architect, implementer, product-analyst, post-deploy-verifier) inherit everything, including all MCP servers, intentionally: brainstormer, solution-architect and product-analyst need dynamic MCP, implementer needs Skill and Agent. Never add `mcp__*` to a `tools:` list; `tests/test_agent_tools_no_mcp.sh` enforces this.
 
 Models default to agent frontmatter values, overridable via `models` section in `$N1_HOME/config.json`.
 
-Agent effort levels are static per-agent, set via subagent frontmatter `effort:` field (low or medium). Session-level effort (`/effort`, `effortLevel` setting) controls the orchestrator's reasoning depth — it does not propagate to subagents. There is no per-spawn effort parameter.
+Agent effort levels are static per-agent, set via subagent frontmatter `effort:` field (low, medium or high). Session-level effort (`/effort`, `effortLevel` setting) controls the orchestrator's reasoning depth — it does not propagate to subagents. There is no per-spawn effort parameter.
 
 **Cold review.** The code-reviewer never receives `implementation.md` or `brainstorm.md`; it reads a generated `review-spec.md` (acceptance criteria and chosen approach) and derives the change surface from the diff. Reviewers judge project rules against `claude-base.md`, the CLAUDE.md at the branch point (`n1_review_claude_base`, N1-627), so a branch cannot weaken the rules it is reviewed against; `claude-diff.md` lists the rule lines the branch removed or changed. When the base copy is unavailable, the worktree CLAUDE.md is used and a Key Decision records why. The orchestrator snapshots the working tree before spawning reviewers (`lib/treestate.sh`) and discards the pass if the tree moved. Every acceptance criterion gets a row in the reviewer's `### AC Coverage` table; a missing criterion is a High finding, and the tech-writer copies the table into the PR body.
 
