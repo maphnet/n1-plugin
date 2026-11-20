@@ -232,11 +232,20 @@ n1_blocker_watch() {
     keys=("$@"); open=("$@")
     read -r mode url <<<"$(n1_blocker_watch_mode 2>/dev/null)"
     dep=$(n1_config_val '.tracker.statuses.deployed' 2>/dev/null)
+    # One watcher per ticket: the newest launch owns the token file; an older watcher exits silently.
+    local tok="$$.$RANDOM.$SECONDS" tf="$N1_HOME/memory/$id/blocker-watch.token" iv="${N1_BW_INTERVAL:-1800}" dl rem
+    dl=$((SECONDS + iv * ${N1_BW_MAX_CHECKS:-6}))   # overall deadline: sleeps and lookups share it
+    mkdir -p "${tf%/*}" 2>/dev/null; printf '%s\n' "$tok" > "$tf" 2>/dev/null
     for ((i = 0; i < ${N1_BW_MAX_CHECKS:-6}; i++)); do
-        sleep "${N1_BW_INTERVAL:-1800}" 2>/dev/null
+        rem=$((dl - SECONDS)); [ "$iv" -gt 0 ] && [ "$rem" -gt "$iv" ] && rem=$iv
+        [ "$iv" -eq 0 ] && rem=0
+        [ "$rem" -gt 0 ] && sleep "$rem" 2>/dev/null
+        [ "$(cat "$tf" 2>/dev/null)" = "$tok" ] || return 0
         still=()
         for k in "${open[@]}"; do _n1_bw_resolved "$k" "$mode" "$url" "$dep" 2>/dev/null || still+=("$k"); done
         open=("${still[@]}")
+        [ "$(cat "$tf" 2>/dev/null)" = "$tok" ] || return 0
+        if [ ${#open[@]} -gt 0 ] && [ "$iv" -gt 0 ] && [ "$SECONDS" -ge "$dl" ]; then break; fi
         if [ ${#open[@]} -eq 0 ]; then
             all=$(printf '%s, ' "${keys[@]}"); all=${all%, }
             printf 'RESOLVED %s: blockers resolved (%s). Next: invoke skill n1-start with %s.\n' "$id" "$all" "$id"

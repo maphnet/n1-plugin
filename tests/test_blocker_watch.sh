@@ -140,6 +140,13 @@ eq "bad ID: rc 2" "2" "$(cat "$T/rc")"
 reset; cfg youtrack; run T-1
 eq "no keys: rc 2" "2" "$(cat "$T/rc")"
 
+# One watcher per ticket: a newer launch takes the token, the older watcher exits silently
+reset; cfg youtrack
+( _n1_bw_resolved() { echo newer > "$N1_HOME/memory/T-1/blocker-watch.token"; return 1; }; run T-1 A-1 )
+eq "superseded watcher: no output, rc 0" "|0" "$(out)|$(cat "$T/rc")"
+reset; cfg youtrack; run T-1 A-1
+eq "latest watcher keeps running to timeout" "TIMEOUT" "$(out | cut -d' ' -f1)"
+
 # Mode
 cfg youtrack; eq "mode: non-Jira -> pr-only" "pr-only" "$(n1_blocker_watch_mode)"
 cfg jira; eq "mode: Jira + loopback HTTP server -> http" "http http://127.0.0.1:9/mcp" "$(n1_blocker_watch_mode)"

@@ -33,4 +33,5 @@ When the background command exits, read its one output line. Ask nothing.
 - `RESOLVED <ID>: ...`: invoke skill n1-start with `<ID>`. It re-runs the blocker check.
 - `TIMEOUT <ID> comment:posted <text>`: print `<text>`. The watch already wrote it under `## Escalations` in overview.md and posted the tracker comment. Stop.
 - `TIMEOUT <ID> comment:pending <text>`: the escalation line is already in overview.md. Post the tracker comment via `mcp__<tracker.mcp>__<tracker.operations.addComment>` (Jira: include `cloudId`; skip when either config value is empty) with the body `N1 [blocker-watch] <ID> <text>. Run /n1:n1-start <ID> to re-check.`, a blank line, then `n1-esc:<ID>:ticket`. A failed post only warns. Print `<text>`. Stop.
+- Empty output: a newer watch for `<ID>` superseded this one. Do nothing.
 - `ERROR bad-key` or any other output: print `Blocker watch stopped: <line>. /n1:n1-start <ID> re-checks.` Stop.
