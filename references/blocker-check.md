@@ -69,10 +69,10 @@ For each open blocker, replace `|` and newlines in the title and status with a s
 For each open blocker, look up the PR on a best-effort basis. The key is untrusted link data: if `<KEY>` does not match `^[A-Z][A-Z0-9_]*-[0-9]+$`, skip the lookup and use PR `-`. Never write a non-matching key into a command. Only a matching key is substituted below, and it holds no shell syntax:
 
 ```bash
-gh pr list --state open --search "<KEY> in:title" --json number,title,headRefName --limit 5 2>/dev/null
+gh pr list --state all --search "<KEY> in:title" --json number,title,headRefName,state --limit 5 2>/dev/null
 ```
 
-The PR is the first entry whose title or `headRefName` contains `<KEY>` as a whole token (PR titles are `[<KEY>] ...`). Use its `number`. If there is no output, no match, or gh is missing or fails, the PR is `-`. This is never an error.
+The PR is the first entry whose title or `headRefName` contains `<KEY>` as a whole token (PR titles are `[<KEY>] ...`). If its `state` is `MERGED`, the blocker is resolved (the blocker watch uses the same rule, so a resume never re-opens it): remove it from `OPEN_BLOCKERS`. If its `state` is `OPEN`, use its `number`. Otherwise, or if there is no output, no match, or gh is missing or fails, the PR is `-`. This is never an error.
 
 ## § Report (CALLER=start)
 

@@ -102,6 +102,8 @@ check "N1-231: Jira blocked-by links read from inwardIssue" "Blocks-type entries
 check "N1-231: headless blocker prompt follows the stop-list path with a category" "escalation \(stop-list path\), .STEP=ticket., category=.blocked-by." "$B"
 check "N1-231: headless blocker prompt states no option is recommended" "No option is recommended, and never treat .continue anyway. as a default" "$B"
 if grep -qE 'KEY="|KEY=.<KEY>' "$B"; then echo "FAIL: N1-231: no tracker key is assigned into a shell string"; FAIL=1; else echo "PASS: N1-231: no tracker key is assigned into a shell string"; fi
+check "N1-634: start-caller PR lookup uses --state all with state" "gh pr list --state all .*headRefName,state" "$B"
+check "N1-634: merged-PR blocker is resolved, same rule as the watch" "state. is .MERGED.*resolved.*same rule" "$B"
 check "N1-231: queue caller skips the PR lookup" "CALLER=queue. skips this step" "$B"
 check "N1-610: blocker-check reads deployed status, case-insensitive" "DEPLOYED_STATUS.*case-insensitive" "$B"
 check "N1-610: blocker-check gate reads tracker.statuses.deployed" "tracker\.statuses\.deployed" "$B"
