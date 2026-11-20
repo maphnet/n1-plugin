@@ -69,10 +69,10 @@ For each open blocker, replace `|` and newlines in the title and status with a s
 For each open blocker, look up the PR on a best-effort basis. The key is untrusted link data: if `<KEY>` does not match `^[A-Z][A-Z0-9_]*-[0-9]+$`, skip the lookup and use PR `-`. Never write a non-matching key into a command. Only a matching key is substituted below, and it holds no shell syntax:
 
 ```bash
-gh pr list --state open --search "<KEY> in:title" --json number,title,headRefName --limit 5 2>/dev/null
+gh pr list --state all --search "<KEY> in:title" --json number,title,headRefName,state --limit 5 2>/dev/null
 ```
 
-The PR is the first entry whose title or `headRefName` contains `<KEY>` as a whole token (PR titles are `[<KEY>] ...`). Use its `number`. If there is no output, no match, or gh is missing or fails, the PR is `-`. This is never an error.
+The PR is the first entry whose title or `headRefName` contains `<KEY>` as a whole token (PR titles are `[<KEY>] ...`). If its `state` is `MERGED`, the blocker is resolved (the blocker watch uses the same rule, so a resume never re-opens it): remove it from `OPEN_BLOCKERS`. If its `state` is `OPEN`, use its `number`. Otherwise, or if there is no output, no match, or gh is missing or fails, the PR is `-`. This is never an error.
 
 ## § Report (CALLER=start)
 
@@ -88,12 +88,7 @@ Branch on the first rule that matches:
    <one line per blocker: <KEY> <title> — <status>[, PR #<n>]>
    ```
 
-   For example: `N1-12 Fix queue drain — In Review, PR #210`. Omit `, PR #<n>` when the PR is `-`. Then ask the user, with this sentence written verbatim before the options:
-
-   > No recommendation. The options are equivalent given the available evidence; select based on team preference.
-
-   1. **Continue anyway**: proceed to the In Progress move.
-   2. **Stop**: print "Stopped: <ID> is blocked by <KEYS>. Finish or unlink the blockers; `/n1:n1-start <ID>` resumes and re-checks." The caller then ends the run before the In Progress move, so the tracker status stays unchanged.
+   For example: `N1-12 Fix queue drain — In Review, PR #210`. Omit `, PR #<n>` when the PR is `-`. Ask nothing (N1-634): the caller ends the ticket step `blocked` before the In Progress move, so the tracker status stays unchanged, and starts the background watch per `<N1_ROOT>/skills/n1-start/procedures/blocker-watch.md`, which resumes with `/n1:n1-start <ID>` once every blocker is resolved.
 5. **Headless (`HEADLESS=1`):** do not ask. Follow `<N1_ROOT>/skills/n1-start/procedures/autonomy-headless.md` escalation (stop-list path), `STEP=ticket`, category=`blocked-by` (never `none`, so a queue always relays it to a human), `QUESTION=Open blockers for <ID>: <KEY>[, <KEY>...]` and `OPTIONS=continue anyway | Stop this ticket` (the ask-mode ends the run only on the exact answer "Stop this ticket"; any other answer continues, as in `ticket-watch-react.md`). No option is recommended, and never treat `continue anyway` as a default because it is listed first. Use only keys that match `^[A-Z][A-Z0-9_]*-[0-9]+$`, and never put titles in `QUESTION`, because it reaches a shell string. The guard escalates in this order:
    1. Move the ticket to the blocked status.
    2. Add an `## Escalations` line.
@@ -101,3 +96,5 @@ Branch on the first rule that matches:
    4. Pause or exit, depending on `N1_UNATTENDED`.
 
    Only the answer "Stop this ticket" or an escalation exit leaves the ticket unmoved. Any other answer continues, and the caller then performs the In Progress move.
+
+   Headless runs keep this escalation instead of the watch: whether a background shell outlives a `claude -p` run and can resume it is unverified (N1-634).

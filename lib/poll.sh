@@ -166,3 +166,104 @@ n1_wait_step() {
         sleep "$nap"
     done
 }
+
+# --- N1-634: blind blocker watch. Run as ONE background shell; zero model turns while silent. ---
+# Caller sources lib/memory.sh and lib/ticket-watch.sh after the preamble (n1_append_escalation, n1_mcp_http_call).
+N1_BW_KEY_RE='^[A-Z][A-Z0-9_]*-[0-9]+$'
+
+n1_blocker_watch_mode() {
+    # Prints "http <url>" (Jira + curl + loopback Streamable HTTP url of versionMcp else mcp) or "pr-only".
+    local mcp url
+    mcp=$(n1_config_val '.tracker.versionMcp'); [ -n "$mcp" ] || mcp=$(n1_config_val '.tracker.mcp')
+    if [ "$(n1_config_val '.tracker.type')" = jira ] && [ -n "$mcp" ] && command -v curl >/dev/null 2>&1 \
+        && url=$(n1_mcp_http_url "$mcp"); then
+        printf 'http %s\n' "$url"
+    else
+        echo pr-only
+    fi
+}
+
+_n1_bw_resolved() {
+    # Usage: _n1_bw_resolved <KEY> <mode> <url> <deployed> — rc 0 when the blocker's status category is Done,
+    # its status name equals <deployed> (case-insensitive, skipped when empty), or its PR is merged.
+    # The merged-PR rule must match references/blocker-check.md § 4 (CALLER=start): first matching PR, state MERGED.
+    # Any read failure or unknown status counts as unresolved. Tracker text is compared, never echoed.
+    # jc-mcp getIssue returns status as a bare name (no category), so the Done category comes from
+    # jcm_searchIssues "key = <KEY> AND statusCategory = Done" returning a non-empty issues array.
+    local k="$1" mode="$2" url="$3" dep="$4" f st=""
+    if [ "$mode" = http ] && f=$(mktemp); then
+        _N1_MCP_URL=""                      # fresh MCP session per check: 30 min outlives server sessions
+        _N1_MCP_DEADLINE=$((SECONDS + 60))
+        if n1_mcp_http_call "$url" jcm_getIssue "$(jq -nc --arg k "$k" '{issueKey:$k}')" > "$f"; then
+            st=$(jq -r --arg d "$dep" '
+                (.fields.status // .status) as $s
+                | (if ($s | type) == "object" then ($s.name // "") else ($s // "") end) as $name
+                | (if ($s | type) == "object" then ($s.statusCategory.key // "")
+                   else (.statusCategory | if type == "object" then (.key // "") else (. // "") end) end) as $cat
+                | if ($cat | ascii_downcase) == "done"
+                     or ($d != "" and $name != "" and ($name | ascii_downcase) == ($d | ascii_downcase))
+                  then "done" else "open" end' "$f" 2>/dev/null)
+        fi
+        if [ "$st" != done ] && n1_mcp_http_call "$url" jcm_searchIssues \
+            "$(jq -nc --arg k "$k" '{jql:("key = " + $k + " AND statusCategory = Done"),maxResults:1}')" > "$f" \
+            && jq -e '(.issues | type) == "array" and (.issues | length) > 0' "$f" >/dev/null 2>&1; then
+            st=done
+        fi
+        _N1_MCP_DEADLINE=""; rm -f "$f"
+        [ "$st" = done ] && return 0
+    fi
+    gh pr list --state all --search "$k in:title" --json number,title,headRefName,state --limit 5 2>/dev/null \
+        | jq -e --arg k "$k" '
+            ("(^|[^A-Za-z0-9_-])" + $k + "($|[^A-Za-z0-9_-])") as $re
+            | [.[] | select(((.title // "") | test($re)) or ((.headRefName // "") | test($re)))][0].state == "MERGED"' \
+            >/dev/null 2>&1
+}
+
+n1_blocker_watch() {
+    # Usage: n1_blocker_watch <ID> <KEY>... — keys as argv only. Silent until exit, then ONE stdout line, rc 0:
+    #   RESOLVED <ID>: blockers resolved (<KEYS>). Next: invoke skill n1-start with <ID>.
+    #   TIMEOUT <ID> comment:posted|pending blocked (watch timed out after 3h): <OPEN KEYS>
+    # Invalid ID/key or no keys: "ERROR bad-key", rc 2, before any sleep. Seams: N1_BW_INTERVAL, N1_BW_MAX_CHECKS.
+    local id="${1:-}" k mode url dep i c=pending line all
+    local -a keys open still
+    [ $# -ge 2 ] || { echo "ERROR bad-key"; return 2; }
+    shift
+    for k in "$id" "$@"; do [[ "$k" =~ $N1_BW_KEY_RE ]] || { echo "ERROR bad-key"; return 2; }; done
+    keys=("$@"); open=("$@")
+    read -r mode url <<<"$(n1_blocker_watch_mode 2>/dev/null)"
+    dep=$(n1_config_val '.tracker.statuses.deployed' 2>/dev/null)
+    # One watcher per ticket: the newest launch owns the token file; an older watcher exits silently.
+    local tok="$$.$RANDOM.$SECONDS" tf="$N1_HOME/memory/$id/blocker-watch.token" iv="${N1_BW_INTERVAL:-1800}" dl rem
+    dl=$((SECONDS + iv * ${N1_BW_MAX_CHECKS:-6}))   # overall deadline: sleeps and lookups share it
+    mkdir -p "${tf%/*}" 2>/dev/null; printf '%s\n' "$tok" > "$tf" 2>/dev/null
+    for ((i = 0; i < ${N1_BW_MAX_CHECKS:-6}; i++)); do
+        rem=$((dl - SECONDS)); [ "$iv" -gt 0 ] && [ "$rem" -gt "$iv" ] && rem=$iv
+        [ "$iv" -eq 0 ] && rem=0
+        [ "$rem" -gt 0 ] && sleep "$rem" 2>/dev/null
+        [ "$(cat "$tf" 2>/dev/null)" = "$tok" ] || return 0
+        still=()
+        for k in "${open[@]}"; do _n1_bw_resolved "$k" "$mode" "$url" "$dep" 2>/dev/null || still+=("$k"); done
+        open=("${still[@]}")
+        [ "$(cat "$tf" 2>/dev/null)" = "$tok" ] || return 0
+        if [ ${#open[@]} -gt 0 ] && [ "$iv" -gt 0 ] && [ "$SECONDS" -ge "$dl" ]; then break; fi
+        if [ ${#open[@]} -eq 0 ]; then
+            all=$(printf '%s, ' "${keys[@]}"); all=${all%, }
+            printf 'RESOLVED %s: blockers resolved (%s). Next: invoke skill n1-start with %s.\n' "$id" "$all" "$id"
+            return 0
+        fi
+    done
+    line=$(printf '%s, ' "${open[@]}"); line="blocked (watch timed out after 3h): ${line%, }"
+    n1_append_escalation "$N1_HOME/memory/$id/overview.md" "- [watch] ticket: $line" >/dev/null 2>&1
+    if [ "$mode" = http ]; then
+        _N1_MCP_URL=""; _N1_MCP_DEADLINE=$((SECONDS + 60))
+        # jc-mcp answers a declined write as a normal {ok:false} payload, so rc 0 alone is not "posted".
+        if f=$(mktemp) && n1_mcp_http_call "$url" jcm_addComment "$(jq -nc --arg k "$id" \
+            --arg b "N1 [blocker-watch] $id $line. Run /n1:n1-start $id to re-check."$'\n\n'"n1-esc:$id:ticket" \
+            '{issueKey:$k,body:$b}')" > "$f" 2>/dev/null && jq -e '.ok != false' "$f" >/dev/null 2>&1; then
+            c=posted
+        fi
+        rm -f "$f"
+        _N1_MCP_DEADLINE=""
+    fi
+    printf 'TIMEOUT %s comment:%s %s\n' "$id" "$c" "$line"
+}

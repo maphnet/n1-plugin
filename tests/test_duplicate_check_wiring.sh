@@ -102,6 +102,8 @@ check "N1-231: Jira blocked-by links read from inwardIssue" "Blocks-type entries
 check "N1-231: headless blocker prompt follows the stop-list path with a category" "escalation \(stop-list path\), .STEP=ticket., category=.blocked-by." "$B"
 check "N1-231: headless blocker prompt states no option is recommended" "No option is recommended, and never treat .continue anyway. as a default" "$B"
 if grep -qE 'KEY="|KEY=.<KEY>' "$B"; then echo "FAIL: N1-231: no tracker key is assigned into a shell string"; FAIL=1; else echo "PASS: N1-231: no tracker key is assigned into a shell string"; fi
+check "N1-634: start-caller PR lookup uses --state all with state" "gh pr list --state all .*headRefName,state" "$B"
+check "N1-634: merged-PR blocker is resolved, same rule as the watch" "state. is .MERGED.*resolved.*same rule" "$B"
 check "N1-231: queue caller skips the PR lookup" "CALLER=queue. skips this step" "$B"
 check "N1-610: blocker-check reads deployed status, case-insensitive" "DEPLOYED_STATUS.*case-insensitive" "$B"
 check "N1-610: blocker-check gate reads tracker.statuses.deployed" "tracker\.statuses\.deployed" "$B"
@@ -109,7 +111,9 @@ check "N1-610: intake story mode counts deployed and released as done" "tracker\
 check "N1-610: intake description blockers honor deployed status" "status name equals .tracker\.statuses\.deployed. .*The ones not done are the candidate's description blockers\." skills/n1-queue/steps/intake.md
 check "N1-610: run re-read counts deployed and released as done" "tracker\.statuses\.deployed. or .tracker\.statuses\.released." skills/n1-queue/steps/run.md
 check "N1-231: question shows status and PR" "<status>\[, PR #<n>\]" "$B"
-check "N1-231: interactive options carry the no-recommendation sentence" "No recommendation\. The options are equivalent given the available evidence; select based on team preference\." "$B"
+if grep -qF '**Continue anyway**' "$B"; then echo "FAIL: N1-634: interactive blocker branch asks no question"; FAIL=1; else echo "PASS: N1-634: interactive blocker branch asks no question"; fi
+check "N1-634: interactive branch ends blocked and starts the watch" "Ask nothing \(N1-634\).*blocked.*procedures/blocker-watch\.md" "$B"
+check "N1-634: headless keeps the escalation, decision recorded" "claude -p. run .*unverified \(N1-634\)" "$B"
 check "N1-231: headless options use the exact ask-mode stop label" "OPTIONS=continue anyway \| Stop this ticket" "$B"
 check "N1-231: lookup failure warns and continues" "Warning: blocker check skipped \(<msg>\)" "$B"
 check "N1-231: unconfigured lookup warns and continues" "Warning: blocker check skipped \(operations\.getIssueLinks not configured\)" "$B"
@@ -144,6 +148,13 @@ if [ -n "$LD" ] && [ -n "$LB" ] && [ -n "$LS" ] && [ "$LD" -lt "$LB" ] && [ "$LB
 else
     echo "FAIL: N1-231: blocker check sits after the duplicate check and before Tracker status"; FAIL=1
 fi
+check "N1-634: ticket step starts the watch on the blocked end path" "Blocker check.*end as above \(.blocked.\), start the watch per .<N1_ROOT>/skills/n1-start/procedures/blocker-watch\.md." "$T"
+check "N1-634: ticket step keeps the headless Stop this ticket end path" "Blocker check.*Stop this ticket.* end as above \(.blocked.\)" "$T"
+check "N1-634: HOST ROUTING maps run in the background" "Run in the background <command>.*run_in_background" hooks/session-start.sh
+check "N1-634: procedure passes keys as argv" "n1_blocker_watch \"\\\$@\"' _ <ID> <KEY>" skills/n1-start/procedures/blocker-watch.md
+check "N1-634: procedure says PR-only mode once" "Output .pr-only.: print once .Blocker watch: no tracker HTTP endpoint, checking PR state only" skills/n1-start/procedures/blocker-watch.md
+check "N1-634: procedure resumes via n1-start" "invoke skill n1-start with .<ID>." skills/n1-start/procedures/blocker-watch.md
+check "N1-634: architecture documents the watch" "lib/poll\.sh. .n1_blocker_watch." references/architecture.md
 
 # N1-555: analyst owns readTicket/getIssueLinks, never getTransitions; records links once in ticket.md
 source "$(dirname "$0")/persona_split_lib.sh"
