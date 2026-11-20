@@ -49,7 +49,7 @@ _n1_mcp_post() { # <url> <session-id> <body>
             case "$t" in
                 jcm_getIssue) p=$(cat "$T/fx/$(jq -r .issueKey <<<"$a")" 2>/dev/null) || return 22 ;;
                 jcm_searchIssues) j=$(jq -r .jql <<<"$a"); j=${j#key = }; p=$(cat "$T/fx/S-${j%% *}" 2>/dev/null) || p='{"total":0,"issues":[]}' ;;
-                jcm_addComment) [ -z "${COMMENT_FAIL:-}" ] || return 28; p='{"id":"c1"}' ;;
+                jcm_addComment) [ -z "${COMMENT_FAIL:-}" ] || return 28; p='{"id":"c1"}'; [ -z "${COMMENT_DECLINE:-}" ] || p='{"ok":false,"message":"Comment not added"}' ;;
                 *) return 22 ;;
             esac
             printf 'HTTP/1.1 200 OK\r\n\r\nevent: message\r\ndata: %s\r\n\r\n' "$(jq -nc --arg p "$p" '{result:{content:[{type:"text",text:$p}]},jsonrpc:"2.0",id:2}')" ;;
@@ -123,6 +123,10 @@ eq "timeout http: one addComment call" "1" "$(grep -c '^jcm_addComment|' "$T/cal
 eq "timeout http: comment carries the n1-esc marker" "yes" "$(grep '^jcm_addComment|' "$T/calls" | cut -d'|' -f2- | jq -r '.issueKey + " " + (.body | test("n1-esc:T-1:ticket") | tostring)' | grep -qx 'T-1 true' && echo yes || echo no)"
 reset; cfg jira; iss A-1 "To Do"; export COMMENT_FAIL=1; run T-1 A-1
 eq "timeout http: comment failure -> pending" "TIMEOUT T-1 comment:pending blocked (watch timed out after 3h): A-1" "$(out)"
+
+reset; cfg jira; iss A-1 "To Do"; export COMMENT_DECLINE=1; run T-1 A-1
+eq "timeout http: declined write (ok:false) -> pending" "TIMEOUT T-1 comment:pending blocked (watch timed out after 3h): A-1" "$(out)"
+unset COMMENT_DECLINE
 
 # Validation: bad key or ID -> rc 2 before any sleep or gh call
 for bad in 'a;rm' 'X-1;x' '$(id)'; do

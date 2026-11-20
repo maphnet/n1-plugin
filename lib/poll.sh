@@ -186,6 +186,7 @@ n1_blocker_watch_mode() {
 _n1_bw_resolved() {
     # Usage: _n1_bw_resolved <KEY> <mode> <url> <deployed> — rc 0 when the blocker's status category is Done,
     # its status name equals <deployed> (case-insensitive, skipped when empty), or its PR is merged.
+    # The merged-PR rule must match references/blocker-check.md § 4 (CALLER=start): first matching PR, state MERGED.
     # Any read failure or unknown status counts as unresolved. Tracker text is compared, never echoed.
     # jc-mcp getIssue returns status as a bare name (no category), so the Done category comes from
     # jcm_searchIssues "key = <KEY> AND statusCategory = Done" returning a non-empty issues array.
@@ -246,9 +247,13 @@ n1_blocker_watch() {
     n1_append_escalation "$N1_HOME/memory/$id/overview.md" "- [watch] ticket: $line" >/dev/null 2>&1
     if [ "$mode" = http ]; then
         _N1_MCP_URL=""; _N1_MCP_DEADLINE=$((SECONDS + 60))
-        n1_mcp_http_call "$url" jcm_addComment "$(jq -nc --arg k "$id" \
+        # jc-mcp answers a declined write as a normal {ok:false} payload, so rc 0 alone is not "posted".
+        if f=$(mktemp) && n1_mcp_http_call "$url" jcm_addComment "$(jq -nc --arg k "$id" \
             --arg b "N1 [blocker-watch] $id $line. Run /n1:n1-start $id to re-check."$'\n\n'"n1-esc:$id:ticket" \
-            '{issueKey:$k,body:$b}')" >/dev/null 2>&1 && c=posted
+            '{issueKey:$k,body:$b}')" > "$f" 2>/dev/null && jq -e '.ok != false' "$f" >/dev/null 2>&1; then
+            c=posted
+        fi
+        rm -f "$f"
         _N1_MCP_DEADLINE=""
     fi
     printf 'TIMEOUT %s comment:%s %s\n' "$id" "$c" "$line"
