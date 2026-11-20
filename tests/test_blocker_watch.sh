@@ -36,9 +36,10 @@ if [ -f "$GH_FX/$k" ]; then cat "$GH_FX/$k"; else echo '[]'; fi
 EOG
 chmod +x "$T/bin/sleep" "$T/bin/gh"
 
-# MCP transport fixture: jcm_getIssue answers from $T/fx/<issueKey>; jcm_addComment ok unless COMMENT_FAIL
+# MCP transport fixture: jcm_getIssue answers from $T/fx/<issueKey>; jcm_searchIssues from $T/fx/S-<key in jql>
+# (else {total:0,issues:[]}); jcm_addComment ok unless COMMENT_FAIL
 _n1_mcp_post() { # <url> <session-id> <body>
-    local m t a p
+    local m t a p j
     m=$(jq -r .method <<<"$3"); t=$(jq -r '.params.name // ""' <<<"$3"); a=$(jq -c '.params.arguments // {}' <<<"$3")
     case "$m" in
         initialize) printf 'HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nmcp-session-id: sid-1\r\n\r\nevent: message\r\ndata: {"result":{"protocolVersion":"2025-03-26"},"jsonrpc":"2.0","id":1}\r\n\r\n' ;;
@@ -47,6 +48,7 @@ _n1_mcp_post() { # <url> <session-id> <body>
             printf '%s|%s\n' "$t" "$a" >> "$T/calls"
             case "$t" in
                 jcm_getIssue) p=$(cat "$T/fx/$(jq -r .issueKey <<<"$a")" 2>/dev/null) || return 22 ;;
+                jcm_searchIssues) j=$(jq -r .jql <<<"$a"); j=${j#key = }; p=$(cat "$T/fx/S-${j%% *}" 2>/dev/null) || p='{"total":0,"issues":[]}' ;;
                 jcm_addComment) [ -z "${COMMENT_FAIL:-}" ] || return 28; p='{"id":"c1"}' ;;
                 *) return 22 ;;
             esac
@@ -55,7 +57,8 @@ _n1_mcp_post() { # <url> <session-id> <body>
     esac
 }
 cfg() { jq -nc --arg t "$1" --arg d "${2:-}" '{tracker:{type:$t,mcp:"jc",statuses:{deployed:$d}}}' > "$N1_HOME/config.json"; }
-iss() { mkdir -p "$T/fx"; jq -nc --arg s "$2" --arg c "$3" '{key:"x",status:$s,statusCategory:$c}' > "$T/fx/$1"; }   # jc-mcp flat shape
+iss() { mkdir -p "$T/fx"; jq -nc --arg s "$2" '{key:"x",status:$s}' > "$T/fx/$1"; }   # jc-mcp getIssue: status is a bare name
+srch() { mkdir -p "$T/fx"; jq -nc --arg k "$1" --argjson n "$2" '{total:$n,issues:[range($n)|{key:$k,status:"Closed"}]}' > "$T/fx/S-$1"; }   # jc-mcp searchIssues
 iss_rest() { mkdir -p "$T/fx"; jq -nc --arg s "$2" --arg c "$3" '{key:"x",fields:{status:{name:$s,statusCategory:{key:$c}}}}' > "$T/fx/$1"; }   # Jira REST shape
 pr() { printf '[{"number":5,"title":"%s","headRefName":"b","state":"%s"}]' "$2" "$3" > "$GH_FX/$1"; }
 reset() { rm -rf "$T/fx" "$GH_FX"/* "$T/calls" "$GH_LOG" "$SLEEP_LOG" "$SLEEP_LOG.early"; touch "$T/calls" "$GH_LOG" "$SLEEP_LOG"
@@ -74,18 +77,21 @@ eq "defaults: rc 0" "0" "$(cat "$T/rc")"
 eq "defaults: timeout line (pr-only -> comment pending)" "TIMEOUT T-1 comment:pending blocked (watch timed out after 3h): A-1" "$(out)"
 eq "defaults: one gh lookup per check" "6" "$(wc -l < "$GH_LOG" | tr -d ' ')"
 
-# Resolution 1: status category Done (jc-mcp flat shape and Jira REST shape)
-reset; cfg jira; iss A-1 Closed done; run T-1 A-1
+# Resolution 1: status category Done (jc-mcp searchIssues statusCategory = Done; Jira REST getIssue shape)
+reset; cfg jira; iss A-1 Closed; srch A-1 1; run T-1 A-1
 eq "done category: resolved" "RESOLVED T-1: blockers resolved (A-1). Next: invoke skill n1-start with T-1." "$(out)"
 eq "done category: resolved on the first check" "1" "$(wc -l < "$SLEEP_LOG" | tr -d ' ')"
 eq "done category: getIssue args built by jq" 'jcm_getIssue|{"issueKey":"A-1"}' "$(head -1 "$T/calls")"
+eq "done category: searchIssues args built by jq" 'jcm_searchIssues|{"jql":"key = A-1 AND statusCategory = Done","maxResults":1}' "$(sed -n 2p "$T/calls")"
+reset; cfg jira; iss A-1 Closed; srch A-1 0; run T-1 A-1
+eq "done category: empty searchIssues issues stays open" "TIMEOUT" "$(out | cut -d' ' -f1)"
 reset; cfg jira; iss_rest A-1 Closed done; run T-1 A-1
 eq "done category (REST shape): resolved" "RESOLVED" "$(out | cut -d' ' -f1)"
 
 # Resolution 2: status equals tracker.statuses.deployed, case-insensitive; empty deployed never matches
-reset; cfg jira QA; iss A-1 qa indeterminate; run T-1 A-1
+reset; cfg jira QA; iss A-1 qa; run T-1 A-1
 eq "deployed status (case-insensitive): resolved" "RESOLVED" "$(out | cut -d' ' -f1)"
-reset; cfg jira ""; iss A-1 QA indeterminate; run T-1 A-1
+reset; cfg jira ""; iss A-1 QA; run T-1 A-1
 eq "deployed status empty: stays open" "TIMEOUT" "$(out | cut -d' ' -f1)"
 
 # Resolution 3: merged PR (searched with --state all)
@@ -110,12 +116,12 @@ reset; cfg youtrack; pr A-1 "[A-1] x" MERGED; pr A-2 "[A-2] y" MERGED; run T-1 A
 eq "both resolved" "RESOLVED T-1: blockers resolved (A-1, A-2). Next: invoke skill n1-start with T-1." "$(out)"
 
 # Timeout in HTTP mode: escalation line + one jcm_addComment with the marker; comment failure -> pending
-reset; cfg jira; iss A-1 "To Do" new; run T-1 A-1
+reset; cfg jira; iss A-1 "To Do"; run T-1 A-1
 eq "timeout http: comment posted" "TIMEOUT T-1 comment:posted blocked (watch timed out after 3h): A-1" "$(out)"
 eq "timeout: escalation line in overview.md" "1" "$(grep -cxF -- '- [watch] ticket: blocked (watch timed out after 3h): A-1' "$OV")"
 eq "timeout http: one addComment call" "1" "$(grep -c '^jcm_addComment|' "$T/calls")"
 eq "timeout http: comment carries the n1-esc marker" "yes" "$(grep '^jcm_addComment|' "$T/calls" | cut -d'|' -f2- | jq -r '.issueKey + " " + (.body | test("n1-esc:T-1:ticket") | tostring)' | grep -qx 'T-1 true' && echo yes || echo no)"
-reset; cfg jira; iss A-1 "To Do" new; export COMMENT_FAIL=1; run T-1 A-1
+reset; cfg jira; iss A-1 "To Do"; export COMMENT_FAIL=1; run T-1 A-1
 eq "timeout http: comment failure -> pending" "TIMEOUT T-1 comment:pending blocked (watch timed out after 3h): A-1" "$(out)"
 
 # Validation: bad key or ID -> rc 2 before any sleep or gh call

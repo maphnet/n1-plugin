@@ -187,6 +187,8 @@ _n1_bw_resolved() {
     # Usage: _n1_bw_resolved <KEY> <mode> <url> <deployed> — rc 0 when the blocker's status category is Done,
     # its status name equals <deployed> (case-insensitive, skipped when empty), or its PR is merged.
     # Any read failure or unknown status counts as unresolved. Tracker text is compared, never echoed.
+    # jc-mcp getIssue returns status as a bare name (no category), so the Done category comes from
+    # jcm_searchIssues "key = <KEY> AND statusCategory = Done" returning a non-empty issues array.
     local k="$1" mode="$2" url="$3" dep="$4" f st=""
     if [ "$mode" = http ] && f=$(mktemp); then
         _N1_MCP_URL=""                      # fresh MCP session per check: 30 min outlives server sessions
@@ -200,6 +202,11 @@ _n1_bw_resolved() {
                 | if ($cat | ascii_downcase) == "done"
                      or ($d != "" and $name != "" and ($name | ascii_downcase) == ($d | ascii_downcase))
                   then "done" else "open" end' "$f" 2>/dev/null)
+        fi
+        if [ "$st" != done ] && n1_mcp_http_call "$url" jcm_searchIssues \
+            "$(jq -nc --arg k "$k" '{jql:("key = " + $k + " AND statusCategory = Done"),maxResults:1}')" > "$f" \
+            && jq -e '(.issues | type) == "array" and (.issues | length) > 0' "$f" >/dev/null 2>&1; then
+            st=done
         fi
         _N1_MCP_DEADLINE=""; rm -f "$f"
         [ "$st" = done ] && return 0
