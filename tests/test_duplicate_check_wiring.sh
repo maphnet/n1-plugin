@@ -150,6 +150,7 @@ check "N1-634: ticket step starts the watch on the blocked end path" "Blocker ch
 check "N1-634: ticket step keeps the headless Stop this ticket end path" "Blocker check.*Stop this ticket.* end as above \(.blocked.\)" "$T"
 check "N1-634: HOST ROUTING maps run in the background" "Run in the background <command>.*run_in_background" hooks/session-start.sh
 check "N1-634: procedure passes keys as argv" "n1_blocker_watch \"\\\$@\"' _ <ID> <KEY>" skills/n1-start/procedures/blocker-watch.md
+check "N1-634: procedure says PR-only mode once" "Output .pr-only.: print once .Blocker watch: no tracker HTTP endpoint, checking PR state only" skills/n1-start/procedures/blocker-watch.md
 check "N1-634: procedure resumes via n1-start" "invoke skill n1-start with .<ID>." skills/n1-start/procedures/blocker-watch.md
 check "N1-634: architecture documents the watch" "lib/poll\.sh. .n1_blocker_watch." references/architecture.md
 
