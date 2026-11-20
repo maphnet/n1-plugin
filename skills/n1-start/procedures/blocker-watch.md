@@ -21,6 +21,7 @@ Output `pr-only`: print once `Blocker watch: no tracker HTTP endpoint, checking 
 Run in the background this one command, with `<ID>` and the kept keys as separate trailing arguments (they arrive as argv, never inside the quoted script):
 
 ```bash
+source ~/.n1/preamble.sh
 bash -c 'source ~/.n1/preamble.sh; source "$N1_ROOT/lib/memory.sh"; source "$N1_ROOT/lib/ticket-watch.sh"; source "$N1_ROOT/lib/poll.sh"; n1_blocker_watch "$@"' _ <ID> <KEY> [<KEY>...]
 ```
 
