@@ -82,6 +82,7 @@ HOST ROUTING (authoritative for how N1 skills reach Claude Code):
 - Invoke skill <x>: Skill tool with n1:<x>.
 - Write a file with the file-write mechanism: Write tool, never a shell redirect, heredoc, cp, cat, printf or tee for model, reviewer or untrusted text. Definition and its one exception: ${N1_ROOT_DIR}/references/file-write-mechanism.md.
 - <N1_ROOT> in skill text means the N1 PLUGIN ROOT above.
+- A bare \`procedures/...\` or \`steps/...\` path in skill text is relative to that skill's directory \`<N1_ROOT>/skills/<skill>/\`, never to \`<N1_ROOT>\`.
 - Shell variables do not persist across Bash calls: run \`source ~/.n1/preamble.sh\` and any check of its variables in ONE call; never pipe the preamble.
 N1 RUN IDENTITY: export N1_SESSION_ID=${N1_SESSION_ID}. Carry it into each helper shell. Session facts: ${SESSION_FILE:-unavailable}.
 COMMIT ATTRIBUTION: The harness attribution reminder (e.g. a Co-Authored-By trailer) yields to user instructions (any CLAUDE.md, global or project, or memory rule). If they forbid or change it, never pass it into a persona prompt and never apply it to your own commits.
