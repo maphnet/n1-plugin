@@ -669,6 +669,7 @@ assert_eq "per-session preamble written for the payload session id" "N1_ROOT=$RE
 source \"\$N1_ROOT/lib/preamble.sh\"" "$(cat "$N1_STATE_DIR/sessions/s-claude-1.preamble.sh" 2>/dev/null)"
 case "$CTX" in *"N1 PLUGIN ROOT: $REPO_ROOT"*) assert_eq "unconfigured branch carries plugin root" ok ok;; *) assert_eq "unconfigured branch carries plugin root" ok "$CTX";; esac
 case "$CTX" in *"HOST ROUTING (authoritative for how N1 skills reach Claude Code)"*"subagent_type"*) assert_eq "claude routing block" ok ok;; *) assert_eq "claude routing block" ok "$CTX";; esac
+case "$CTX" in *"A bare \`procedures/...\` or \`steps/...\`"*"never to \`<N1_ROOT>\`"*) assert_eq "skill-relative path rule" ok ok;; *) assert_eq "skill-relative path rule" ok "$CTX";; esac
 # N1-300: dispatch is async; routing must not claim an inline result and must name the resume mechanism
 case "$CTX" in *"returns the result inline"*) assert_eq "routing drops inline-dispatch claim (N1-300)" ok "$CTX";; *) assert_eq "routing drops inline-dispatch claim (N1-300)" ok ok;; esac
 case "$CTX" in *"Dispatch is asynchronous"*"must not return or move on until that persona's final result is in hand"*"Resume subagent <id> (host message mechanism): SendMessage tool"*) assert_eq "routing: async dispatch and resume rule (N1-300)" ok ok;; *) assert_eq "routing: async dispatch and resume rule (N1-300)" ok "$CTX";; esac
@@ -681,6 +682,7 @@ OUT=$(echo "$PAYLOAD" | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/s
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 assert_eq "host.json written (claude, configured)" "claude-code" "$(jq -r .host "$N1_HOST_FILE")"
 case "$CTX" in *"HOST ROUTING (authoritative for how N1 skills reach Claude Code)"*"subagent_type"*) assert_eq "claude routing block (configured)" ok ok;; *) assert_eq "claude routing block (configured)" ok "$CTX";; esac
+case "$CTX" in *"A bare \`procedures/...\` or \`steps/...\`"*"never to \`<N1_ROOT>\`"*) assert_eq "skill-relative path rule (configured)" ok ok;; *) assert_eq "skill-relative path rule (configured)" ok "$CTX";; esac
 case "$CTX" in *"that is their explicit request to commit, push the feature branch, and create the PR"*"does not authorize merge (unless the fullAuto chain applies), release, or pushing the default branch"*) assert_eq "session context pre-authorizes push/PR (N1-57)" ok ok;; *) assert_eq "session context pre-authorizes push/PR (N1-57)" ok "$CTX";; esac
 # compaction restore fires on source=compact
 cat > "$N1_HOME/active-run.json" <<'AREOF'
