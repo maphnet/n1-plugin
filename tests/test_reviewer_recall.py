@@ -354,6 +354,22 @@ class ReplayRulesTest(ClaudeFixture):
         self.assertNotIn("Project Rules", self.prompts()[0])
         self.assertEqual(rr.read_jsonl(run_dir / "replay.jsonl")[0]["rules_files"], [])
 
+    def test_failing_rules_helper_is_an_error_row_and_is_retried(self):
+        # Bug caught: a failing rules helper degrades to a rule-less reviewer run recorded as ok,
+        # polluting the with-rules measurement (AC3); or the error row is not retried on resume.
+        d = self.make_rules()
+        with mock.patch.object(rr, "rules_bash", side_effect=RuntimeError("helper failed")):
+            rc, run_dir, err = self.replay("--case", "N1-1", "--rules-dir", d)
+        self.assertEqual(rc, 0, err)
+        rows = rr.read_jsonl(run_dir / "replay.jsonl")
+        self.assertEqual([r["status"] for r in rows], ["error"])
+        self.assertEqual(self.calls(), [])
+        rc, _, err = self.replay("--case", "N1-1", "--rules-dir", d, "--run-dir", run_dir)
+        self.assertEqual(rc, 0, err)
+        rows = rr.read_jsonl(run_dir / "replay.jsonl")
+        self.assertEqual([r["status"] for r in rows], ["ok"])
+        self.assertEqual(len(self.calls()), 1)
+
     def test_resume_refuses_changed_rules(self):
         # Bug caught: rows measured with different rules (or none) pooled in one run dir and one report.
         d = self.make_rules()
