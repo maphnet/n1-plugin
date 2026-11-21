@@ -47,6 +47,7 @@ _spec.loader.exec_module(ab)
 
 REVIEWER_TOOLS = "Read,Grep,Glob"  # persona tools minus Write: the replay must not write anywhere
 MEMORY_INPUTS = ("ticket.md", "review-spec.md", "plan.md", "qa-facts.md", "analysis.md")
+RULES_SH = REPO / "lib" / "rules.sh"
 FINDING_RE = re.compile(r"^\s*[-*]\s*\**\[(?:CR|TQ|RULE)-\d+\]", re.M)  # [XREPO-n] is advisory, not counted
 VERDICT_RE = re.compile(r"^#+\s*Verdict\b", re.M)
 FILE_RE = re.compile(r"[\w./-]+\.(?:sh|md|py|jsonl|json)\b(?::\d+)?")
@@ -259,7 +260,7 @@ def persona_info(path):
     return meta, body, commit, hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def reviewer_prompt(ticket_dir, base, diff_file, files_file, claude_md, claude_diff):
+def reviewer_prompt(ticket_dir, base, diff_file, files_file, claude_md, claude_diff, rules_block=""):
     lines = ["Review this change. Inputs:"]
     for name in MEMORY_INPUTS:
         f = Path(ticket_dir) / name
@@ -271,16 +272,45 @@ def reviewer_prompt(ticket_dir, base, diff_file, files_file, claude_md, claude_d
               f"- Changed files: {files_file}",
               "The checked-out tree in your working directory is the post-change code.",
               "Return the full Output Format report inline. Do not write any file."]
+    if rules_block:  # same block review-core.md appends to the live code-reviewer prompt
+        lines += ["", rules_block.rstrip()]
     return "\n".join(lines)
 
 
-def replay_ticket(case, args, persona, run_dir):
+def rules_digest(rules_dir):
+    """sha256 over every *.rule.md (name and bytes) in rules_dir; None without --rules-dir."""
+    if rules_dir is None:
+        return None
+    h = hashlib.sha256()
+    for f in sorted(Path(rules_dir).glob("*.rule.md")):
+        h.update(f.name.encode("utf-8") + b"\0" + f.read_bytes() + b"\0")
+    return h.hexdigest()
+
+
+def rules_bash(script, *args):
+    """Run lib/rules.sh helpers (the live review path) in bash; a non-zero rc raises."""
+    proc = ab.run_group(["bash", "-c", f'source "$0" && {script}', str(RULES_SH), *[str(a) for a in args]],
+                        str(REPO), 60, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"rules helper failed (rc {proc.returncode}): {proc.stderr.strip()[-300:]}")
+    return proc.stdout
+
+
+def gate_rules(rules_dir, files_file):
+    """(gate rule paths, rendered block) for code-reviewer on the changed files, as review-core.md builds CR_RULES_BLOCK."""
+    found = rules_bash('n1_rules_for_agent code-reviewer "$(cat "$1")" "$2"', files_file, Path(rules_dir).resolve())
+    gate = [f for f in found.splitlines() if f and rules_bash('n1_rule_field "$1" enforcement', f).strip() == "gate"]
+    return gate, (rules_bash('n1_rules_render "$@" || true', *gate) if gate else "")
+
+
+def replay_ticket(case, args, persona, run_dir, rules_sha=None):
     """One reviewer run for one ticket in a detached worktree; returns (row, harness session id)."""
     meta, prompt_file, commit, digest = persona
     t, sha, base = case["ticket"], case["replay_sha"], case["branch_point"]
     sid = str(uuid.uuid4())
     row = {"id": t, "kind": case["kind"], "ticket": t, "split": case.get("split"), "status": "unreachable",
-           "session_id": sid, "persona_commit": commit, "persona_sha256": digest, "replay_sha": sha,
+           "session_id": sid, "persona_commit": commit, "persona_sha256": digest,
+           "rules_files": [], "rules_sha256": rules_sha, "replay_sha": sha,
            "findings_text": None, "n_findings": None, "unparsed": False, "tokens": ab.token_split(None),
            "cost_usd": 0.0, "wall_ms": 0, "error": None, "raw": None}
     if not (commit_exists(args.repo, sha) and commit_exists(args.repo, base)):
@@ -294,6 +324,10 @@ def replay_ticket(case, args, persona, run_dir):
         diff_file, files_file = run_dir / f"{t}.diff", run_dir / f"{t}.files"
         diff_file.write_text(git(args.repo, "diff", f"{base}...{sha}").stdout, encoding="utf-8")
         files_file.write_text(git(args.repo, "diff", "--name-only", f"{base}...{sha}").stdout, encoding="utf-8")
+        rules_block = ""
+        if args.rules_dir is not None:  # RuntimeError from a failing helper becomes an error row, never a rule-less run
+            gate, rules_block = gate_rules(args.rules_dir, files_file)
+            row["rules_files"] = [Path(f).name for f in gate]
         claude_md = claude_diff = None
         shown = git(args.repo, "show", f"{base}:CLAUDE.md", check=False)
         if shown.returncode == 0:
@@ -310,7 +344,7 @@ def replay_ticket(case, args, persona, run_dir):
         for name in MEMORY_INPUTS:
             if (args.memory_root / t / name).is_file():
                 shutil.copy(args.memory_root / t / name, inputs / name)
-        cmd = [args.claude, "-p", reviewer_prompt(inputs, base, diff_file, files_file, claude_md, claude_diff),
+        cmd = [args.claude, "-p", reviewer_prompt(inputs, base, diff_file, files_file, claude_md, claude_diff, rules_block),
                "--output-format", "json", "--session-id", sid,
                "--append-system-prompt-file", str(prompt_file), "--tools", REVIEWER_TOOLS,
                "--add-dir", str(run_dir),
@@ -370,6 +404,9 @@ def cmd_replay(args):
     if not shutil.which(str(args.claude)):
         print(f"claude binary not found: {args.claude}", file=sys.stderr)
         return 1
+    if args.rules_dir is not None and not args.rules_dir.is_dir():
+        print(f"--rules-dir is not a directory: {args.rules_dir}", file=sys.stderr)
+        return 1
     _, cases = load_cases(args.cases)
     todo = select_cases(cases, args)
     if not todo:
@@ -389,6 +426,10 @@ def cmd_replay(args):
     if old - {digest}:
         print(f"persona changed since the earlier rows in {run_dir}; use a new run directory", file=sys.stderr)
         return 1
+    rules_sha = rules_digest(args.rules_dir)
+    if kept and {r.get("rules_sha256") for r in kept} != {rules_sha}:
+        print(f"rules changed since the earlier rows in {run_dir}; use a new run directory", file=sys.stderr)
+        return 1
     prompt_file = run_dir / "persona.md"
     prompt_file.write_text(body, encoding="utf-8")
     rows, rejected, spent = [], 0, 0.0
@@ -400,7 +441,7 @@ def cmd_replay(args):
                 if args.budget_total_usd is not None and spent >= args.budget_total_usd:
                     print(f"total budget ${args.budget_total_usd} reached; stopping", file=sys.stderr)
                     break
-                row, sid = replay_ticket(case, args, (meta, prompt_file, commit, digest), run_dir)
+                row, sid = replay_ticket(case, args, (meta, prompt_file, commit, digest), run_dir, rules_sha)
                 spent += row["cost_usd"]
                 reason = ab.validate_row(row, sid)
                 if reason:
@@ -672,6 +713,7 @@ def main(argv=None):
     r.add_argument("--out", type=Path, help="output dir (default $N1_HOME/scratch/benchmarks)")
     r.add_argument("--run-dir", type=Path, help="resume into an existing run dir; tickets already replayed are skipped")
     r.add_argument("--persona", type=Path, default=REPO / "agents" / "code-reviewer.md", help=argparse.SUPPRESS)
+    r.add_argument("--rules-dir", type=Path, help="inject gate rules for code-reviewer from this dir (as the live review does)")
     r.add_argument("--claude", default="claude", help=argparse.SUPPRESS)
     add_repo_args(r)
     g = sub.add_parser("grade", help="judge replayed reviews against answer keys (paid claude calls)")

@@ -291,6 +291,91 @@ class ReplayTest(ClaudeFixture):
         self.assertEqual(self.calls(), [])
 
 
+def rule_text(enforcement, paths, body):
+    return (f"---\ndescription: test rule\ntopic: reliability\napplies_to: [code-reviewer]\n"
+            f"enforcement: {enforcement}\npaths: {paths}\n---\n\n{body}\n")
+
+
+class ReplayRulesTest(ClaudeFixture):
+    GATE_BODY = "Every echo line in a.sh is kept."
+    QUEUE_BODY = "Queue gates fail closed."
+    DENY_BODY = "Never write a.sh directly."
+
+    def make_rules(self):
+        d = self.tmp / "rules"
+        d.mkdir(exist_ok=True)
+        (d / "gate-a.rule.md").write_text(rule_text("gate", "a.sh", self.GATE_BODY))
+        (d / "gate-queue.rule.md").write_text(rule_text("gate", "lib/queue.sh", self.QUEUE_BODY))
+        (d / "deny-a.rule.md").write_text(rule_text("deny", "a.sh", self.DENY_BODY))
+        return d
+
+    def prompts(self):
+        return [c["argv"][c["argv"].index("-p") + 1] for c in self.calls()]
+
+    def replay_rc(self, *extra):
+        with mock.patch.dict(os.environ, self.env):
+            rc, _, err = self.run_main("replay", "--cases", self.cases, "--claude", self.claude, "--repo", self.repo,
+                                       "--memory-root", self.mem,
+                                       "--persona", self.repo / "agents" / "code-reviewer.md", *extra)
+        return rc, err
+
+    def test_without_flag_prompt_and_rows_carry_no_rules(self):
+        # Bug caught: the default replay (the N1-629 baseline path) changes when no --rules-dir is given.
+        rc, run_dir, err = self.replay("--case", "N1-1")
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("Project Rules", self.prompts()[0])
+        r = rr.read_jsonl(run_dir / "replay.jsonl")[0]
+        self.assertEqual((r["rules_files"], r["rules_sha256"]), ([], None))
+
+    def test_gate_rules_matching_changed_files_reach_the_prompt(self):
+        # Bugs caught: rules never reach the replayed reviewer (AC3 would measure nothing); the paths
+        # filter is ignored (a lib/queue.sh rule leaks into an a.sh diff); deny rules injected as gate rules.
+        d = self.make_rules()
+        rc, run_dir, err = self.replay("--split", "all", "--rules-dir", d)
+        self.assertEqual(rc, 0, err)
+        prompts = self.prompts()
+        self.assertEqual(len(prompts), 2)
+        for p in prompts:
+            self.assertIn("## Project Rules (non-negotiable)", p)
+            self.assertIn(self.GATE_BODY, p)
+            self.assertNotIn(self.QUEUE_BODY, p)
+            self.assertNotIn(self.DENY_BODY, p)
+        rows = rr.read_jsonl(run_dir / "replay.jsonl")
+        self.assertEqual({tuple(r["rules_files"]) for r in rows}, {("gate-a.rule.md",)})
+        self.assertEqual({r["rules_sha256"] for r in rows}, {rr.rules_digest(d)})
+
+    def test_no_matching_rule_gives_an_unchanged_prompt(self):
+        # Bug caught: an empty rules block still adds a "Project Rules" header to the prompt.
+        d = self.tmp / "rules"
+        d.mkdir()
+        (d / "gate-queue.rule.md").write_text(rule_text("gate", "lib/queue.sh", self.QUEUE_BODY))
+        rc, run_dir, err = self.replay("--case", "N1-1", "--rules-dir", d)
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("Project Rules", self.prompts()[0])
+        self.assertEqual(rr.read_jsonl(run_dir / "replay.jsonl")[0]["rules_files"], [])
+
+    def test_resume_refuses_changed_rules(self):
+        # Bug caught: rows measured with different rules (or none) pooled in one run dir and one report.
+        d = self.make_rules()
+        rc, run_dir, err = self.replay("--case", "N1-1", "--rules-dir", d)
+        self.assertEqual(rc, 0, err)
+        (d / "gate-a.rule.md").write_text(rule_text("gate", "a.sh", "Changed body."))
+        rc, err = self.replay_rc("--split", "all", "--run-dir", run_dir, "--rules-dir", d)
+        self.assertEqual(rc, 1)
+        self.assertIn("rules changed", err)
+        rc, err = self.replay_rc("--split", "all", "--run-dir", run_dir)
+        self.assertEqual(rc, 1)
+        self.assertEqual(len(self.calls()), 1)
+
+    def test_missing_rules_dir_exits_before_any_run(self):
+        # Bug caught: a typo in --rules-dir silently measures without rules.
+        rc, err = self.replay_rc("--case", "N1-1", "--out", self.tmp / "out", "--rules-dir", self.tmp / "nope")
+        self.assertEqual(rc, 1)
+        self.assertIn("--rules-dir", err)
+        self.assertEqual(self.calls(), [])
+        self.assertFalse((self.tmp / "out").exists())
+
+
 class GradeTest(ClaudeFixture):
     def grade(self, run_dir):
         with mock.patch.dict(os.environ, self.env):
