@@ -15,6 +15,8 @@ if [ "$FILE_COUNT" -gt 200 ]; then
 fi
 CHANGED_STATUS=$(git diff --name-status "$BASE")
 UNTRACKED=$(git ls-files --others --exclude-standard)
+CODE_DIFF="$N1_HOME/memory/$ID/code.diff"
+git diff --no-color --no-ext-diff --no-textconv --text "$BASE" > "$CODE_DIFF" 2>/dev/null || CODE_DIFF=
 if [ -z "$CHANGED_STATUS" ] && [ -z "$UNTRACKED" ]; then NO_DIFF=true; else NO_DIFF=false; fi
 source "$N1_ROOT/lib/classify.sh"
 DOC_CONFIG_ONLY=$(n1_classify_doc_config_only "$CHANGED")
@@ -25,9 +27,10 @@ echo "BASE=${BASE}"
 echo "NO_DIFF=${NO_DIFF}"
 echo "CHANGED_STATUS:"; echo "${CHANGED_STATUS:-(none)}"
 echo "UNTRACKED:"; echo "${UNTRACKED:-(none)}"
+echo "CODE_DIFF=${CODE_DIFF}"
 ```
 
-- **Change facts for code-reviewer** — pass the printed `BASE=`, `NO_DIFF=`, `CHANGED_STATUS:` and `UNTRACKED:` values verbatim in every code-reviewer dispatch prompt. code-reviewer has no shell and never runs git; without these values it cannot see the change surface.
+- **Change facts for code-reviewer** — pass the printed `BASE=`, `NO_DIFF=`, `CHANGED_STATUS:`, `UNTRACKED:` and `CODE_DIFF=` (path of the full diff; Read it to see removed code and loosened assertions) values verbatim in every code-reviewer dispatch prompt. code-reviewer has no shell and never runs git; without these values it cannot see the change surface.
 
 - **DOC_CONFIG_ONLY** (pre-computed) — `$DOC_CONFIG_ONLY`. When `true`, every changed file is docs or config.
 - **SECURITY_RELEVANT** — use `$SECURITY_HINT` as starting signal; inspect diff content for final verdict. True iff any path or diff touches: auth, crypto, input validation, secrets, network/HTTP, (de)serialization, file/path handling, SQL/query, shell/command execution. **Bias toward true when uncertain.**

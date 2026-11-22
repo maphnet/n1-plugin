@@ -82,7 +82,7 @@ Prepare shared review context:
 - QA results (from qa.md, if available)
 - Base SHA: `${REVIEW_BASE}`
 - Base CLAUDE.md: `CLAUDE_MD`; CLAUDE.md diff: `CLAUDE_DIFF` (code-reviewer)
-- Change facts (code-reviewer): the printed `BASE=`, `NO_DIFF=`, `CHANGED_STATUS:` and `UNTRACKED:` values from review-core
+- Change facts (code-reviewer): the printed `BASE=`, `NO_DIFF=`, `CHANGED_STATUS:`, `UNTRACKED:` and `CODE_DIFF=` values from review-core
 - Head SHA: current `HEAD`
 
 Spawn the selected reviewers simultaneously (code-reviewer always; security-reviewer iff `SECURITY_RELEVANT`). Each returns findings ranked by priority (Critical → High → Medium → Low).
