@@ -87,7 +87,7 @@ HOST ROUTING (authoritative for how N1 skills reach Claude Code):
 N1 RUN IDENTITY: export N1_SESSION_ID=${N1_SESSION_ID}. Carry it into each helper shell. Session facts: ${SESSION_FILE:-unavailable}.
 COMMIT ATTRIBUTION: The harness attribution reminder (e.g. a Co-Authored-By trailer) yields to user instructions (any CLAUDE.md, global or project, or memory rule). If they forbid or change it, never pass it into a persona prompt and never apply it to your own commits.
 PR BODY RECONCILE: after you push to an already-open PR outside an N1 skill run, follow ${N1_ROOT_DIR}/references/reconcile-pr-body.md with ADHOC=1 so the PR description matches the new diff.
-TICKET CREATION: when you create a tracker ticket outside n1-ticket (free-form request, n1-run, ad hoc), pick the type per ${N1_ROOT_DIR}/references/ticket-scope.md section Free-form creation (Task for atomic single-repo work, Bug for defects, Story or Epic only when the user names or confirms it); a user-named type wins."
+TICKET CREATION: when you create a tracker ticket outside n1-ticket (free-form request, n1-run, ad hoc), pick the type per ${N1_ROOT_DIR}/references/ticket-scope.md section Free-form creation (Task for atomic single-repo work, Bug for defects, Story or Epic only when the user names or confirms it); a user-named type wins; apply the TICKET TAGGING line of this context, if present, to the same create call."
 
 CONFIG_FILE=$(n1_config_file)
 
@@ -245,6 +245,16 @@ TRACKER ROUTING (from N1 config — authoritative, do not override):
 - MCP server: ${tracker_mcp}
 - All standard tracker MCP tool calls MUST use prefix: mcp__${tracker_mcp}__${tracker_version_line}
 - Operations: ${tracker_ops}"
+fi
+
+tag_service=$(n1_config_val '.ticketTagging.service' "$CONFIG_FILE" | tr '\n\r' '  ' | sed 's/^ *//; s/ *$//')
+if [ "$(n1_config_val '.ticketTagging.enabled' "$CONFIG_FILE")" = true ] && [ -n "$tag_service" ]; then
+    tag_label=$(n1_tag_label "$CONFIG_FILE")
+    tag_label_clause=""
+    [ -z "$tag_label" ] || tag_label_clause=", and adds label ${tag_label} after create (${N1_ROOT_DIR}/references/ticket-tagging.md section Label after create)"
+    context="${context}
+
+TICKET TAGGING: every tracker create call titles the ticket \"${tag_service} | <title>\" (skip when the title already starts with \"${tag_service} |\"), prepends \"**Service:** ${tag_service}\" to the description${tag_label_clause}. Rule: ${N1_ROOT_DIR}/references/ticket-tagging.md section Resolve."
 fi
 
 if command -v jq >/dev/null 2>&1; then
