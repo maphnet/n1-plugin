@@ -48,9 +48,11 @@ When the mode is file, raw text or error tracker (not tracker ticket), read `ref
 
 **Read ownership (ticket step):** you read `readTicket` and `getIssueLinks`; the orchestrator owns `getTransitions` for status moves, so never call `getTransitions`.
 
+**Tool schemas:** tracker tools are deferred. Load each tool's schema (tool search, select:<tool name>) before its first call and use its argument names; never guess them.
+
 1. **Fetch the ticket** using the MCP tool:
    - Call `mcp__<trackerMcp>__<operations.readTicket>` with the ticket ID
-   - For Jira: if `cloudId` was provided, include it in the call. If not provided, resolve it first via `mcp__<trackerMcp>__getAccessibleAtlassianResources`.
+   - For Jira over the Atlassian MCP (`<trackerMcp>` not ending in `jc-mcp`): if `cloudId` was provided, include it in the call; if not, resolve it first via `mcp__<trackerMcp>__getAccessibleAtlassianResources`. For jc-mcp: pass `issueKey` only; never `cloudId` or `issueIdOrKey`.
    - Extract: title, tags/labels, type (bug/task/feature/improvement), status, description.
    - Capture `ORIGINAL_STATUS` = the raw status value from this response **before any write**.
    - For Jira: also extract comments from the `getJiraIssue` response and include them under `### Comments` (last 5 meaningful human comments only — skip bot/automated). The `getJiraIssue` response embeds comments — no separate fetch needed. Omit the section if no comments.
@@ -92,7 +94,7 @@ When the mode is file, raw text or error tracker (not tracker ticket), read `ref
    - `issue_type`: `issuetype.name` for Jira, the `Type` custom field value for YouTrack; `"unknown"` if unavailable.
 
 6. **Linked tickets for current ticket:**
-   - Jira source: when the `readTicket` response carries an `issuelinks` field (an empty array counts), use it. Otherwise, if `operations.getIssueLinks` is present, call `mcp__<trackerMcp>__<operations.getIssueLinks>` once with the ticket ID (include `cloudId` if provided). On failure, or with neither source, the link record is unknown (see the record below).
+   - Jira source: when the `readTicket` response carries an `issuelinks` field (an empty array counts), use it. Otherwise, if `operations.getIssueLinks` is present, call `mcp__<trackerMcp>__<operations.getIssueLinks>` once with the ticket ID (include `cloudId` if provided, Atlassian MCP only). On failure, or with neither source, the link record is unknown (see the record below).
    - Jira relation per entry: the `type.inward` text when the entry carries `inwardIssue`, the `type.outward` text when it carries `outwardIssue`. When `type` is a bare name (jc-mcp): `Blocks` + `inwardIssue` → `is blocked by`, `Blocks` + `outwardIssue` → `blocks`, `Relates` → `relates to`; `Clones` and `Duplicate` are excluded. Any other bare name is unrecognized and may read as `depends on`, so the link record is unknown. Ticket: the linked issue `key` (or the bare key string). Summary: `fields.summary` when present, else `-`.
    - YouTrack source: the `getIssueLinks` response from step 4 (re-call if step 4 was skipped). On failure, the link record is unknown.
    - Keep: blocks, is blocked by, relates to, depends on, is depended on by. Exclude clones/is cloned by, duplicates and parent/subtask links. Replace `|` and newlines in a summary with a space. Append:
