@@ -139,7 +139,7 @@ If N1 memory exists: update `overview.md` (mark PR done, add URL), add `docs_upd
 Procedure for a follow-up request:
 1. Resolve the workspace: read `worktreePath` from this session's active-run file (`jq -r '.worktreePath // empty' "$(n1_active_run_file)"`). If the recorded path exists and is not under the worktree root (`n1_worktree_root`) (external worktree), use it directly. Otherwise, use `<main-checkout>/<worktree-root>/<ID>` (the worktree is still present — n1-pr no longer removes it).
 2. Resolve model for `developer`. Spawn developer with: the user's request verbatim, the branch name and worktree path, `$N1_HOME/memory/<ID>/implementation.md` path, and the directive: "Implement exactly this follow-up on the existing branch. Update any docs that reference the changed behaviour (README, CLI help). Run the relevant tests. Commit with an imperative message and push to `<branch>`. Append a `## Follow-up <N>` section to `implementation.md` (idempotent). Return: commit SHAs + one-line summaries."
-3. If the change touches public behaviour (CLI flags, API, config keys): spawn `code-reviewer` on `git diff <pre-follow-up SHA>..HEAD` and route any Critical/High finding back to the developer (max 2 cycles).
+3. If the change touches public behaviour (CLI flags, API, config keys): write `git diff <pre-follow-up SHA>..HEAD` to a scratch file under `$N1_HOME/memory/$ID/` and spawn `code-reviewer` with that diff path and `NO_DIFF=false` (code-reviewer has no shell) and route any Critical/High finding back to the developer (max 2 cycles).
 4. Post a tracker comment via `mcp__<tracker.mcp>__<operations.addComment>`: `Follow-up pushed to PR: <one-line summary>` (warn, don't block, on failure).
 
 ## Integration

@@ -13,12 +13,21 @@ if [ "$FILE_COUNT" -gt 200 ]; then
   CHANGED="$(echo "$CHANGED" | head -n 200)
 [truncated: showing first 200 of $FILE_COUNT files]"
 fi
+CHANGED_STATUS=$(git diff --name-status "$BASE" HEAD | head -n 200)
+UNTRACKED=$(git ls-files --others --exclude-standard | head -n 200)
+if [ -z "$CHANGED_STATUS" ] && [ -z "$UNTRACKED" ]; then NO_DIFF=true; else NO_DIFF=false; fi
 source "$N1_ROOT/lib/classify.sh"
 DOC_CONFIG_ONLY=$(n1_classify_doc_config_only "$CHANGED")
 SECURITY_HINT=$(n1_classify_security_hint_any "$CHANGED")
 echo "DOC_CONFIG_ONLY=${DOC_CONFIG_ONLY}"
 echo "SECURITY_HINT=${SECURITY_HINT}"
+echo "BASE=${BASE}"
+echo "NO_DIFF=${NO_DIFF}"
+echo "CHANGED_STATUS:"; echo "${CHANGED_STATUS:-(none)}"
+echo "UNTRACKED:"; echo "${UNTRACKED:-(none)}"
 ```
+
+- **Change facts for code-reviewer** — pass the printed `BASE=`, `NO_DIFF=`, `CHANGED_STATUS:` and `UNTRACKED:` values verbatim in every code-reviewer dispatch prompt. code-reviewer has no shell and never runs git; without these values it cannot see the change surface.
 
 - **DOC_CONFIG_ONLY** (pre-computed) — `$DOC_CONFIG_ONLY`. When `true`, every changed file is docs or config.
 - **SECURITY_RELEVANT** — use `$SECURITY_HINT` as starting signal; inspect diff content for final verdict. True iff any path or diff touches: auth, crypto, input validation, secrets, network/HTTP, (de)serialization, file/path handling, SQL/query, shell/command execution. **Bias toward true when uncertain.**
