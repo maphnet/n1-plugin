@@ -395,7 +395,9 @@ test_bg_timeout_merged() {
         "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)|$(awk -F'|' '$2 ~ /^ *[0-9]+ *$/' "$tmp/queue.md" | wc -l | tr -d ' ')"
     assert_eq "bg-timeout-merged: Runs records the PR" "https://github.com/o/r/pull/9" "$(_n1_queue_run_pr "$tmp/queue.md" T-A)"
     rm -rf "$tmp"; tmp=$(mktemp -d)
-    mk_bg "$tmp" bgq "T-A:done"
+    mk_bg "$tmp" bgq "T-A:working done"
+    printf -- '---\nstep: pr\n---\n# T\n' > "$tmp/fake/overview.T-A"
+    cp "$tmp/fake/overview.T-A" "$tmp/fake/overview.T-A.1"
     echo o/r > "$tmp/fake/gh-repo"
     printf 'https://github.com/o/r/pull/9\t%s\n' "$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)" > "$tmp/fake/gh-pr-all"
     run_bg_queue "$tmp" > /dev/null
