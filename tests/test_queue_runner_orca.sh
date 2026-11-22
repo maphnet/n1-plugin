@@ -342,7 +342,7 @@ test_orca_stop_notice_then_timeout_merged() {
         printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/q.late" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.1"
         echo o/r > "$tmp/fake/gh-repo"
         case "$case_" in merged) mat=2026-11-01T00:00:00Z ;; stale) mat=2026-10-30T00:00:00Z ;; none) mat="" ;; esac
-        [ -z "$mat" ] || printf 'https://github.com/o/r/pull/38\t%s\n' "$mat" > "$tmp/fake/gh-pr-all"
+        [ -z "$mat" ] || printf 'https://github.com/o/r/pull/38\t%s\t2026-10-31T00:00:00Z\t[T-A] x\n' "$mat" > "$tmp/fake/gh-pr-all"
         run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=8 > /dev/null
         if [ "$case_" = merged ]; then
             assert_eq "orca-timeout-merged: row is pr, not subtask-timeout" "pr|" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
@@ -362,7 +362,7 @@ test_orca_exited_merged() {
     orca_resumed_row "$tmp"
     wl_set "$tmp" "$(wl_row T-A released)"
     echo o/r > "$tmp/fake/gh-repo"; echo MERGED > "$tmp/fake/gh-state"
-    printf 'https://github.com/o/r/pull/38\t2026-11-01T00:00:00Z\n' > "$tmp/fake/gh-pr-all"
+    printf 'https://github.com/o/r/pull/38\t2026-11-01T00:00:00Z\t2026-10-31T00:00:00Z\t[T-A] x\n' > "$tmp/fake/gh-pr-all"
     assert_eq "orca-exited-merged: exit 0" "0" "$(run_orca_queue "$tmp")"
     assert_eq "orca-exited-merged: row is pr, not child-exited-incomplete" "pr|" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
     assert_eq "orca-exited-merged: Runs records the PR" "https://github.com/o/r/pull/38" "$(_n1_queue_run_pr "$tmp/queue.md" T-A)"

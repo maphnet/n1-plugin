@@ -2304,7 +2304,7 @@ test_status_reconcile_discovers_merged() {
 #!/bin/sh
 case "$*" in
     *"repo view"*) echo o/r ;;
-    *"pr list"*T-A*) printf 'https://github.com/o/r/pull/7\t2026-11-03T00:00:00Z\n' ;;
+    *"pr list"*T-A*) printf 'https://github.com/o/r/pull/7\t2026-11-03T00:00:00Z\t2026-11-02T12:00:00Z\t[T-A] x\n' ;;
     *pull/7*) echo MERGED ;;
 esac
 EOF2
@@ -2320,6 +2320,44 @@ EOF2
     rm -rf "$tmp"
 }
 
+# N1-638 CR-1/SEC-1/TQ-1. Bugs caught: a discovered URL bypassing the N1-616 duplicate-claim guard; a `stopped` row not
+# discovered; a discovered PR merged into the wrong base accepted in story mode.
+test_status_reconcile_discover_story_dup() {
+    local tmp q out bpr base
+    rcl() {
+        # args: T-B Runs PR url, base branch of PR 7
+        tmp=$(mktemp -d); q="$tmp/queue.md"
+        mk_bg "$tmp" oq "T-A:done" "T-B:done"
+        mkdir -p "$tmp/n1home/memory/T-A" "$tmp/n1home/memory/T-B"
+        n1_write_frontmatter "$q" run_id R1
+        n1_queue_story_branch_set "$q" "$tmp" story/S-1
+        n1_queue_row_status "$q" 1 stopped; n1_queue_row_status "$q" 2 pr
+        printf '| T-A | 2026-11-02T00:00:00Z | | stopped | | s |\n| T-B | 2026-11-02T00:00:00Z | | pr | %s | s |\n' "$1" >> "$q"
+        cat > "$tmp/bin/gh" <<EOF2
+#!/bin/sh
+case "\$*" in
+    *"repo view"*) echo o/r ;;
+    *"pr list"*T-A*) printf 'https://github.com/o/r/pull/7\\t2026-11-03T00:00:00Z\\t2026-11-02T12:00:00Z\\t[T-A] x\\n' ;;
+    *baseRefName*pull/7*) printf 'MERGED\\t$2\\tabc\\n' ;;
+esac
+EOF2
+        chmod +x "$tmp/bin/gh"; : > "$tmp/events.jsonl"
+        out=$(PATH="$tmp/bin:$PATH" n1_queue_reconcile "$q" "" story/S-1)
+    }
+    rcl https://github.com/o/r/pull/7 story/S-1
+    assert_eq "reconcile-dup: discovered URL also claimed by another row -> skipped" "" "$out"
+    assert_eq "reconcile-dup: stopped row stays stopped" "stopped" "$(plan_cell "$q" 1 8)"
+    rm -rf "$tmp"
+    rcl https://github.com/o/r/pull/8 story/S-1
+    assert_eq "reconcile-dup: sole claimant of a stopped row is reconciled" "reconciled: T-A merged" "$out"
+    assert_eq "reconcile-dup: stopped -> pr" "pr" "$(plan_cell "$q" 1 8)"
+    rm -rf "$tmp"
+    rcl https://github.com/o/r/pull/8 main
+    assert_eq "reconcile-dup: discovered PR with the wrong base -> left" "" "$out"
+    assert_eq "reconcile-dup: wrong base keeps stopped" "stopped" "$(plan_cell "$q" 1 8)"
+    rm -rf "$tmp"
+}
+
 # N1-638. Bugs caught: a merged PR of the run is invisible (open-only lookup); an earlier run's merged PR, another repo's
 # PR, a bad URL or an unknown start epoch counts as this run's merge.
 test_child_merged_pr() {
@@ -2328,20 +2366,30 @@ test_child_merged_pr() {
     echo o/r > "$tmp/fake/gh-repo"
     start=$(date -u -d '2026-11-02T00:00:00Z' +%s)
     mp() { FAKE_DIR="$tmp/fake" PATH="$tmp/bin:$PATH" n1_queue_child_merged_pr T-A "$tmp/n1home" "$tmp" "$1"; }
-    printf 'https://github.com/o/r/pull/7\t2026-11-03T00:00:00Z\n' > "$tmp/fake/gh-pr-all"
+    printf 'https://github.com/o/r/pull/7\t2026-11-03T00:00:00Z\t2026-11-02T12:00:00Z\t[T-A] x\n' > "$tmp/fake/gh-pr-all"
     assert_eq "merged-pr: merged after start -> url" "https://github.com/o/r/pull/7" "$(mp "$start")"
     assert_eq "merged-pr: asked by ticket branch" "1" "$(grep -c -- '--head T-A --state all' "$tmp/fake/gh-calls-all")"
     assert_eq "merged-pr: asked by title" "1" "$(grep -c -- '--search T-A in:title' "$tmp/fake/gh-calls-all")"
     assert_eq "merged-pr: empty start fails closed" "" "$(mp "")"
     assert_eq "merged-pr: non-numeric start fails closed" "" "$(mp abc)"
-    printf 'https://github.com/o/r/pull/7\t2026-11-01T00:00:00Z\n' > "$tmp/fake/gh-pr-all"
+    printf 'https://github.com/o/r/pull/7\t2026-11-01T00:00:00Z\t2026-10-30T00:00:00Z\t[T-A] x\n' > "$tmp/fake/gh-pr-all"
     assert_eq "merged-pr: merged before start (earlier run) -> nothing" "" "$(mp "$start")"
-    printf 'https://github.com/x/y/pull/7\t2026-11-03T00:00:00Z\n' > "$tmp/fake/gh-pr-all"
+    printf 'https://github.com/x/y/pull/7\t2026-11-03T00:00:00Z\t2026-11-02T12:00:00Z\t[T-A] x\n' > "$tmp/fake/gh-pr-all"
     assert_eq "merged-pr: other repo -> nothing" "" "$(mp "$start")"
-    printf 'https://evil.example/o/r/pull/7\t2026-11-03T00:00:00Z\n' > "$tmp/fake/gh-pr-all"
+    printf 'https://evil.example/o/r/pull/7\t2026-11-03T00:00:00Z\t2026-11-02T12:00:00Z\t[T-A] x\n' > "$tmp/fake/gh-pr-all"
     assert_eq "merged-pr: bad url shape -> nothing" "" "$(mp "$start")"
     printf 'https://github.com/o/r/pull/7\n' > "$tmp/fake/gh-pr-all"
     assert_eq "merged-pr: empty mergedAt -> nothing" "" "$(mp "$start")"
+    # SEC-1: another ticket's merged PR (named by a child-written envelope branch) is not this ticket's.
+    printf 'https://github.com/o/r/pull/7\t2026-11-03T00:00:00Z\t2026-11-02T12:00:00Z\t[T-B] other\n' > "$tmp/fake/gh-pr-all"
+    assert_eq "merged-pr: title of another ticket -> nothing" "" "$(mp "$start")"
+    printf 'https://github.com/o/r/pull/7\t2026-11-03T00:00:00Z\t2026-11-02T12:00:00Z\t[T-A1] prefix\n' > "$tmp/fake/gh-pr-all"
+    assert_eq "merged-pr: [T-A1] is not [T-A]" "" "$(mp "$start")"
+    # CX-1: created before this run started, merged during it -> an earlier run's PR.
+    printf 'https://github.com/o/r/pull/7\t2026-11-03T00:00:00Z\t2026-10-30T00:00:00Z\t[T-A] x\n' > "$tmp/fake/gh-pr-all"
+    assert_eq "merged-pr: created before start -> nothing" "" "$(mp "$start")"
+    printf 'https://github.com/o/r/pull/7\t2026-11-03T00:00:00Z\t\t[T-A] x\n' > "$tmp/fake/gh-pr-all"
+    assert_eq "merged-pr: empty createdAt -> nothing" "" "$(mp "$start")"
     rm -f "$tmp/fake/gh-pr-all"
     assert_eq "merged-pr: no PR -> nothing" "" "$(mp "$start")"
     printf '| T-A | 2026-11-02T00:00:00Z | | | | s |\n' >> "$tmp/queue.md"
@@ -3066,6 +3114,7 @@ test_escalation_text
 test_status_reconcile_merged
 test_child_merged_pr
 test_status_reconcile_discovers_merged
+test_status_reconcile_discover_story_dup
 test_review_failed_rows
 test_tag_is_service_label
 test_n1_339_cleanup_helpers

@@ -389,7 +389,7 @@ test_bg_timeout_merged() {
     tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:working"
     echo o/r > "$tmp/fake/gh-repo"
-    printf 'https://github.com/o/r/pull/9\t%s\n' "$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)" > "$tmp/fake/gh-pr-all"
+    printf 'https://github.com/o/r/pull/9\t%s\t%s\t[T-A] x\n' "$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)" "$(date -u -d '+30 min' +%Y-%m-%dT%H:%M:%SZ)" > "$tmp/fake/gh-pr-all"
     assert_eq "bg-timeout-merged: exit 0" "0" "$(run_bg_queue "$tmp")"
     assert_eq "bg-timeout-merged: row is pr, no retry row" "pr||1" \
         "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)|$(awk -F'|' '$2 ~ /^ *[0-9]+ *$/' "$tmp/queue.md" | wc -l | tr -d ' ')"
@@ -399,13 +399,13 @@ test_bg_timeout_merged() {
     printf -- '---\nstep: pr\n---\n# T\n' > "$tmp/fake/overview.T-A"
     cp "$tmp/fake/overview.T-A" "$tmp/fake/overview.T-A.1"
     echo o/r > "$tmp/fake/gh-repo"
-    printf 'https://github.com/o/r/pull/9\t%s\n' "$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)" > "$tmp/fake/gh-pr-all"
+    printf 'https://github.com/o/r/pull/9\t%s\t%s\t[T-A] x\n' "$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)" "$(date -u -d '+30 min' +%Y-%m-%dT%H:%M:%SZ)" > "$tmp/fake/gh-pr-all"
     run_bg_queue "$tmp" > /dev/null
     assert_eq "bg-exited-merged: row is pr, not child-exited-incomplete" "pr|" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
     rm -rf "$tmp"; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:working"
     echo o/r > "$tmp/fake/gh-repo"
-    printf 'https://github.com/o/r/pull/9\t%s\n' "$(date -u -d '-1 day' +%Y-%m-%dT%H:%M:%SZ)" > "$tmp/fake/gh-pr-all"
+    printf 'https://github.com/o/r/pull/9\t%s\t%s\t[T-A] x\n' "$(date -u -d '-1 day' +%Y-%m-%dT%H:%M:%SZ)" "$(date -u -d '-2 day' +%Y-%m-%dT%H:%M:%SZ)" > "$tmp/fake/gh-pr-all"
     run_bg_queue "$tmp" > /dev/null
     assert_eq "bg-timeout-merged: earlier-run PR keeps timeout path" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
     rm -rf "$tmp"

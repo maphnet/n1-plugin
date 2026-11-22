@@ -50,7 +50,7 @@ mk_bg() {
     # N1-182: runner asks gh for an open PR of an incomplete child; default answer comes from
     # $FAKE_DIR/gh-pr (absent -> no PR). Never reach the real gh from tests.
     # N1-185: pr view prints $FAKE_DIR/gh-state (OPEN/MERGED/CLOSED); absent -> exit 1 as before. N1-422: gh-state-seq overrides it per read.
-    # N1-638: pr list --state all reads $FAKE_DIR/gh-pr-all (TSV url<TAB>mergedAt, the post -q output).
+    # N1-638: pr list --state all reads $FAKE_DIR/gh-pr-all (TSV url<TAB>mergedAt<TAB>createdAt<TAB>title, the post -q output).
     # N1-292: pr view --json ...headRefOid reads gh-view[.<pr#>] (TSV); pr checks / pr merge / repo view per the files named in the fake.
     [ -e "$tmp/bin/gh" ] || { cat > "$tmp/bin/gh" <<'GHEOF'
 #!/usr/bin/env bash

@@ -202,25 +202,31 @@ n1_queue_child_merged_pr() {
     # of the child's run, or nothing. Called where a worker stopped or timed out without a terminal overview step and
     # n1_queue_child_open_pr found nothing (its PR may have merged; a squash merge leaves no ancestry, so PR state decides).
     # Candidates: --head <newest envelope branch>, --head <ticket>, then a title search for "[<ticket>]" (a worker that
-    # wrote no envelope). A PR counts only with a github.com PR URL of this checkout's repo (n1_queue_pr_in_repo; the
-    # title search matches any author, N1-609) merged at or after <start-epoch>, so an earlier run's PR never does.
+    # wrote no envelope). A PR counts only with a "[<ticket>]" title prefix (SEC-1: the envelope branch is child-written,
+    # so a head match alone could name another ticket's PR), a github.com PR URL of this checkout's repo
+    # (n1_queue_pr_in_repo; the title search matches any author, N1-609), and createdAt and mergedAt both at or after
+    # <start-epoch> (CX-1: a PR of an earlier run that merged during this run is not this run's; a retry that resumed an
+    # older PR keeps its failed path).
     # Empty or non-numeric start: nothing (fail closed). gh errors: nothing (callers keep their failed path).
-    local t="$1" h="$2" repo="$3" start="${4:-}" b seen="" out="" url at ep
-    local f='.[] | select((.isCrossRepository | not) and .state == "MERGED" and (.mergedAt // "") != "")'
+    local t="$1" h="$2" repo="$3" start="${4:-}" b seen="" out="" url at cr title ep
+    local f='.[] | select((.isCrossRepository | not) and .state == "MERGED" and (.mergedAt // "") != "") | [.url, .mergedAt, (.createdAt // ""), .title] | @tsv'
     [ -d "$repo" ] && [[ "$start" =~ ^[0-9]+$ ]] && [[ "$t" =~ ^[A-Za-z0-9_-]+$ ]] || return 0
     for b in "$(_n1_queue_envelope_branch "$(ls -t "$h/memory/$t/telemetry/raw/steps/"*.jsonl 2>/dev/null | head -1)")" "$t"; do
         [[ "$b" =~ ^[A-Za-z0-9._/][A-Za-z0-9._/-]*$ ]] && [ "$b" != "$seen" ] || continue
         seen="$b"
-        out+=$(cd "$repo" && timeout 10 gh pr list --head "$b" --state all --json url,state,mergedAt,isCrossRepository \
-            -q "$f | [.url, .mergedAt] | @tsv" </dev/null 2>/dev/null)$'\n'
+        out+=$(cd "$repo" && timeout 10 gh pr list --head "$b" --state all --json url,title,state,mergedAt,createdAt,isCrossRepository \
+            -q "$f" </dev/null 2>/dev/null)$'\n'
     done
-    out+=$(cd "$repo" && timeout 10 gh pr list --state all --search "$t in:title" --json url,title,state,mergedAt,isCrossRepository \
-        -q "$f | select(.title | startswith(\"[$t]\")) | [.url, .mergedAt] | @tsv" </dev/null 2>/dev/null)
-    while IFS=$'\t' read -r url at; do
+    out+=$(cd "$repo" && timeout 10 gh pr list --state all --search "$t in:title" --json url,title,state,mergedAt,createdAt,isCrossRepository \
+        -q "$f" </dev/null 2>/dev/null)
+    while IFS=$'\t' read -r url at cr title; do
         [[ "$url" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || continue
-        [ -n "$at" ] || continue   # GNU `date -d ""` means today 00:00, so an empty mergedAt must never reach it
-        ep=$(date -u -d "$at" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$at" +%s 2>/dev/null) || continue
-        [[ "$ep" =~ ^[0-9]+$ ]] && [ "$ep" -ge "$start" ] || continue
+        [[ "$title" == "[$t]"* ]] || continue
+        [ -n "$at" ] && [ -n "$cr" ] || continue   # GNU `date -d ""` means today 00:00, so an empty date must never reach it
+        for ep in "$at" "$cr"; do
+            ep=$(date -u -d "$ep" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$ep" +%s 2>/dev/null) || continue 2
+            [[ "$ep" =~ ^[0-9]+$ ]] && [ "$ep" -ge "$start" ] || continue 2
+        done
         n1_queue_pr_in_repo "$url" "$repo" || continue
         printf '%s' "$url"; return 0
     done <<< "$out"
@@ -2532,18 +2538,29 @@ n1_queue_reconcile() {
     # requires the repo's Story Branches branch to equal it and skips a PR URL claimed by more than one Plan row.
     # Codex: <final-merged-at> (4th arg) is the final PR's mergedAt when it already merged; a child then counts only if
     # its own mergedAt is known and not later (a child merged into the retained queue branch afterwards is not in it).
-    # N1-638: a failed/stopped row with no attested URL takes its URL from n1_queue_child_merged_pr (start = Runs Started).
-    local q="$1" want="${3:-}" fm="${4:-}" cm evf qid rid num ticket repo n1h model status url sb pst pbase dup=""
+    # N1-638: a failed/stopped row with no attested URL takes its URL from n1_queue_child_merged_pr (start = Runs Started);
+    # SEC-1/CR-1: with <expected-branch> the duplicate-claim guard runs over those resolved URLs too.
+    local q="$1" want="${3:-}" fm="${4:-}" cm evf qid rid num ticket repo n1h model status url sb pst pbase dup="" u all=""
+    local -A res=()
     if [ "${2:-}" != force ] && n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then return 0; fi
     evf="$(dirname "$q")/events.jsonl"; qid=$(n1_read_frontmatter "$q" queue_id); rid=$(n1_read_frontmatter "$q" run_id)
-    [ -z "$want" ] || dup=$(n1_queue_pending_rows "$q" '.*' | while IFS=$'\t' read -r _ ticket repo n1h _; do n1_queue_attested_pr "$q" "$ticket" "$n1h"; done | sort | uniq -d)
+    if [ -n "$want" ]; then
+        while IFS=$'\t' read -r -u 4 _ ticket repo n1h _ status; do
+            u=$(n1_queue_attested_pr "$q" "$ticket" "$n1h")
+            case "$u:$status" in :failed|:stopped) u=$(n1_queue_child_merged_pr "$ticket" "$n1h" "$repo" "$(n1_queue_started_epoch "$q" "$ticket")") ;; esac
+            res[$ticket]=$u; all+="$u"$'\n'
+        done 4< <(n1_queue_pending_rows "$q" '.*')
+        dup=$(sort <<< "$all" | uniq -d)
+    fi
     while IFS=$'\t' read -r -u 3 num ticket repo n1h model status; do
         [ "$(_n1_queue_run_outcome "$q" "$ticket")" = merged ] && continue
         sb=$(n1_queue_story_branch_get "$q" "$repo") || continue
         [ -z "$want" ] || [ "$sb" = "$want" ] || continue
         url=$(n1_queue_attested_pr "$q" "$ticket" "$n1h")
         # N1-638: a worker that stopped without reporting recorded no URL; look its merged PR up (same repo, merged after Started).
-        case "$url:$status" in :failed|:stopped) url=$(n1_queue_child_merged_pr "$ticket" "$n1h" "$repo" "$(n1_queue_started_epoch "$q" "$ticket")") ;; esac
+        case "$url:$status" in
+            :failed|:stopped) if [ -n "${res[$ticket]+x}" ]; then url="${res[$ticket]}"; else url=$(n1_queue_child_merged_pr "$ticket" "$n1h" "$repo" "$(n1_queue_started_epoch "$q" "$ticket")"); fi ;;
+        esac
         [ -z "$want" ] || ! grep -qxF -- "$url" <<< "$dup" || continue
         if [ -n "$sb" ]; then
             IFS=$'\t' read -r pst pbase _ <<< "$(n1_queue_pr_view "$url")"
