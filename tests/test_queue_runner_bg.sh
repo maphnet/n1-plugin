@@ -382,6 +382,33 @@ test_bg_working_timeout() {
     rm -rf "$tmp"
 }
 
+# N1-638. Bug caught: a bg child that timed out (or ended without a terminal step) after its PR merged was recorded
+# failed|timeout / child-exited-incomplete with a deferred retry. Control: an earlier run's merged PR keeps the failed path.
+test_bg_timeout_merged() {
+    local tmp
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working"
+    echo o/r > "$tmp/fake/gh-repo"
+    printf 'https://github.com/o/r/pull/9\t%s\n' "$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)" > "$tmp/fake/gh-pr-all"
+    assert_eq "bg-timeout-merged: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-timeout-merged: row is pr, no retry row" "pr||1" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)|$(awk -F'|' '$2 ~ /^ *[0-9]+ *$/' "$tmp/queue.md" | wc -l | tr -d ' ')"
+    assert_eq "bg-timeout-merged: Runs records the PR" "https://github.com/o/r/pull/9" "$(_n1_queue_run_pr "$tmp/queue.md" T-A)"
+    rm -rf "$tmp"; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:done"
+    echo o/r > "$tmp/fake/gh-repo"
+    printf 'https://github.com/o/r/pull/9\t%s\n' "$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)" > "$tmp/fake/gh-pr-all"
+    run_bg_queue "$tmp" > /dev/null
+    assert_eq "bg-exited-merged: row is pr, not child-exited-incomplete" "pr|" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working"
+    echo o/r > "$tmp/fake/gh-repo"
+    printf 'https://github.com/o/r/pull/9\t%s\n' "$(date -u -d '-1 day' +%Y-%m-%dT%H:%M:%SZ)" > "$tmp/fake/gh-pr-all"
+    run_bg_queue "$tmp" > /dev/null
+    assert_eq "bg-timeout-merged: earlier-run PR keeps timeout path" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+}
+
 test_bg_missing_grace() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq
@@ -1315,6 +1342,7 @@ test_bg_awaiting_oversized_control_chars
 test_bg_awaiting_oversized_emoji
 test_bg_awaiting_timeout
 test_bg_working_timeout
+test_bg_timeout_merged
 test_bg_missing_grace
 test_bg_reconcile_working
 test_bg_drain_defers_until_idle
