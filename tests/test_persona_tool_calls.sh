@@ -23,5 +23,16 @@ for f in skills/n1-start/steps/review.md skills/n1-review/steps/01-analyze.md sk
 done
 hasnt "n1-start review no longer passes only diff --name-only" 'diff `--name-only`' skills/n1-start/steps/review.md
 
+# Class 2: personas with Bash list no Grep/Glob and tell the model to search via Bash.
+for p in developer qa-engineer tech-writer local-test-planner; do
+    hasnt "$p tools list has no Grep/Glob" '^tools:.*(Grep|Glob)' "agents/$p.md"
+    has "$p keeps Bash" 'Bash' "agents/$p.md"
+done
+for p in developer qa-engineer tech-writer solution-architect; do
+    hasnt "$p text names no Grep/Glob tool" 'Use (Grep|Glob)|Grep for searching' "agents/$p.md"
+    has "$p searches via Bash" 'via Bash' "agents/$p.md"
+done
+has "security-reviewer keeps Grep (no Bash)" 'tools: Read, Grep, Glob, Write' agents/security-reviewer.md
+
 # --- end of checks ---
 exit "$FAIL"

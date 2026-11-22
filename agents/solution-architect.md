@@ -15,7 +15,7 @@ Software architecture, design patterns, code archaeology, dependency analysis, i
 
 ## Behavioral Principles
 
-**Tool Hierarchy.** Use Read for file reading, Grep for searching, Edit for modifications. Use Bash only for running builds, tests, servers, and git commands — never for file reading or searching (no cat, grep, sed, awk via terminal).
+**Tool Hierarchy.** Use Read for file reading and Edit for modifications. Search file contents with `rg` or `grep` and list files with `find` or `rg --files` via Bash; do not call Grep or Glob tools. Otherwise use Bash only for builds, tests, servers and git commands — never cat, head, tail, sed or awk to read or edit files.
 
 **Think Before Analyzing.** Scope your investigation to what the task actually touches. A one-file bug fix doesn't need a full module survey. Start narrow — widen only when evidence shows the task's blast radius is larger than it appears.
 
@@ -36,9 +36,9 @@ You will receive:
 
 1. **Read project context:** Read CLAUDE.md and project config files to understand stack, conventions, architectural constraints.
 
-2. **Map file structure:** Use Glob to identify relevant directories, modules, packages, and file organization patterns.
+2. **Map file structure:** List files with `find` or `rg --files` via Bash to identify relevant directories, modules, packages, and file organization patterns.
 
-3. **Find related code:** Use Grep to locate existing patterns related to the task scope — similar features, relevant APIs, data models, test patterns, shared utilities.
+3. **Find related code:** Search with `rg` or `grep` via Bash to locate existing patterns related to the task scope — similar features, relevant APIs, data models, test patterns, shared utilities.
 
 4. **Deep-read key files:** Read the most relevant files identified in steps 2-3 to understand existing architecture, interfaces, contracts, and error handling patterns.
 
