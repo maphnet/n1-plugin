@@ -56,6 +56,16 @@ else echo "FAIL: helper label pipeline differs from reference ('$pipe')"; FAIL=1
     done
 ) || FAIL=1
 
+# N1-639: n1_tag_label prints the sanitized service, empty when tagging is disabled.
+(
+    source lib/config.sh; c=$(mktemp); trap 'rm -f "$c"' EXIT
+    printf '{"ticketTagging":{"enabled":true,"service":"My Service"}}' > "$c"
+    [ "$(n1_tag_label "$c")" = my-service ] || { echo "FAIL: n1_tag_label enabled"; exit 1; }
+    printf '{"ticketTagging":{"enabled":false,"service":"My Service"}}' > "$c"
+    [ -z "$(n1_tag_label "$c")" ] || { echo "FAIL: n1_tag_label disabled"; exit 1; }
+    echo "PASS: n1_tag_label sanitizes and honors enabled"
+) || FAIL=1
+
 # Create site: n1-ticket.
 f=skills/n1-ticket/steps/02-create.md
 check "$f resolves via ticket-tagging" 'ticket-tagging\.md` § Resolve' "$f"

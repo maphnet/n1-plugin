@@ -97,14 +97,25 @@ n1_config_val() {
     fi
 }
 
+# n1_tag_norm — stdin to stdout: the ticketTagging label normalizer; mirrors references/ticket-tagging.md § Resolve
+# (parity checked by tests/test_ticket_tagging_wiring.sh; the leading cat keeps the reference pipeline text verbatim).
+n1_tag_norm() {
+    cat | tr '[:upper:]' '[:lower:]' | tr -s ' \t' '-' | tr -cd 'a-z0-9._-' | sed 's/^[-._]*//; s/[-._]*$//'
+}
+
+# n1_tag_label [config-file] — prints the normalized ticketTagging service label; empty when tagging is not enabled (N1-639).
+n1_tag_label() {
+    local file="${1:-$(n1_config_file)}"
+    [ "$(n1_config_val '.ticketTagging.enabled' "$file")" = true ] || return 0
+    printf '%s' "$(n1_config_val '.ticketTagging.service' "$file")" | n1_tag_norm
+}
+
 # n1_tag_is_service_label <tag> [config-file] — rc 0 when <tag> equals the ticketTagging service label (N1-548).
-# The label pipeline mirrors references/ticket-tagging.md § Resolve (parity checked by tests/test_ticket_tagging_wiring.sh);
-# the tag is normalized the same way. Disabled tagging, empty service or empty label: rc 1.
+# The tag is normalized the same way. Disabled tagging, empty service or empty label: rc 1.
 n1_tag_is_service_label() {
-    local file="${2:-$(n1_config_file)}" label tag
-    [ "$(n1_config_val '.ticketTagging.enabled' "$file")" = true ] || return 1
-    label=$(printf '%s' "$(n1_config_val '.ticketTagging.service' "$file")" | tr '[:upper:]' '[:lower:]' | tr -s ' \t' '-' | tr -cd 'a-z0-9._-' | sed 's/^[-._]*//; s/[-._]*$//')
-    tag=$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -s ' \t' '-' | tr -cd 'a-z0-9._-' | sed 's/^[-._]*//; s/[-._]*$//')
+    local label tag
+    label=$(n1_tag_label "${2:-$(n1_config_file)}")
+    tag=$(printf '%s' "${1:-}" | n1_tag_norm)
     [ -n "$label" ] && [ "$tag" = "$label" ]
 }
 
