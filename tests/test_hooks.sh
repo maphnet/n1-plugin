@@ -389,6 +389,47 @@ $X worktree rm --worktree path:/x' "orca worktree remove path:/x" "n1_orca_hando
     assert_eq "tail-worker denied workspace removal: $c" 2 "$(tw_rc "$c")"
 done
 assert_eq "tail-worker card status allowed" 0 "$(tw_rc 'source ~/.n1/preamble.sh; n1_orca_sync "finish: merged"')"
+# N1-641: codex-triage worker snippets run as tail-worker are allowed; real pointer/release/cleanup actions stay denied
+fence_dump() {  # file ERE outdir: write each fenced block matching ERE to outdir/<base>.<n>
+    mkdir -p "$3"; awk -v pat="$2" -v d="$3" -v base="$(basename "$1" .md)" \
+        '/^[ ]*```/{ if (inb) { if (blk ~ pat) { n++; printf "%s", blk > (d "/" base "." n) }; inb=0 } else { inb=1; blk="" }; next } inb { blk = blk $0 "\n" }' "$1"
+}
+S641="$T/n1-641"; rm -rf "$S641"
+for f in "$REPO_ROOT"/skills/n1-pr/procedures/codex-triage-worker*.md; do fence_dump "$f" '.' "$S641"; done
+assert_eq "N1-641: extracted codex-triage-worker blocks" 1 "$([ "$(ls "$S641" | wc -l)" -ge 3 ] && echo 1 || echo 0)"
+assert_eq "N1-641: core cleanup find block extracted" 1 "$(grep -lF "find \"\$N1_HOME/scratch\"" "$S641"/* | grep -c .)"
+for b in "$S641"/*; do
+    assert_eq "N1-641: tail-worker allowed: $(basename "$b")" 0 "$(tw_rc "$(cat "$b")")"
+done
+for c in "find \"\$N1_HOME/scratch\" -maxdepth 1 -name 'codex-validate-*' -mtime +1 -exec rm -rf {} + 2>/dev/null" \
+    "find \"\$N1_HOME/scratch\" -maxdepth 1 -name 'pr-body-*' -mtime +1 -delete" "grep -rn x skills/n1-release/steps" "echo 'n1-release'" \
+    "cat <<'EOF'
+Next (manual): /n1:n1-release (n1-release walks these)
+EOF"; do
+    assert_eq "N1-641: tail-worker allowed: ${c:0:60}" 0 "$(tw_rc "$c")"
+done
+for c in "n1-release" "x; n1-release --notes" "claude -p '/n1:n1-release'" "claude --bg '/n1:n1-clean --ticket T-1'" \
+    "n1_bg_launch_cmd q n1-clean '--ticket T-1' m /r '{}'" "n1_headless_cmd n1-release '' m /tmp/o" \
+    'find "$N1_HOME/scratch/$D" -delete' 'find "$N1_HOME/scratch/$(echo ..)" -delete' \
+    'find "$N1_HOME/scratch/../" -name '"'active*'"' -delete' 'find "$N1_HOME/scratch" "$N1_HOME" -delete' \
+    'find "$N1_HOME/scratch" -name '"'active-run*'"' -delete' 'find "$N1_HOME/scratch" -exec rm "$N1_HOME"/active-run.s-pr.json \;' \
+    'find "$N1_HOME/scratch" -fprint "$N1_HOME/active-run.s-pr.json" -delete' \
+    'find ~/.n1/x/scratch/.. -delete' 'find ~/.n1 -name active-run.s-pr.json -delete' 'find "$N1_HOME" -mtime +1 -delete' \
+    'find "$N1_HOME/scratch" -maxdepth 0 -exec true \; -exec rm -f "$N1_HOME/active-run.s.json" \;' \
+    'find "$N1_HOME/scratch" -maxdepth 0 -exec true + \; -exec rm -f "$N1_HOME/active-run.s.json" \;' \
+    'find "$N1_HOME/scratch" -maxdepth 0 -exec true + '"';'"' -exec rm -f "$N1_HOME/active-run.s.json" '"';'"'' \
+    'find "$N1_HOME/scratch" -exec true \;' "claude --bg 'Done; now /n1:n1-clean --ticket T-1'" \
+    'claude --bg "$(cat <<'"'EOF'"'
+/n1:n1-release
+EOF
+)"' "claude -p <<'EOF'
+/n1:n1-release
+EOF" "claude --bg \\
+ '/n1:n1-clean'" "echo x
+n1-release" "echo done
+n1-clean --ticket T-1"; do
+    assert_eq "N1-641: tail-worker still denied: ${c:0:60}" 2 "$(tw_rc "$c")"
+done
 # N1-474 CR-2: outside a run only pr-worker and tail-worker stay merge-gated; other subagents follow the run scope,
 # and inside a run no subagent gets the main session's merge authorization (SEC-1)
 M474="gh pr"" merge 12"

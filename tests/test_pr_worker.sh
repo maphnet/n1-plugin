@@ -303,4 +303,31 @@ eq "parse: garbage, open PR -> stopped" pr:stopped "$(head -1 <<<"$OUT")"
 if grep -qF 'reason:pr-worker returned no result; PR open, pin/triage unverified' <<<"$OUT" && ! grep -q '^missing:' <<<"$OUT"; then ok "parse: garbage, open PR -> reason, no missing check"; else no "parse: garbage, open PR -> reason, no missing check"; fi
 rm -f "$F"
 eq "parse: missing -> unknown" pr:unknown "$(pr_ | head -1)"
+# N1-641: codex-triage and prepare snippets run as pr-worker (and tail-worker) are allowed; pointer tamper stays denied
+CFG=; N1H=; NH="$T/nh"
+fence_dump() {  # file ERE outdir
+    mkdir -p "$3"; awk -v pat="$2" -v d="$3" -v base="$(basename "$1" .md)" \
+        '/^[ ]*```/{ if (inb) { if (blk ~ pat) { n++; printf "%s", blk > (d "/" base "." n) }; inb=0 } else { inb=1; blk="" }; next } inb { blk = blk $0 "\n" }' "$1"
+}
+S641="$T/n1-641"; rm -rf "$S641"
+for f in skills/n1-pr/procedures/codex-triage-worker*.md; do fence_dump "$f" '.' "$S641"; done
+fence_dump skills/n1-pr/steps/01-prepare.md 'find "[$]N1_HOME/scratch"' "$S641"
+fence_dump skills/n1-pr/procedures/codex-triage.md 'n1_head_record|n1_read_frontmatter' "$S641"
+eq "n1-641: pr-body find block extracted" 1 "$(ls "$S641" | grep -c '^01-prepare\.')"
+eq "n1-641: n1_head_record block extracted" 1 "$(ls "$S641" | grep -c '^codex-triage\.')"
+for b in "$S641"/*; do
+    case "$(basename "$b")" in codex-triage-worker*) ws="n1:pr-worker n1:tail-worker";; *) ws="n1:pr-worker";; esac  # push:ok block pushes: tail-worker never runs it
+    for w in $ws; do eq "n1-641: $w allowed: $(basename "$b")" 0 "$(polx $w Bash "$(cat "$b")")"; done
+done
+for c in 'find "$N1_HOME/scratch/../" -name '"'active*'"' -delete' 'find "$N1_HOME/scratch" "$N1_HOME" -delete' \
+    'find "$N1_HOME/scratch" -name '"'active-run*'"' -delete' 'find "$N1_HOME/scratch" -exec rm "$N1_HOME"/active-run.s-pr.json \;' \
+    'find "$N1_HOME/scratch" -fprint "$N1_HOME/active-run.s-pr.json" -delete' \
+    'find "$N1_HOME/scratch" -maxdepth 0 -exec true \; -exec rm -f "$N1_HOME/active-run.s.json" \;' \
+    'find "$N1_HOME/scratch" -maxdepth 0 -exec true + \; -exec rm -f "$N1_HOME/active-run.s.json" \;' \
+    'find "$N1_HOME/scratch" -maxdepth 0 -exec true + '"';'"' -exec rm -f "$N1_HOME/active-run.s.json" '"';'"'' \
+    'find ~/.n1/x/scratch/.. -delete' 'find "$N1_HOME" -mtime +1 -delete' 'find "$N1_HOME/scratch/$D" -delete'; do
+    for w in n1:pr-worker n1:tail-worker; do eq "n1-641: $w still denies: ${c:0:60}" 2 "$(polx $w Bash "$c")"; done
+done
+eq "n1-641: pr-worker n1_head_record plus find in one command allowed" 0 \
+    "$(polx n1:pr-worker Bash 'source ~/.n1/preamble.sh; n1_head_record abc; find "$N1_HOME/scratch" -maxdepth 1 -name '"'pr-body-*'"' -mtime +1 -delete')"
 exit $FAIL

@@ -463,8 +463,8 @@ def _command(payload):
     return command if isinstance(command, str) else None
 
 
-# N1-392: also no push and no PR comment, in every tail-worker mode (gh pr edit stays allowed: finish-mode deployment ticking) (codex-triage hands its file to the orchestrator). Best effort like the rest of this regex.
-TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|clean_ticket|containers_teardown|merge_authorized|orca_rm)\b|n1-release|\bn1-clean\b|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b|\bgit\s+(-C\s+\S+\s+)?push\b|\bgh\s+pr\s+comment\b")
+# N1-392: also no push and no PR comment, in every tail-worker mode (gh pr edit stays allowed: finish-mode deployment ticking) (codex-triage hands its file to the orchestrator). Best effort like the rest of this regex. N1-641: n1-release/n1-clean match only as a claude spawn or in command position, not as a mention.
+TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|clean_ticket|containers_teardown|merge_authorized|orca_rm)\b|\b(?:claude|n1_headless_cmd|n1_bg_launch_cmd)\b[^;&|]*\bn1-(?:release|clean)\b|(?:^|[;&|\n])[ \t]*n1-(?:release|clean)\b|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b|\bgit\s+(-C\s+\S+\s+)?push\b|\bgh\s+pr\s+comment\b")
 
 
 # Bash text of an Orca child (best effort, accidental tamper only, like TAIL_DENY_RE: an obfuscated command is
@@ -625,6 +625,28 @@ def _every_word(text: str) -> str:
     return re.sub(r"[ \t]+", f" {SUBST} ", re.sub(r"[(){}!\[\],]", " ", text.replace("<<<", f" {SUBST} ")))
 
 
+# N1-641: a find rooted only under <n1-home>/scratch cannot reach the run pointer (best effort, text only: no symlink or env
+# expansion view; \x01 stands for masked `$`, whitespace and separators). Safety relies on _worker_deny denying when ANY view hits (cmd/stripped views are independent), so the masked view must never be the only check. Fail closed: no roots, any non-scratch root, any "..", any `$` or backtick after `scratch` (a variable could expand to `..`), or an -exec payload naming the home -> not scoped.
+_SCRATCH_ROOT_RE = re.compile(r"^(?:[$\x01]\{?N1_HOME\}?|\S*\.n1/[^/]+)/scratch(?:/[^\s$\x01`]*)?$")
+
+
+def _scratch_scoped(c, j) -> bool:
+    if ".." in j or re.search(r"-(?:fprint0?|fprintf|fls|follow)\b", j):
+        return False
+    roots = []
+    for w in c[1:]:
+        if w[:1] in ("-", "(", "!"):
+            break
+        roots.append(re.sub(r"[\"'\\]", "", w))
+    if not roots or not all(_SCRATCH_ROOT_RE.match(r) for r in roots):
+        return False
+    for x, w in enumerate(c):
+        if w in ("-exec", "-execdir", "-ok", "-okdir"):
+            # find ends -exec only at `;` or at `+` directly after `{}`. A chunk cut at an escaped `;` (chained -exec follows) and a stray `+` argument are not scoped. (_every_word views drop `{}`; there a final `+` counts, the cmd view still denies the chained form.)
+            return not j.rstrip().endswith("\\") and (any(c[i] == "+" and c[i - 1].strip("'\"") == "{}" for i in range(x + 2, len(c))) or (c[-1] == "+" and "{}" not in c)) and not re.search(r"active|\.n1|N1_HOME", " ".join(c[x + 1:]))
+    return True
+
+
 def _pointer_hit(c, j, names=_POINTER_NAMES[:1]) -> bool:
     """Chunk c (joined j) removes, moves or rewrites the run pointer: literal name, a glob that matches it, a glob or
     the home dir itself under .n1/N1_HOME, or find/sed over it."""
@@ -643,7 +665,7 @@ def _pointer_hit(c, j, names=_POINTER_NAMES[:1]) -> bool:
     if c[0] == "find":
         if re.search(r"\s-(?:delete|exec)\b", j) is None:
             return False
-        if re.search(r"active|\.n1|N1_HOME", j):
+        if re.search(r"active|\.n1|N1_HOME", j) and not _scratch_scoped(c, j):
             return True
         # a -name/-path glob that matches a pointer or marker file name (`find ~ -name 'act*' -delete`)
         return any(w in ("-name", "-iname", "-path", "-ipath") and _glob_hits(c[x + 1], _POINTER_NAMES + names)
@@ -693,7 +715,7 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     sink_worker = gated_worker or tail_persona == "tech-writer"  # tech-writer outside a run returns below
     if tail:
         cmd = _command(payload) or ""
-        if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)) or _worker_deny(cmd, False, str(payload.get("session_id") or "")):
+        if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)) or TAIL_DENY_RE.search(_mask(cmd.replace("\\\n", " "))) or _worker_deny(cmd, False, str(payload.get("session_id") or "")):
             sys.stderr.write(f"N1: {tail_persona} may not run merge/cleanup/run-pointer/release/push/PR-comment commands; the orchestrator owns them\n")
             return 2
     elif persona_of(agent_type) in ("pr-worker", "tech-writer"):
