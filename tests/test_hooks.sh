@@ -716,6 +716,8 @@ case "$CTX" in *"returns the result inline"*) assert_eq "routing drops inline-di
 case "$CTX" in *"Dispatch is asynchronous"*"must not return or move on until that persona's final result is in hand"*"Resume subagent <id> (host message mechanism): SendMessage tool"*) assert_eq "routing: async dispatch and resume rule (N1-300)" ok ok;; *) assert_eq "routing: async dispatch and resume rule (N1-300)" ok "$CTX";; esac
 # N1-359: a streaming watch maps to Monitor (lines reach the session while the queue runs) and is re-armed on its deadline
 case "$CTX" in *"Stream a watch <command>"*"Monitor tool"*"start the identical command again"*) assert_eq "routing: streaming watch -> Monitor, re-armed (N1-359)" ok ok;; *) assert_eq "routing: streaming watch -> Monitor, re-armed (N1-359)" ok "$CTX";; esac
+# N1-640: Monitor calls failed without description; routing names both required args
+case "$CTX" in *"Monitor tool (load via ToolSearch if deferred; it requires both command and description)"*) assert_eq "routing: Monitor required args (N1-640)" ok ok;; *) assert_eq "routing: Monitor required args (N1-640)" ok "$CTX";; esac
 echo '{}' > "$N1_HOME/config.json"
 PROJ="$T/proj"; mkdir -p "$PROJ"
 PAYLOAD=$(jq -c --arg cwd "$PROJ" '.cwd = $cwd' "$FX/claude/session-start.json")
@@ -955,6 +957,15 @@ EOF
 OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"NEVER use any other MCP server"*) assert_eq "no versionMcp keeps NEVER directive" ok ok;; *) assert_eq "no versionMcp keeps NEVER directive" ok "$CTX";; esac
+# N1-640: tracker tools are deferred; every tracker gets the load-schema line, only jc-mcp gets its argument names
+case "$CTX" in *"load each schema with ToolSearch select:<tool> before its first call; never guess argument names"*) assert_eq "tracker routing: load schema first (N1-640)" ok ok;; *) assert_eq "tracker routing: load schema first (N1-640)" ok "$CTX";; esac
+case "$CTX" in *"jc-mcp arguments:"*) assert_eq "tracker routing: no jc-mcp args for Atlassian MCP (N1-640)" ok "$CTX";; *) assert_eq "tracker routing: no jc-mcp args for Atlassian MCP (N1-640)" ok ok;; esac
+cat > "$N1_HOME/config.json" <<'EOF'
+{"tracker":{"type":"jira","mcp":"jc-mcp","operations":{"readTicket":"jcm_getIssue"}}}
+EOF
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+case "$CTX" in *"jc-mcp arguments: getIssue and getTransitions take issueKey; addComment takes issueKey and body; editIssue takes issueKey plus fields or update (assignee goes in fields.assignee); never pass cloudId or issueIdOrKey"*) assert_eq "tracker routing: jc-mcp argument names (N1-640)" ok ok;; *) assert_eq "tracker routing: jc-mcp argument names (N1-640)" ok "$CTX";; esac
 export N1_HOST_FILE="$T/host.json"
 
 # --- session-start: resume recovers a dead session's idle run as abandoned (N1-486) ---
