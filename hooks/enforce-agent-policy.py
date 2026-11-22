@@ -464,7 +464,7 @@ def _command(payload):
 
 
 # N1-392: also no push and no PR comment, in every tail-worker mode (gh pr edit stays allowed: finish-mode deployment ticking) (codex-triage hands its file to the orchestrator). Best effort like the rest of this regex. N1-641: n1-release/n1-clean match only as a claude spawn or in command position, not as a mention.
-TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|clean_ticket|containers_teardown|merge_authorized|orca_rm)\b|\b(?:claude|n1_headless_cmd|n1_bg_launch_cmd)\b[^\n;&|]*\bn1-(?:release|clean)\b|(?:^|[;&|])[ \t]*n1-(?:release|clean)\b|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b|\bgit\s+(-C\s+\S+\s+)?push\b|\bgh\s+pr\s+comment\b")
+TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|clean_ticket|containers_teardown|merge_authorized|orca_rm)\b|\b(?:claude|n1_headless_cmd|n1_bg_launch_cmd)\b[^;&|]*\bn1-(?:release|clean)\b|(?:^|[;&|\n])[ \t]*n1-(?:release|clean)\b|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b|\bgit\s+(-C\s+\S+\s+)?push\b|\bgh\s+pr\s+comment\b")
 
 
 # Bash text of an Orca child (best effort, accidental tamper only, like TAIL_DENY_RE: an obfuscated command is
@@ -642,7 +642,8 @@ def _scratch_scoped(c, j) -> bool:
         return False
     for x, w in enumerate(c):
         if w in ("-exec", "-execdir", "-ok", "-okdir"):
-            return not re.search(r"active|\.n1|N1_HOME", " ".join(c[x + 1:]))
+            # a `\;`-terminated payload is split off by SEGMENT_RE, so a chained -exec is never seen here: only `+` is scoped
+            return "+" in c[x + 1:] and not re.search(r"active|\.n1|N1_HOME", " ".join(c[x + 1:]))
     return True
 
 
@@ -714,7 +715,7 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     sink_worker = gated_worker or tail_persona == "tech-writer"  # tech-writer outside a run returns below
     if tail:
         cmd = _command(payload) or ""
-        if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)) or _worker_deny(cmd, False, str(payload.get("session_id") or "")):
+        if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)) or TAIL_DENY_RE.search(_mask(cmd.replace("\\\n", " "))) or _worker_deny(cmd, False, str(payload.get("session_id") or "")):
             sys.stderr.write(f"N1: {tail_persona} may not run merge/cleanup/run-pointer/release/push/PR-comment commands; the orchestrator owns them\n")
             return 2
     elif persona_of(agent_type) in ("pr-worker", "tech-writer"):
