@@ -165,6 +165,11 @@ n1_queue_child_pr_url() {
     awk '/^## (Pending|Finish)/{f=1;next} /^## /{f=0} f && /^pr_url:/{sub(/^pr_url:[[:space:]]*/,""); print; exit}' "$overview"
 }
 
+_n1_queue_envelope_branch() {
+    # Usage: _n1_queue_envelope_branch <steps.jsonl> — "branch" of the file's last telemetry envelope line, or nothing.
+    [ -n "$1" ] && grep -o '"layer":"envelope"[^}]*"branch":"[^"]*"' "$1" 2>/dev/null | sed 's/.*"branch":"//; s/"$//' | tail -1
+}
+
 n1_queue_child_open_pr() {
     # Usage: n1_queue_child_open_pr <ticket> <n1-home> <repo-path> [start-epoch] — URL of an open PR for the
     # child's run branch, or nothing (N1-182). Called only when a bg child ended without
@@ -179,7 +184,7 @@ n1_queue_child_open_pr() {
     if [ -n "$newest" ] && [[ "$start" =~ ^[0-9]+$ ]] && [ "$(stat -c %Y "$newest" 2>/dev/null || echo 0)" -lt "$start" ]; then
         return 0
     fi
-    for b in "$([ -n "$newest" ] && grep -o '"layer":"envelope"[^}]*"branch":"[^"]*"' "$newest" 2>/dev/null | sed 's/.*"branch":"//; s/"$//' | tail -1)" "$t"; do
+    for b in "$(_n1_queue_envelope_branch "$newest")" "$t"; do
         [[ "$b" =~ ^[A-Za-z0-9._/][A-Za-z0-9._/-]*$ ]] && [ "$b" != "$seen" ] || continue
         seen="$b"
         out=$(cd "$repo" && timeout 10 gh pr list --head "$b" --state open --json url,headRefOid,isCrossRepository -q '[.[] | select(.isCrossRepository | not)][0] | select(.) | [.url, .headRefOid] | @tsv' </dev/null 2>/dev/null)
@@ -189,6 +194,36 @@ n1_queue_child_open_pr() {
             printf '%s' "$url"; return 0
         fi
     done
+    return 0
+}
+
+n1_queue_child_merged_pr() {
+    # Usage: n1_queue_child_merged_pr <ticket> <n1-home> <repo-path> <start-epoch> — N1-638: URL of a MERGED same-repo PR
+    # of the child's run, or nothing. Called where a worker stopped or timed out without a terminal overview step and
+    # n1_queue_child_open_pr found nothing (its PR may have merged; a squash merge leaves no ancestry, so PR state decides).
+    # Candidates: --head <newest envelope branch>, --head <ticket>, then a title search for "[<ticket>]" (a worker that
+    # wrote no envelope). A PR counts only with a github.com PR URL of this checkout's repo (n1_queue_pr_in_repo; the
+    # title search matches any author, N1-609) merged at or after <start-epoch>, so an earlier run's PR never does.
+    # Empty or non-numeric start: nothing (fail closed). gh errors: nothing (callers keep their failed path).
+    local t="$1" h="$2" repo="$3" start="${4:-}" b seen="" out="" url at ep
+    local f='.[] | select((.isCrossRepository | not) and .state == "MERGED" and (.mergedAt // "") != "")'
+    [ -d "$repo" ] && [[ "$start" =~ ^[0-9]+$ ]] && [[ "$t" =~ ^[A-Za-z0-9_-]+$ ]] || return 0
+    for b in "$(_n1_queue_envelope_branch "$(ls -t "$h/memory/$t/telemetry/raw/steps/"*.jsonl 2>/dev/null | head -1)")" "$t"; do
+        [[ "$b" =~ ^[A-Za-z0-9._/][A-Za-z0-9._/-]*$ ]] && [ "$b" != "$seen" ] || continue
+        seen="$b"
+        out+=$(cd "$repo" && timeout 10 gh pr list --head "$b" --state all --json url,state,mergedAt,isCrossRepository \
+            -q "$f | [.url, .mergedAt] | @tsv" </dev/null 2>/dev/null)$'\n'
+    done
+    out+=$(cd "$repo" && timeout 10 gh pr list --state all --search "$t in:title" --json url,title,state,mergedAt,isCrossRepository \
+        -q "$f | select(.title | startswith(\"[$t]\")) | [.url, .mergedAt] | @tsv" </dev/null 2>/dev/null)
+    while IFS=$'\t' read -r url at; do
+        [[ "$url" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || continue
+        [ -n "$at" ] || continue   # GNU `date -d ""` means today 00:00, so an empty mergedAt must never reach it
+        ep=$(date -u -d "$at" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$at" +%s 2>/dev/null) || continue
+        [[ "$ep" =~ ^[0-9]+$ ]] && [ "$ep" -ge "$start" ] || continue
+        n1_queue_pr_in_repo "$url" "$repo" || continue
+        printf '%s' "$url"; return 0
+    done <<< "$out"
     return 0
 }
 
@@ -2564,6 +2599,15 @@ n1_queue_session_started() {
             if (t == tk) { s = $3; gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); ts = s }
         }
         END { print ts }' "$1"
+}
+
+n1_queue_started_epoch() {
+    # Usage: n1_queue_started_epoch <queue.md> <ticket> — N1-638: the ticket's last Runs Started cell as epoch seconds,
+    # or nothing (no row, unparseable). The start gate for n1_queue_child_merged_pr when the runner lost STARTED_AT
+    # (restart) and in reconcile.
+    local s; s=$(n1_queue_session_started "$1" "$2")
+    [ -n "$s" ] || return 0
+    date -u -d "$s" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$s" +%s 2>/dev/null || true
 }
 
 n1_story_convert_decision() {

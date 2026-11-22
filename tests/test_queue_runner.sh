@@ -2291,6 +2291,36 @@ EOF
 
 
 
+# N1-638. Bugs caught: a merged PR of the run is invisible (open-only lookup); an earlier run's merged PR, another repo's
+# PR, a bad URL or an unknown start epoch counts as this run's merge.
+test_child_merged_pr() {
+    local tmp start; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"
+    echo o/r > "$tmp/fake/gh-repo"
+    start=$(date -u -d '2026-11-02T00:00:00Z' +%s)
+    mp() { FAKE_DIR="$tmp/fake" PATH="$tmp/bin:$PATH" n1_queue_child_merged_pr T-A "$tmp/n1home" "$tmp" "$1"; }
+    printf 'https://github.com/o/r/pull/7\t2026-11-03T00:00:00Z\n' > "$tmp/fake/gh-pr-all"
+    assert_eq "merged-pr: merged after start -> url" "https://github.com/o/r/pull/7" "$(mp "$start")"
+    assert_eq "merged-pr: asked by ticket branch" "1" "$(grep -c -- '--head T-A --state all' "$tmp/fake/gh-calls-all")"
+    assert_eq "merged-pr: asked by title" "1" "$(grep -c -- '--search T-A in:title' "$tmp/fake/gh-calls-all")"
+    assert_eq "merged-pr: empty start fails closed" "" "$(mp "")"
+    assert_eq "merged-pr: non-numeric start fails closed" "" "$(mp abc)"
+    printf 'https://github.com/o/r/pull/7\t2026-11-01T00:00:00Z\n' > "$tmp/fake/gh-pr-all"
+    assert_eq "merged-pr: merged before start (earlier run) -> nothing" "" "$(mp "$start")"
+    printf 'https://github.com/x/y/pull/7\t2026-11-03T00:00:00Z\n' > "$tmp/fake/gh-pr-all"
+    assert_eq "merged-pr: other repo -> nothing" "" "$(mp "$start")"
+    printf 'https://evil.example/o/r/pull/7\t2026-11-03T00:00:00Z\n' > "$tmp/fake/gh-pr-all"
+    assert_eq "merged-pr: bad url shape -> nothing" "" "$(mp "$start")"
+    printf 'https://github.com/o/r/pull/7\n' > "$tmp/fake/gh-pr-all"
+    assert_eq "merged-pr: empty mergedAt -> nothing" "" "$(mp "$start")"
+    rm -f "$tmp/fake/gh-pr-all"
+    assert_eq "merged-pr: no PR -> nothing" "" "$(mp "$start")"
+    printf '| T-A | 2026-11-02T00:00:00Z | | | | s |\n' >> "$tmp/queue.md"
+    assert_eq "started-epoch: Runs Started as epoch" "$start" "$(n1_queue_started_epoch "$tmp/queue.md" T-A)"
+    assert_eq "started-epoch: no Runs row -> nothing" "" "$(n1_queue_started_epoch "$tmp/queue.md" T-Z)"
+    rm -rf "$tmp"
+}
+
 # N1-268 AC3. Bug caught: a failed row whose PR merged after the runner stopped supervising it stays "failed" in --status.
 test_status_reconcile_merged() {
     local tmp out; tmp=$(mktemp -d)
@@ -3005,6 +3035,7 @@ test_escalated_step_fallback
 test_queue_event
 test_escalation_text
 test_status_reconcile_merged
+test_child_merged_pr
 test_review_failed_rows
 test_tag_is_service_label
 test_n1_339_cleanup_helpers
