@@ -18,6 +18,8 @@ has "code-reviewer tools unchanged (no Bash)" 'tools: Read, Grep, Glob, Write' a
 has "review-core prints NO_DIFF" 'echo "NO_DIFF=${NO_DIFF}"' skills/n1-start/review-core.md
 has "review-core prints CHANGED_STATUS" 'echo "CHANGED_STATUS:"' skills/n1-start/review-core.md
 has "review-core prints UNTRACKED" 'echo "UNTRACKED:"' skills/n1-start/review-core.md
+hasnt "review-core change facts are not capped" '(CHANGED_STATUS|UNTRACKED)=.*head -n' skills/n1-start/review-core.md
+has "review-core change facts include working tree" 'git diff --name-status "$BASE")' skills/n1-start/review-core.md
 for f in skills/n1-start/steps/review.md skills/n1-review/steps/01-analyze.md skills/n1-start/procedures/review-incremental.md skills/n1-pr/steps/02-push-create.md; do
     has "code-reviewer dispatch passes NO_DIFF: $f" 'NO_DIFF' "$f"
 done

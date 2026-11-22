@@ -13,8 +13,8 @@ if [ "$FILE_COUNT" -gt 200 ]; then
   CHANGED="$(echo "$CHANGED" | head -n 200)
 [truncated: showing first 200 of $FILE_COUNT files]"
 fi
-CHANGED_STATUS=$(git diff --name-status "$BASE" HEAD | head -n 200)
-UNTRACKED=$(git ls-files --others --exclude-standard | head -n 200)
+CHANGED_STATUS=$(git diff --name-status "$BASE")
+UNTRACKED=$(git ls-files --others --exclude-standard)
 if [ -z "$CHANGED_STATUS" ] && [ -z "$UNTRACKED" ]; then NO_DIFF=true; else NO_DIFF=false; fi
 source "$N1_ROOT/lib/classify.sh"
 DOC_CONFIG_ONLY=$(n1_classify_doc_config_only "$CHANGED")
