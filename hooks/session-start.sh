@@ -73,7 +73,7 @@ HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
 HOST ROUTING (authoritative for how N1 skills reach Claude Code):
 - Dispatch persona <name>: Agent tool with subagent_type \"n1:<name>\", prompt, model from n1_resolve_agent (first tab-separated field). Dispatch is asynchronous: the call returns 'launched' and the result arrives later as a task notification. Orchestrator: follow Wait Contract. A subagent that dispatches a persona must not return or move on until that persona's final result is in hand: end a turn only while that persona is still running, and after an interim notice (it is waiting on its own background work) resume it before ending the turn. Fix loops: dispatch a fresh persona per cycle.
 - Resume subagent <id> (host message mechanism): SendMessage tool (load via ToolSearch if deferred); it also resumes a finished subagent in the background.
-- Stream a watch <command> (each output line reaches this session as it is printed): Monitor tool (load via ToolSearch if deferred) with that command. Monitor ends at its deadline (5 min default, 30 min max): on the deadline notice, start the identical command again.
+- Stream a watch <command> (each output line reaches this session as it is printed): Monitor tool (load via ToolSearch if deferred; it requires both command and description) with that command. Monitor ends at its deadline (5 min default, 30 min max): on the deadline notice, start the identical command again.
 - Run in the background <command> (nothing is shown until it exits; its exit and output then reach this session as a notice; it ends with the session): Bash tool with run_in_background true and that command.
 - Dispatch a general-purpose subagent: Agent tool with subagent_type \"general-purpose\".
 - never use subagent_type \"fork\". All dispatches use typed personas or general-purpose subagents with fresh context.
@@ -230,6 +230,11 @@ tracker_ops=$(n1_config_ops '.tracker.operations' "$CONFIG_FILE")
 tracker_version_mcp=$(n1_config_val '.tracker.versionMcp' "$CONFIG_FILE")
 
 if [ -n "$tracker_mcp" ]; then
+    tracker_args_line=""
+    case "$tracker_mcp" in
+        *jc-mcp) tracker_args_line="
+- jc-mcp arguments: getIssue and getTransitions take issueKey; addComment takes issueKey and body; editIssue takes issueKey plus fields or update (assignee goes in fields.assignee); never pass cloudId or issueIdOrKey" ;;
+    esac
     if [ -n "$tracker_version_mcp" ]; then
         tracker_version_line="
 - Version MCP server: ${tracker_version_mcp} — use prefix mcp__${tracker_version_mcp}__ for version operations: createVersion, releaseVersion, listVersions, getIssueLinks
@@ -244,7 +249,8 @@ TRACKER ROUTING (from N1 config — authoritative, do not override):
 - Type: ${tracker_type}
 - MCP server: ${tracker_mcp}
 - All standard tracker MCP tool calls MUST use prefix: mcp__${tracker_mcp}__${tracker_version_line}
-- Operations: ${tracker_ops}"
+- Operations: ${tracker_ops}
+- Tracker tools are deferred: load each schema with ToolSearch select:<tool> before its first call; never guess argument names.${tracker_args_line}"
 fi
 
 tag_service=$(n1_config_val '.ticketTagging.service' "$CONFIG_FILE" | tr '\n\r' '  ' | sed 's/^ *//; s/ *$//')

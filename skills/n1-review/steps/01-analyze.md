@@ -82,6 +82,7 @@ Prepare shared review context:
 - QA results (from qa.md, if available)
 - Base SHA: `${REVIEW_BASE}`
 - Base CLAUDE.md: `CLAUDE_MD`; CLAUDE.md diff: `CLAUDE_DIFF` (code-reviewer)
+- Change facts (code-reviewer): the printed `BASE=`, `NO_DIFF=`, `CHANGED_STATUS:`, `UNTRACKED:` and `CODE_DIFF=` values from review-core
 - Head SHA: current `HEAD`
 
 Spawn the selected reviewers simultaneously (code-reviewer always; security-reviewer iff `SECURITY_RELEVANT`). Each returns findings ranked by priority (Critical → High → Medium → Low).
@@ -98,7 +99,7 @@ After ALL reviewers return, merge their raw findings into a single list ordered 
 
 **Spawn agent:** code-reviewer (with adversarial verification prompt)
 
-Resolve the adversarial verifier with `n1_resolve_agent code-reviewer review`.
+Resolve the adversarial verifier with `n1_resolve_agent code-reviewer review`. Pass it the same `CHANGED_STATUS:` value; it verifies claims by reading files and never runs git.
 
 **Adversarial kill mandate:** The verification agent's job is to **disprove** each finding, not confirm it. Default disposition is FALSE POSITIVE — a finding survives only if the verifier fails to refute it after genuinely trying.
 
@@ -209,6 +210,7 @@ Resolve each selected reviewer through `n1_resolve_agent code-reviewer review` o
 Provide:
 - $PR_DIFF (already capped) as the code to review
 - PR description as the requirements
+- To code-reviewer: `NO_DIFF=true` when $PR_DIFF is empty, else `NO_DIFF=false`; it takes the changed files from the `diff --git` headers of $PR_DIFF
 
 **Wait for ALL agents to complete before proceeding.**
 
@@ -218,6 +220,6 @@ Same adversarial verification process as Review Loop Phase 3:
 
 **Spawn agent:** code-reviewer (with adversarial verification prompt)
 
-Resolve the adversarial verifier with `n1_resolve_agent code-reviewer review`, split its tab-separated model/effort pair, and pass both values to the spawn.
+Resolve the adversarial verifier with `n1_resolve_agent code-reviewer review`, split its tab-separated model/effort pair, and pass both values to the spawn. Pass it NO_DIFF=false and the changed files from the diff --git headers of $PR_DIFF; it verifies claims by reading files and never runs git.
 
 Same adversarial kill mandate and context asymmetry as Phase 3 above: pass only the claim (title, file:line, one-line description), not the original reasoning. The verifier's job is to disprove each finding — survivors are confirmed.
