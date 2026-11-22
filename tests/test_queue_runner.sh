@@ -2291,6 +2291,35 @@ EOF
 
 
 
+# N1-638. Bug caught: a worker that stopped without reporting never recorded a PR URL, so --status reconcile could not
+# correct its failed row after the PR merged (NOP-67, queue list-5d2b9aa8). A row with no PR stays failed.
+test_status_reconcile_discovers_merged() {
+    local tmp out; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"
+    mkdir -p "$tmp/n1home/memory/T-A" "$tmp/n1home/memory/T-B"
+    n1_write_frontmatter "$tmp/queue.md" run_id R1
+    for n in 1 2; do n1_queue_row_status "$tmp/queue.md" "$n" failed subtask-timeout; done
+    printf '| T-A | 2026-11-02T00:00:00Z | | failed | | orca:task-T-A/d-T-A |\n| T-B | 2026-11-02T00:00:00Z | | failed | | orca:task-T-B/d-T-B |\n' >> "$tmp/queue.md"
+    cat > "$tmp/bin/gh" <<'EOF2'
+#!/bin/sh
+case "$*" in
+    *"repo view"*) echo o/r ;;
+    *"pr list"*T-A*) printf 'https://github.com/o/r/pull/7\t2026-11-03T00:00:00Z\n' ;;
+    *pull/7*) echo MERGED ;;
+esac
+EOF2
+    chmod +x "$tmp/bin/gh"
+    : > "$tmp/events.jsonl"
+    out=$(PATH="$tmp/bin:$PATH" n1_queue_reconcile "$tmp/queue.md")
+    assert_eq "reconcile-discover: merged row reported" "reconciled: T-A merged" "$out"
+    assert_eq "reconcile-discover: Runs outcome merged / no-PR row untouched" "merged failed" \
+        "$(_n1_queue_run_outcome "$tmp/queue.md" T-A) $(_n1_queue_run_outcome "$tmp/queue.md" T-B)"
+    assert_eq "reconcile-discover: Runs PR cell set" "https://github.com/o/r/pull/7" "$(_n1_queue_run_pr "$tmp/queue.md" T-A)"
+    assert_eq "reconcile-discover: failed -> pr for the merged row only" "pr failed" \
+        "$(plan_cell "$tmp/queue.md" 1 8) $(plan_cell "$tmp/queue.md" 2 8)"
+    rm -rf "$tmp"
+}
+
 # N1-638. Bugs caught: a merged PR of the run is invisible (open-only lookup); an earlier run's merged PR, another repo's
 # PR, a bad URL or an unknown start epoch counts as this run's merge.
 test_child_merged_pr() {
@@ -3036,6 +3065,7 @@ test_queue_event
 test_escalation_text
 test_status_reconcile_merged
 test_child_merged_pr
+test_status_reconcile_discovers_merged
 test_review_failed_rows
 test_tag_is_service_label
 test_n1_339_cleanup_helpers

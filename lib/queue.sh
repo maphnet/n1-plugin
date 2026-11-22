@@ -2532,6 +2532,7 @@ n1_queue_reconcile() {
     # requires the repo's Story Branches branch to equal it and skips a PR URL claimed by more than one Plan row.
     # Codex: <final-merged-at> (4th arg) is the final PR's mergedAt when it already merged; a child then counts only if
     # its own mergedAt is known and not later (a child merged into the retained queue branch afterwards is not in it).
+    # N1-638: a failed/stopped row with no attested URL takes its URL from n1_queue_child_merged_pr (start = Runs Started).
     local q="$1" want="${3:-}" fm="${4:-}" cm evf qid rid num ticket repo n1h model status url sb pst pbase dup=""
     if [ "${2:-}" != force ] && n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then return 0; fi
     evf="$(dirname "$q")/events.jsonl"; qid=$(n1_read_frontmatter "$q" queue_id); rid=$(n1_read_frontmatter "$q" run_id)
@@ -2541,6 +2542,8 @@ n1_queue_reconcile() {
         sb=$(n1_queue_story_branch_get "$q" "$repo") || continue
         [ -z "$want" ] || [ "$sb" = "$want" ] || continue
         url=$(n1_queue_attested_pr "$q" "$ticket" "$n1h")
+        # N1-638: a worker that stopped without reporting recorded no URL; look its merged PR up (same repo, merged after Started).
+        case "$url:$status" in :failed|:stopped) url=$(n1_queue_child_merged_pr "$ticket" "$n1h" "$repo" "$(n1_queue_started_epoch "$q" "$ticket")") ;; esac
         [ -z "$want" ] || ! grep -qxF -- "$url" <<< "$dup" || continue
         if [ -n "$sb" ]; then
             IFS=$'\t' read -r pst pbase _ <<< "$(n1_queue_pr_view "$url")"
