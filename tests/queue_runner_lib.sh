@@ -50,6 +50,7 @@ mk_bg() {
     # N1-182: runner asks gh for an open PR of an incomplete child; default answer comes from
     # $FAKE_DIR/gh-pr (absent -> no PR). Never reach the real gh from tests.
     # N1-185: pr view prints $FAKE_DIR/gh-state (OPEN/MERGED/CLOSED); absent -> exit 1 as before. N1-422: gh-state-seq overrides it per read.
+    # N1-638: pr list --state all reads $FAKE_DIR/gh-pr-all (TSV url<TAB>mergedAt<TAB>createdAt<TAB>title, the post -q output).
     # N1-292: pr view --json ...headRefOid reads gh-view[.<pr#>] (TSV); pr checks / pr merge / repo view per the files named in the fake.
     [ -e "$tmp/bin/gh" ] || { cat > "$tmp/bin/gh" <<'GHEOF'
 #!/usr/bin/env bash
@@ -66,6 +67,8 @@ case "$1 $2" in
                 b=""; h=""; prev=""; for a in "$@"; do [ "$prev" = --base ] && b="$a"; [ "$prev" = --head ] && h="$a"; prev="$a"; done
                 f="$FAKE_DIR/gh-final-list.$b.${h//\//_}"; [ -f "$f" ] || f="$FAKE_DIR/gh-final-list.$b"
                 cat "$f" 2>/dev/null || echo '[]' ;;
+            *"--state all"*) # N1-638: merged-PR lookup (n1_queue_child_merged_pr); answers gh-pr-all (absent -> no PR)
+                echo "$*" >> "$FAKE_DIR/gh-calls-all"; cat "$FAKE_DIR/gh-pr-all" 2>/dev/null ;;
             *) echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;;
         esac ;;
     "pr view") # N1-214: gh-fail holds a count of reads to fail before answering

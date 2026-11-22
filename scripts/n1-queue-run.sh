@@ -504,7 +504,7 @@ drain_wait() {
 
 # timeout_stop <num> <ticket> <repo> <n1h> <model> <sid> — re-reads status first: the tick's OUTCOME is stale if the child reached step: pr since (N1-77).
 timeout_stop() {
-    local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" SID="$6" OUTCOME
+    local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" SID="$6" OUTCOME MERGED_PR
     OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0 1)
     if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "no-pr" ] || [ "$OUTCOME" = "escalated" ]; then
         [ -n "$SID" ] && DRAIN+=("$SID"$'\t'"$TICKET"$'\t'"$N1H")
@@ -512,6 +512,9 @@ timeout_stop() {
         return
     fi
     [ -n "$SID" ] && bash -c "$(n1_bg_cmd stop "$SID")" >/dev/null 2>&1
+    # N1-638: a child whose PR already merged (PR state, not ancestry: squash merge) is a pr, not a timeout.
+    MERGED_PR=$(n1_queue_child_merged_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-$(n1_queue_started_epoch "$QUEUE" "$TICKET")}")
+    if [ -n "$MERGED_PR" ]; then finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "pr" "" "" "$MERGED_PR"; return; fi
     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "timeout"
 }
 
@@ -1335,6 +1338,8 @@ run_bg() {
                     # reaching a terminal step. N1-182: an off-script child may still have
                     # opened a PR without recording pr_url; that is a pr, not a retry.
                     OPEN_PR=$(n1_queue_child_open_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-}")
+                    # N1-638: or its PR already merged (same pr path; the chain records the merge).
+                    [ -n "$OPEN_PR" ] || OPEN_PR=$(n1_queue_child_merged_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-$(n1_queue_started_epoch "$QUEUE" "$TICKET")}")
                     if [ -n "$OPEN_PR" ]; then
                         finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "pr" "" "" "$OPEN_PR"
                     else
@@ -1750,7 +1755,9 @@ run_orca() {
             if [ -n "$TASK" ] && { [ "$GHOST" = 1 ] || [[ "$DONE" == *" $TASK "* ]] \
                 || awk -F'\t' -v d="$DISP" '$1 == d && ($3 == "exited" || $4 == "done") { f = 1 } END { exit !f }' <<< "$LIVE"; }; then
                 # The worker stopped without a terminal overview step (N1-182: it may still have opened a PR).
+                # N1-638: or its PR already merged; a merged PR takes the same pr path (settle records the merge).
                 OPEN_PR=$(n1_queue_child_open_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-}")
+                [ -n "$OPEN_PR" ] || OPEN_PR=$(n1_queue_child_merged_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-$(n1_queue_started_epoch "$QUEUE" "$TICKET")}")
                 if [ -n "$OPEN_PR" ]; then
                     # A ghost with a PR is released and owed so settle runs its chain (an unverifiable ghost never reaches settle otherwise).
                     [ "$GHOST" = 1 ] && { n1_orca_release "$DISP"; OWED="$OWED$TASK "; }
@@ -1820,6 +1827,8 @@ run_orca() {
                 # N1-267: a worker that already opened its PR (pr step still waiting on CI/review) is a pr, not a
                 # timeout. It stays owed: settle releases it and runs the chain once it reports done or exits.
                 OPEN_PR=$(n1_queue_child_open_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-}")
+                # N1-638: a PR that already merged (worker stopped without reporting) is a pr too, never a timeout.
+                [ -n "$OPEN_PR" ] || OPEN_PR=$(n1_queue_child_merged_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-$(n1_queue_started_epoch "$QUEUE" "$TICKET")}")
                 if [ -n "$OPEN_PR" ]; then
                     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "pr" "" "" "$OPEN_PR"
                 else

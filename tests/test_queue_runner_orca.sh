@@ -329,6 +329,46 @@ test_orca_stop_notice_then_timeout() {
     rm -rf "$tmp"
 }
 
+# N1-638 (NOP-67, queue list-5d2b9aa8). Bug caught: a worker that stopped without reporting and then timed out was recorded
+# failed|subtask-timeout although its PR had merged. Controls: an earlier run's merged PR (mergedAt before the Runs Started
+# time; the resumed row has no STARTED_AT) and no PR keep the failed path.
+test_orca_stop_notice_then_timeout_merged() {
+    local tmp case_ mat
+    for case_ in merged stale none; do
+        tmp=$(mktemp -d)
+        orca_resumed_row "$tmp"
+        : > "$tmp/fake/nodone.T-A"
+        orca_msg escalation task-T-A m-stop2 finished > "$tmp/fake/q.late"
+        printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/q.late" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.1"
+        echo o/r > "$tmp/fake/gh-repo"
+        case "$case_" in merged) mat=2026-11-01T00:00:00Z ;; stale) mat=2026-10-30T00:00:00Z ;; none) mat="" ;; esac
+        [ -z "$mat" ] || printf 'https://github.com/o/r/pull/38\t%s\t2026-10-31T00:00:00Z\t[T-A] x\n' "$mat" > "$tmp/fake/gh-pr-all"
+        run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=8 > /dev/null
+        if [ "$case_" = merged ]; then
+            assert_eq "orca-timeout-merged: row is pr, not subtask-timeout" "pr|" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+            assert_eq "orca-timeout-merged: Runs records the PR" "https://github.com/o/r/pull/38" "$(_n1_queue_run_pr "$tmp/queue.md" T-A)"
+            assert_eq "orca-timeout-merged: no failed event" "0" \
+                "$(jq -R 'fromjson? | select(.event == "ticket_finished" and .ticket == "T-A" and .outcome == "failed") | .event' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+        else
+            assert_eq "orca-timeout-merged: $case_ keeps subtask-timeout" "failed|subtask-timeout" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+        fi
+        rm -rf "$tmp"
+    done
+}
+
+# N1-638. Bug caught: a worker that exited without a terminal step after its PR merged was recorded child-exited-incomplete.
+test_orca_exited_merged() {
+    local tmp; tmp=$(mktemp -d)
+    orca_resumed_row "$tmp"
+    wl_set "$tmp" "$(wl_row T-A released)"
+    echo o/r > "$tmp/fake/gh-repo"; echo MERGED > "$tmp/fake/gh-state"
+    printf 'https://github.com/o/r/pull/38\t2026-11-01T00:00:00Z\t2026-10-31T00:00:00Z\t[T-A] x\n' > "$tmp/fake/gh-pr-all"
+    assert_eq "orca-exited-merged: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-exited-merged: row is pr, not child-exited-incomplete" "pr|" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "orca-exited-merged: Runs records the PR" "https://github.com/o/r/pull/38" "$(_n1_queue_run_pr "$tmp/queue.md" T-A)"
+    rm -rf "$tmp"
+}
+
 # N1-359 AC2/AC3. Bug caught: a plain escalation with no overview.md Escalations entry alerted "waiting for an answer"
 # and advertised --answer, which failed ("has no pending Orca question") because no .ask/.question file existed.
 # The with-.ask case (--answer kept) is test_orca_question_parks.
@@ -1372,6 +1412,8 @@ test_orca_raw_question_text
 test_orca_question_after_timeout
 test_orca_stop_notice_not_escalated
 test_orca_stop_notice_then_timeout
+test_orca_stop_notice_then_timeout_merged
+test_orca_exited_merged
 test_orca_plain_escalation_reason
 test_orca_json_subject_not_packed
 test_orca_obsolete_releases_successor
