@@ -323,6 +323,8 @@ for c in 'find "$N1_HOME/scratch/../" -name '"'active*'"' -delete' 'find "$N1_HO
     'find "$N1_HOME/scratch" -name '"'active-run*'"' -delete' 'find "$N1_HOME/scratch" -exec rm "$N1_HOME"/active-run.s-pr.json \;' \
     'find "$N1_HOME/scratch" -fprint "$N1_HOME/active-run.s-pr.json" -delete' \
     'find "$N1_HOME/scratch" -maxdepth 0 -exec true \; -exec rm -f "$N1_HOME/active-run.s.json" \;' \
+    'find "$N1_HOME/scratch" -maxdepth 0 -exec true + \; -exec rm -f "$N1_HOME/active-run.s.json" \;' \
+    'find "$N1_HOME/scratch" -maxdepth 0 -exec true + '"';'"' -exec rm -f "$N1_HOME/active-run.s.json" '"';'"'' \
     'find ~/.n1/x/scratch/.. -delete' 'find "$N1_HOME" -mtime +1 -delete' 'find "$N1_HOME/scratch/$D" -delete'; do
     for w in n1:pr-worker n1:tail-worker; do eq "n1-641: $w still denies: ${c:0:60}" 2 "$(polx $w Bash "$c")"; done
 done

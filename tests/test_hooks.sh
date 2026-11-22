@@ -416,6 +416,8 @@ for c in "n1-release" "x; n1-release --notes" "claude -p '/n1:n1-release'" "clau
     'find "$N1_HOME/scratch" -fprint "$N1_HOME/active-run.s-pr.json" -delete' \
     'find ~/.n1/x/scratch/.. -delete' 'find ~/.n1 -name active-run.s-pr.json -delete' 'find "$N1_HOME" -mtime +1 -delete' \
     'find "$N1_HOME/scratch" -maxdepth 0 -exec true \; -exec rm -f "$N1_HOME/active-run.s.json" \;' \
+    'find "$N1_HOME/scratch" -maxdepth 0 -exec true + \; -exec rm -f "$N1_HOME/active-run.s.json" \;' \
+    'find "$N1_HOME/scratch" -maxdepth 0 -exec true + '"';'"' -exec rm -f "$N1_HOME/active-run.s.json" '"';'"'' \
     'find "$N1_HOME/scratch" -exec true \;' "claude --bg 'Done; now /n1:n1-clean --ticket T-1'" \
     'claude --bg "$(cat <<'"'EOF'"'
 /n1:n1-release

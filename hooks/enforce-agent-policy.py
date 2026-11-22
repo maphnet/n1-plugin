@@ -642,8 +642,8 @@ def _scratch_scoped(c, j) -> bool:
         return False
     for x, w in enumerate(c):
         if w in ("-exec", "-execdir", "-ok", "-okdir"):
-            # a `\;`-terminated payload is split off by SEGMENT_RE, so a chained -exec is never seen here: only `+` is scoped
-            return "+" in c[x + 1:] and not re.search(r"active|\.n1|N1_HOME", " ".join(c[x + 1:]))
+            # find ends -exec only at `;` or at `+` directly after `{}`. A chunk cut at an escaped `;` (chained -exec follows) and a stray `+` argument are not scoped. (_every_word views drop `{}`; there a final `+` counts, the cmd view still denies the chained form.)
+            return not j.rstrip().endswith("\\") and (any(c[i] == "+" and c[i - 1].strip("'\"") == "{}" for i in range(x + 2, len(c))) or (c[-1] == "+" and "{}" not in c)) and not re.search(r"active|\.n1|N1_HOME", " ".join(c[x + 1:]))
     return True
 
 
