@@ -463,8 +463,8 @@ def _command(payload):
     return command if isinstance(command, str) else None
 
 
-# N1-392: also no push and no PR comment, in every tail-worker mode (gh pr edit stays allowed: finish-mode deployment ticking) (codex-triage hands its file to the orchestrator). Best effort like the rest of this regex.
-TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|clean_ticket|containers_teardown|merge_authorized|orca_rm)\b|n1-release|\bn1-clean\b|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b|\bgit\s+(-C\s+\S+\s+)?push\b|\bgh\s+pr\s+comment\b")
+# N1-392: also no push and no PR comment, in every tail-worker mode (gh pr edit stays allowed: finish-mode deployment ticking) (codex-triage hands its file to the orchestrator). Best effort like the rest of this regex. N1-641: n1-release/n1-clean match only as a claude spawn or in command position, not as a mention.
+TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|clean_ticket|containers_teardown|merge_authorized|orca_rm)\b|\b(?:claude|n1_headless_cmd|n1_bg_launch_cmd)\b[^\n;&|]*\bn1-(?:release|clean)\b|(?:^|[;&|])[ \t]*n1-(?:release|clean)\b|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b|\bgit\s+(-C\s+\S+\s+)?push\b|\bgh\s+pr\s+comment\b")
 
 
 # Bash text of an Orca child (best effort, accidental tamper only, like TAIL_DENY_RE: an obfuscated command is
