@@ -496,12 +496,12 @@ Config keys: `release.enabled` (boolean, default `false`), `release.procedure` (
 | solution-architect | sonnet | medium | inherits (needs dynamic MCP and WebSearch, WebFetch) | Analysis, Bug investigation, Plan review (CCR) |
 | planner | opus | medium | Read, Grep, Glob, Write, Edit, Skill, WebSearch, WebFetch | Plan writing |
 | implementer | sonnet | medium | inherits (needs Skill for n1-implement, Agent for developer subagents) | Implementation (wraps n1-implement) |
-| developer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | Fix cycle, CI fix |
+| developer | sonnet | medium | Read, Edit, Write, Bash | Fix cycle, CI fix |
 | code-reviewer | sonnet | high | Read, Grep, Glob, Write (hook-scoped to the findings file) | Review (parallel) |
 | security-reviewer | opus | high | Read, Grep, Glob, Write (hook-scoped to the findings file) | Review (parallel) |
-| qa-engineer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | QA |
-| local-test-planner | sonnet | medium | Read, Grep, Glob, Bash | Local testing (plan creation) |
-| tech-writer | sonnet | medium | Read, Grep, Edit, Write, Glob, Bash | Doc update, PR content |
+| qa-engineer | sonnet | medium | Read, Edit, Write, Bash | QA |
+| local-test-planner | sonnet | medium | Read, Bash | Local testing (plan creation) |
+| tech-writer | sonnet | medium | Read, Edit, Write, Bash | Doc update, PR content |
 | brainstormer | sonnet | medium | inherits (needs dynamic MCP) | Design brainstorming |
 | post-deploy-verifier | sonnet | medium | inherits (dynamic observability MCP provider names) | Post-deploy acceptance verification |
 | tail-worker | sonnet | medium | inherits (needs dynamic tracker MCP) | Memory finalize, Gate 3, post-merge finish steps, Codex triage |
