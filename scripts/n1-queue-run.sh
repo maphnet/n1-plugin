@@ -1750,7 +1750,9 @@ run_orca() {
             if [ -n "$TASK" ] && { [ "$GHOST" = 1 ] || [[ "$DONE" == *" $TASK "* ]] \
                 || awk -F'\t' -v d="$DISP" '$1 == d && ($3 == "exited" || $4 == "done") { f = 1 } END { exit !f }' <<< "$LIVE"; }; then
                 # The worker stopped without a terminal overview step (N1-182: it may still have opened a PR).
+                # N1-638: or its PR already merged; a merged PR takes the same pr path (settle records the merge).
                 OPEN_PR=$(n1_queue_child_open_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-}")
+                [ -n "$OPEN_PR" ] || OPEN_PR=$(n1_queue_child_merged_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-$(n1_queue_started_epoch "$QUEUE" "$TICKET")}")
                 if [ -n "$OPEN_PR" ]; then
                     # A ghost with a PR is released and owed so settle runs its chain (an unverifiable ghost never reaches settle otherwise).
                     [ "$GHOST" = 1 ] && { n1_orca_release "$DISP"; OWED="$OWED$TASK "; }
@@ -1820,6 +1822,8 @@ run_orca() {
                 # N1-267: a worker that already opened its PR (pr step still waiting on CI/review) is a pr, not a
                 # timeout. It stays owed: settle releases it and runs the chain once it reports done or exits.
                 OPEN_PR=$(n1_queue_child_open_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-}")
+                # N1-638: a PR that already merged (worker stopped without reporting) is a pr too, never a timeout.
+                [ -n "$OPEN_PR" ] || OPEN_PR=$(n1_queue_child_merged_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-$(n1_queue_started_epoch "$QUEUE" "$TICKET")}")
                 if [ -n "$OPEN_PR" ]; then
                     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "pr" "" "" "$OPEN_PR"
                 else
