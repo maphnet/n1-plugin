@@ -626,12 +626,12 @@ def _every_word(text: str) -> str:
 
 
 # N1-641: a find rooted only under <n1-home>/scratch cannot reach the run pointer (best effort, text only: no symlink or env
-# expansion view; \x01 is the masked `$`). Fail closed: no roots, any non-scratch root, any "..", any `$` or backtick after `scratch` (a variable could expand to `..`), or an -exec payload naming the home -> not scoped.
+# expansion view; \x01 stands for masked `$`, whitespace and separators). Safety relies on _worker_deny denying when ANY view hits (cmd/stripped views are independent), so the masked view must never be the only check. Fail closed: no roots, any non-scratch root, any "..", any `$` or backtick after `scratch` (a variable could expand to `..`), or an -exec payload naming the home -> not scoped.
 _SCRATCH_ROOT_RE = re.compile(r"^(?:[$\x01]\{?N1_HOME\}?|\S*\.n1/[^/]+)/scratch(?:/[^\s$\x01`]*)?$")
 
 
 def _scratch_scoped(c, j) -> bool:
-    if ".." in j:
+    if ".." in j or re.search(r"-(?:fprint0?|fprintf|fls|follow)\b", j):
         return False
     roots = []
     for w in c[1:]:
