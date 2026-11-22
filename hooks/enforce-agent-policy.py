@@ -625,6 +625,27 @@ def _every_word(text: str) -> str:
     return re.sub(r"[ \t]+", f" {SUBST} ", re.sub(r"[(){}!\[\],]", " ", text.replace("<<<", f" {SUBST} ")))
 
 
+# N1-641: a find rooted only under <n1-home>/scratch cannot reach the run pointer (best effort, text only: no symlink or env
+# expansion view; \x01 is the masked `$`). Fail closed: no roots, any non-scratch root, any "..", any `$` or backtick after `scratch` (a variable could expand to `..`), or an -exec payload naming the home -> not scoped.
+_SCRATCH_ROOT_RE = re.compile(r"^(?:[$\x01]\{?N1_HOME\}?|\S*\.n1/[^/]+)/scratch(?:/[^\s$\x01`]*)?$")
+
+
+def _scratch_scoped(c, j) -> bool:
+    if ".." in j:
+        return False
+    roots = []
+    for w in c[1:]:
+        if w[:1] in ("-", "(", "!"):
+            break
+        roots.append(re.sub(r"[\"'\\]", "", w))
+    if not roots or not all(_SCRATCH_ROOT_RE.match(r) for r in roots):
+        return False
+    for x, w in enumerate(c):
+        if w in ("-exec", "-execdir", "-ok", "-okdir"):
+            return not re.search(r"active|\.n1|N1_HOME", " ".join(c[x + 1:]))
+    return True
+
+
 def _pointer_hit(c, j, names=_POINTER_NAMES[:1]) -> bool:
     """Chunk c (joined j) removes, moves or rewrites the run pointer: literal name, a glob that matches it, a glob or
     the home dir itself under .n1/N1_HOME, or find/sed over it."""
@@ -643,7 +664,7 @@ def _pointer_hit(c, j, names=_POINTER_NAMES[:1]) -> bool:
     if c[0] == "find":
         if re.search(r"\s-(?:delete|exec)\b", j) is None:
             return False
-        if re.search(r"active|\.n1|N1_HOME", j):
+        if re.search(r"active|\.n1|N1_HOME", j) and not _scratch_scoped(c, j):
             return True
         # a -name/-path glob that matches a pointer or marker file name (`find ~ -name 'act*' -delete`)
         return any(w in ("-name", "-iname", "-path", "-ipath") and _glob_hits(c[x + 1], _POINTER_NAMES + names)
