@@ -503,9 +503,10 @@ test_add_apply_blocker_rejected() {
     mkdir -p "$d/.add"
     printf 'Blocker\t/nope\t/h\tsonnet\t\t\t\t\t\t\n' > "$d/.add/M-9.row"   # bypasses stage: unknown repo
     printf 'Dep\t/r\t/h\tsonnet\tblocked_on M-9 · \t\t\t\t\t\n' > "$d/.add/M-10.row"
+    printf 'Dep\t/r\t/h\tsonnet\tblocked_on M-9 · \t\t\t\t\t\n' > "$d/.add/M-1.row"   # sorts before its blocker: deferred, then cascaded
     n1_queue_apply_adds "$q" >/dev/null
-    assert_eq "add-apply-rejected: no Plan row for either" 0 "$(grep -c '| M-' "$q" || true)"
-    assert_eq "add-apply-rejected: events" "ticket_add_rejected M-10 blocker-not-in-queue M-9|ticket_add_rejected M-9 repo-not-in-queue" \
+    assert_eq "add-apply-rejected: no Plan row for any" 0 "$(grep -c '| M-' "$q" || true)"
+    assert_eq "add-apply-rejected: events" "ticket_add_rejected M-1 blocker-not-in-queue M-9|ticket_add_rejected M-10 blocker-not-in-queue M-9|ticket_add_rejected M-9 repo-not-in-queue" \
         "$(jq -r '"\(.event) \(.ticket) \(.reason)"' "$ev" | LC_ALL=C sort | paste -sd'|')"
     assert_eq "add-apply-rejected: spool drained" "" "$(ls -A "$d/.add")"
 }
