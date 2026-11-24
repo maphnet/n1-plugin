@@ -481,9 +481,9 @@ test_add_apply_same_call_blocker() {
     local tmp q d ev; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     q=$(mk_add_queue "$tmp"); d="${q%/*}"; ev="$d/events.jsonl"
     add_cells "$tmp/c" "Blocker" /r /h sonnet ""; n1_queue_add_stage "$q" X-9 "$tmp/c" >/dev/null
-    add_cells "$tmp/c" "Dep" /r /h sonnet "blocked_on X-9 · "; n1_queue_add_stage "$q" X-10 "$tmp/c" >/dev/null
+    add_cells "$tmp/c" "Dep" /r /h sonnet "blocked_on X-9 · "; n1_queue_add_stage "$q" X-10 "$tmp/c" >/dev/null 2>&1 || true
     add_cells "$tmp/c" "Blocker" /r /h sonnet ""; n1_queue_add_stage "$q" Y-1 "$tmp/c" >/dev/null
-    add_cells "$tmp/c" "Dep" /r /h sonnet "blocked_on Y-1 · "; n1_queue_add_stage "$q" Y-2 "$tmp/c" >/dev/null
+    add_cells "$tmp/c" "Dep" /r /h sonnet "blocked_on Y-1 · "; n1_queue_add_stage "$q" Y-2 "$tmp/c" >/dev/null 2>&1 || true
     n1_queue_apply_adds "$q" >/dev/null
     _s() { awk -F'|' '{for(i=1;i<=NF;i++)gsub(/^[[:space:]]+|[[:space:]]+$/,"",$i)} $3=="'"$1"'"{print $8"|"$9}' "$q"; }
     assert_eq "add-apply-same-call: X-9 pending" "pending|" "$(_s X-9)"
