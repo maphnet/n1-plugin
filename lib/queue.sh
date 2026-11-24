@@ -1787,11 +1787,13 @@ n1_queue_active_ids() {
 }
 
 _n1_queue_add_check() {
-    # Usage: _n1_queue_add_check <queue.md> <KEY> <reason> <repo> <n1home> <model> — N1-617: shared by the skill-side
+    # Usage: _n1_queue_add_check <queue.md> <KEY> <reason> <repo> <n1home> <model> [staged_ok] — N1-617: shared by the skill-side
     # stage and the runner-side apply. Prints a refusal token and returns 1, or returns 0. Duplicate = a Plan row
     # (any status) or an ## Excluded row for KEY. A Reason "blocked_on <ID>" needs <ID> to have a Plan row that is not
     # failed/escalated/skip (n1_queue_held_sweep never releases those). Repo and N1 Home must equal an existing row's
-    # pair (story branches and release_backstop assume the start-time repos).
+    # pair (story branches and release_backstop assume the start-time repos). N1-644: staged_ok=1 (stage only) also
+    # accepts a blocker with no Plan row but a staged .add/<ID>.row (another ticket of the same --add call); apply
+    # defers such a dependent until the blocker is applied or rejected.
     local q="$1" k="$2" b st
     if awk -F'|' -v k="$k" '/^## /{ s = $0 }
         /^\|/ && s == "## Plan" { c = $3; n = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); gsub(/^[[:space:]]+|[[:space:]]+$/, "", n); if (n ~ /^[0-9]+$/ && c == k) f = 1 }
@@ -1800,7 +1802,13 @@ _n1_queue_add_check() {
     b=$(printf '%s' "$3" | sed -n 's/^blocked_on \([A-Za-z0-9_-]*\).*/\1/p')
     if [ -n "$b" ]; then
         st=$(n1_queue_ticket_status "$q" "$b")
-        [ -n "$st" ] || { echo "blocker-not-in-queue $b"; return 1; }
+        if [ -z "$st" ]; then
+            if ! { [ "${7:-}" = 1 ] && [ "$b" != "$k" ] && [ -e "$(dirname -- "$q")/.add/$b.row" ]; }; then
+                # The runner may have applied the blocker (Plan row written, then .row removed) since the first read.
+                st=$(n1_queue_ticket_status "$q" "$b")
+                [ -n "$st" ] || { echo "blocker-not-in-queue $b"; return 1; }
+            fi
+        fi
         case "$st" in failed|escalated|skip) echo "blocker-closed $b"; return 1 ;; esac
     fi
     R="$4" H="$5" awk -F'\t' '$3 == ENVIRON["R"] && $4 == ENVIRON["H"] { f = 1 } END { exit !f }' \
@@ -1826,7 +1834,7 @@ n1_queue_add_stage() {
     c[5]=""; c[6]=""; c[7]=""; c[8]=""; c[9]=""   # SEC-1: never carry Touches/Order/Pre-Decision/Notes from model text
     [ -f "$dir/desc/$k.title" ] && c[0]=$(_n1_queue_sanitize_cell "$(cat "$dir/desc/$k.title")") \
         && c[8]=$(_n1_queue_sanitize_cell "$(n1_queue_content_hash "$dir/desc/$k.title" "$dir/desc/$k.txt" 2>/dev/null)")
-    if ! why=$(_n1_queue_add_check "$q" "$k" "${c[4]}" "${c[1]}" "${c[2]}" "${c[3]}"); then
+    if ! why=$(_n1_queue_add_check "$q" "$k" "${c[4]}" "${c[1]}" "${c[2]}" "${c[3]}" 1); then
         case "$why" in
             duplicate) echo "n1-queue: $k is already in queue $id" >&2 ;;
             blocker-not-in-queue*) echo "n1-queue: $k is blocked by ${why#* } (not in queue)" >&2 ;;
@@ -1859,20 +1867,28 @@ n1_queue_apply_adds() {
     # in name order: re-check (_n1_queue_add_check), append the Plan row at max # + 1 (pending, or held for a
     # "blocked_on <ID>" Reason; n1_queue_held_sweep releases it), insert its ## Decisions row when the section exists,
     # emit ticket_added, remove the file. A refused or malformed file emits ticket_add_rejected and is removed.
-    local q="$1" dir ev qid run f k line i num st row drow tmp why
+    # N1-644: a row whose blocker is only staged (no Plan row yet) is deferred to the next pass; a pass that makes no
+    # progress is followed by one last pass without deferral over the rows deferred in that pass only (cycles and orphaned
+    # dependents); rows staged later stay for the next call. A failed removal returns 1 (never loops).
+    local q="$1" dir ev qid run f k line i num st row drow tmp why final=0 progress deferred only
     local -a c
     dir=$(dirname -- "$q"); ev="$dir/events.jsonl"
     [ -d "$dir/.add" ] || return 0
     qid=$(n1_read_frontmatter "$q" queue_id); run=$(n1_read_frontmatter "$q" run_id)
+    while :; do
+    progress=0; deferred=""
     for f in "$dir"/.add/*.row; do
         [ -f "$f" ] || continue
         k=$(basename -- "$f" .row); line=""
+        [ "$final" = 1 ] && [[ " $only " != *" $k "* ]] && continue   # final pass: only rows deferred in the no-progress pass
         if ! [[ "$k" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] || { ! IFS= read -r line < "$f" && [ -z "$line" ]; }; then
-            rm -f "$f"; n1_queue_event "$ev" "$qid" "$run" ticket_add_rejected ticket="$k" reason=invalid-row; continue
+            rm -f -- "$f" || return 1; n1_queue_event "$ev" "$qid" "$run" ticket_add_rejected ticket="$k" reason=invalid-row; progress=1; continue
         fi
         c=(); for i in 1 2 3 4 5 6 7 8 9 10; do c+=("$(_n1_queue_sanitize_cell "$(printf '%s' "$line" | cut -f"$i")")"); done
         if ! why=$(_n1_queue_add_check "$q" "$k" "${c[4]}" "${c[1]}" "${c[2]}" "${c[3]}"); then
-            rm -f "$f"; n1_queue_event "$ev" "$qid" "$run" ticket_add_rejected ticket="$k" reason="$why"; continue
+            [ "$final" = 0 ] && [ "${why%% *}" = blocker-not-in-queue ] && [ "${why#* }" != "$k" ] \
+                && [ -e "$dir/.add/${why#* }.row" ] && { deferred+=" $k"; continue; }
+            rm -f -- "$f" || return 1; n1_queue_event "$ev" "$qid" "$run" ticket_add_rejected ticket="$k" reason="$why"; progress=1; continue
         fi
         num=$(awk -F'|' '{ gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2) } $2 ~ /^[0-9]+$/ { if ($2 + 0 > max) max = $2 + 0 } END { print max + 1 }' "$q")
         st=pending; case "${c[4]}" in "blocked_on "*) st=held ;; esac
@@ -1888,9 +1904,12 @@ n1_queue_apply_adds() {
             drow != "" && d && !dadded && (/^$/ || /^## /) { print drow; dadded = 1 }
             { print }
             END { if (in_plan && !added) print row; if (drow != "" && d && !dadded) print drow }' "$q" > "$tmp" && mv "$tmp" "$q" || { rm -f "$tmp"; return 1; }
-        rm -f "$f"
+        rm -f -- "$f" || return 1; progress=1
         n1_queue_event "$ev" "$qid" "$run" ticket_added ticket="$k" reason="#$num $st"
         echo "[$num] $k added ($st)"
+    done
+    [ "$final" = 1 ] && break
+    [ "$progress" = 1 ] || { final=1; only="$deferred"; }
     done
     return 0
 }
