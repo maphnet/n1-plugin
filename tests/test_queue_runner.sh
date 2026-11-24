@@ -525,6 +525,40 @@ test_add_apply_cycle() {
     assert_eq "add-apply-cycle: no Plan row" 0 "$(grep -c '| C-' "$q" || true)"
 }
 
+# N1-644: races and failures around the same-call blocker path. Bugs caught: stage refusing a dependent whose blocker the
+# runner applied between the Plan read and the staged-file check (CX-1); the no-deferral final pass re-globbing and
+# rejecting a row staged after the no-progress pass (CR-1); a failed .add removal making apply loop forever (RULE-1).
+test_add_apply_races_and_rm_failure() {
+    local tmp q d ev rc; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q=$(mk_add_queue "$tmp"); d="${q%/*}"; ev="$d/events.jsonl"; mkdir -p "$d/.add"
+    # CX-1: the first Plan read of the blocker reports absent (the runner applies it right after), the re-read sees it
+    eval "$(declare -f n1_queue_ticket_status | sed '1s/.*/_orig_ticket_status ()/')"
+    n1_queue_ticket_status() { if [ ! -e "$d/seen" ]; then : > "$d/seen"; return 0; fi; _orig_ticket_status "$@"; }
+    add_cells "$tmp/c" "Dep" /r /h sonnet "blocked_on T-1 · "
+    rc=0; n1_queue_add_stage "$q" X-10 "$tmp/c" >/dev/null 2>&1 || rc=$?
+    assert_eq "add-race: dependent staged when the blocker reached the Plan mid-check" 0 "$rc"
+    unset -f n1_queue_ticket_status; eval "$(declare -f _orig_ticket_status | sed '1s/.*/n1_queue_ticket_status ()/')"; rm -f "$d/.add/X-10.row"
+    # CR-1: rows staged during a no-progress pass are not rejected by the final pass; only that pass's deferred rows are
+    eval "$(declare -f _n1_queue_add_check | sed '1s/.*/_orig_add_check ()/')"
+    _n1_queue_add_check() {   # runs in a command substitution: the once-flag is a file
+        if [ ! -e "$d/first" ]; then : > "$d/first"
+            printf 'B\t/r\t/h\tsonnet\t\t\t\t\t\t\n' > "$d/.add/A-9.row"
+            printf 'D\t/r\t/h\tsonnet\tblocked_on A-9 · \t\t\t\t\t\n' > "$d/.add/A-10.row"
+        fi; _orig_add_check "$@"; }
+    printf 'A\t/r\t/h\tsonnet\tblocked_on C-2 · \t\t\t\t\t\n' > "$d/.add/C-1.row"
+    printf 'B\t/r\t/h\tsonnet\tblocked_on C-1 · \t\t\t\t\t\n' > "$d/.add/C-2.row"
+    n1_queue_apply_adds "$q" >/dev/null
+    assert_eq "add-race: cycle rejected, late rows untouched" "ticket_add_rejected C-1|ticket_add_rejected C-2|A-10.row A-9.row" \
+        "$(jq -r '"\(.event) \(.ticket)"' "$ev" | LC_ALL=C sort | paste -sd'|')|$(cd "$d/.add" && echo *.row)"
+    n1_queue_apply_adds "$q" >/dev/null
+    assert_eq "add-race: late pair applied on the next call" "2|0" "$(grep -c '^| [0-9]* | A-' "$q")|$(jq -r 'select(.event=="ticket_add_rejected" and (.ticket|startswith("A-")))' "$ev" | wc -l | tr -d ' ')"
+    unset -f _n1_queue_add_check; eval "$(declare -f _orig_add_check | sed '1s/.*/_n1_queue_add_check ()/')"
+    # RULE-1: a removal that always fails stops apply with a non-zero return instead of looping
+    printf 'x\n' > "$d/.add/bad.row"
+    rc=0; ( n=0; rm() { n=$((n + 1)); [ "$n" -lt 5 ] || exit 99; return 1; }; n1_queue_apply_adds "$q" >/dev/null 2>&1 ) || rc=$?
+    assert_eq "add-rm-failure: apply returns 1, no loop" 1 "$rc"
+}
+
 # N1-617 AC6: concurrent --add. 20 distinct stagers and 5 stagers of one key race a runner that interleaves Plan
 # rewrites with applies (one process, as in the runner). Bugs caught: lost rows, duplicated rows or row numbers, a
 # lost runner rewrite, an undrained spool.
@@ -3146,6 +3180,7 @@ test_add_stage_same_call_blocker
 test_add_apply_same_call_blocker
 test_add_apply_blocker_rejected
 test_add_apply_cycle
+test_add_apply_races_and_rm_failure
 test_add_concurrent
 test_rerun_release
 test_rerun_release_pr_merged
