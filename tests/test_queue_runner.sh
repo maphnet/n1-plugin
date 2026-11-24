@@ -457,6 +457,73 @@ test_add_apply() {
     assert_eq "add-watch: dropped add relayed" "yes" "$(REPO_ROOT="$REPO_ROOT" N1_SESSION_ID=sessW timeout 10 bash -c 'source "$REPO_ROOT/lib/config.sh"; source "$REPO_ROOT/lib/frontmatter.sh"; source "$REPO_ROOT/lib/queue.sh"; n1_queue_watch "$@"' _ "$wq" R1 "$$" 0 2>&1 | grep -qF 'add of T-77 was dropped (queue-finished)' && echo yes || echo no)"
 }
 
+# N1-644: stage accepts a blocker staged in the same --add call. Bugs caught: the dependent refused with "not in queue"
+# because only Plan rows count; a self-block, a missing blocker or a closed Plan blocker accepted through the new path.
+test_add_stage_same_call_blocker() {
+    local tmp q rc out; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q=$(mk_add_queue "$tmp")
+    _st() { rc=0; out=$(n1_queue_add_stage "$q" "$1" "$tmp/c" 2>&1) || rc=$?; printf '%s|%s' "$rc" "$out"; }
+    add_cells "$tmp/c" "Dep" /r /h sonnet "blocked_on X-9 · "
+    assert_eq "add-stage-same-call: dependent first refused" "1|n1-queue: X-10 is blocked by X-9 (not in queue)" "$(_st X-10)"
+    add_cells "$tmp/c" "Blocker" /r /h sonnet ""
+    assert_eq "add-stage-same-call: blocker staged" "0" "$(_st X-9 | cut -d'|' -f1)"
+    add_cells "$tmp/c" "Dep" /r /h sonnet "blocked_on X-9 · "
+    assert_eq "add-stage-same-call: dependent accepted after its blocker" "0" "$(_st X-10 | cut -d'|' -f1)"
+    add_cells "$tmp/c" "Self" /r /h sonnet "blocked_on X-11 · "
+    assert_eq "add-stage-same-call: self-block refused" "1|n1-queue: X-11 is blocked by X-11 (not in queue)" "$(_st X-11)"
+    add_cells "$tmp/c" "Closed" /r /h sonnet "blocked_on T-3 · "
+    assert_eq "add-stage-same-call: failed Plan blocker still refused" "1|n1-queue: X-12 is blocked by T-3, which is failed, escalated or skipped in queue q1" "$(_st X-12)"
+}
+
+# N1-644: apply defers a dependent whose blocker is only staged. Bugs caught: X-10 sorts before X-9 and was rejected
+# with blocker-not-in-queue; the dependent applied held before its blocker had a Plan row.
+test_add_apply_same_call_blocker() {
+    local tmp q d ev; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q=$(mk_add_queue "$tmp"); d="${q%/*}"; ev="$d/events.jsonl"
+    add_cells "$tmp/c" "Blocker" /r /h sonnet ""; n1_queue_add_stage "$q" X-9 "$tmp/c" >/dev/null
+    add_cells "$tmp/c" "Dep" /r /h sonnet "blocked_on X-9 · "; n1_queue_add_stage "$q" X-10 "$tmp/c" >/dev/null
+    add_cells "$tmp/c" "Blocker" /r /h sonnet ""; n1_queue_add_stage "$q" Y-1 "$tmp/c" >/dev/null
+    add_cells "$tmp/c" "Dep" /r /h sonnet "blocked_on Y-1 · "; n1_queue_add_stage "$q" Y-2 "$tmp/c" >/dev/null
+    n1_queue_apply_adds "$q" >/dev/null
+    _s() { awk -F'|' '{for(i=1;i<=NF;i++)gsub(/^[[:space:]]+|[[:space:]]+$/,"",$i)} $3=="'"$1"'"{print $8"|"$9}' "$q"; }
+    assert_eq "add-apply-same-call: X-9 pending" "pending|" "$(_s X-9)"
+    assert_eq "add-apply-same-call: X-10 held on X-9" "held|blocked_on X-9 ·" "$(_s X-10)"
+    assert_eq "add-apply-same-call: Y-1 pending" "pending|" "$(_s Y-1)"
+    assert_eq "add-apply-same-call: Y-2 held on Y-1" "held|blocked_on Y-1 ·" "$(_s Y-2)"
+    assert_eq "add-apply-same-call: only ticket_added events" "ticket_added" "$(jq -r '.event' "$ev" | sort -u)"
+    assert_eq "add-apply-same-call: spool drained" "" "$(ls -A "$d/.add")"
+}
+
+# N1-644: a rejected blocker cascades to its dependent. Bugs caught: an orphan held row appended for a blocker that has
+# no Plan row (n1_queue_held_sweep would skip it later).
+test_add_apply_blocker_rejected() {
+    local tmp q d ev; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q=$(mk_add_queue "$tmp"); d="${q%/*}"; ev="$d/events.jsonl"
+    add_cells "$tmp/c" "Dep" /r /h sonnet "blocked_on M-9 · "; n1_queue_add_stage "$q" M-10 "$tmp/c" >/dev/null 2>&1 || true
+    mkdir -p "$d/.add"
+    printf 'Blocker\t/nope\t/h\tsonnet\t\t\t\t\t\t\n' > "$d/.add/M-9.row"   # bypasses stage: unknown repo
+    printf 'Dep\t/r\t/h\tsonnet\tblocked_on M-9 · \t\t\t\t\t\n' > "$d/.add/M-10.row"
+    n1_queue_apply_adds "$q" >/dev/null
+    assert_eq "add-apply-rejected: no Plan row for either" 0 "$(grep -c '| M-' "$q" || true)"
+    assert_eq "add-apply-rejected: events" "ticket_add_rejected M-10 blocker-not-in-queue M-9|ticket_add_rejected M-9 repo-not-in-queue" \
+        "$(jq -r '"\(.event) \(.ticket) \(.reason)"' "$ev" | LC_ALL=C sort | paste -sd'|')"
+    assert_eq "add-apply-rejected: spool drained" "" "$(ls -A "$d/.add")"
+}
+
+# N1-644: cycles and self-blocks end in rejection. Bugs caught: the deferral loop never terminating.
+test_add_apply_cycle() {
+    local tmp q d ev; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q=$(mk_add_queue "$tmp"); d="${q%/*}"; ev="$d/events.jsonl"; mkdir -p "$d/.add"
+    printf 'A\t/r\t/h\tsonnet\tblocked_on C-2 · \t\t\t\t\t\n' > "$d/.add/C-1.row"
+    printf 'B\t/r\t/h\tsonnet\tblocked_on C-1 · \t\t\t\t\t\n' > "$d/.add/C-2.row"
+    printf 'S\t/r\t/h\tsonnet\tblocked_on C-3 · \t\t\t\t\t\n' > "$d/.add/C-3.row"
+    timeout 20 bash -c 'source "$1/lib/config.sh"; source "$1/lib/frontmatter.sh"; source "$1/lib/queue.sh"; n1_queue_apply_adds "$2"' _ "$REPO_ROOT" "$q" >/dev/null \
+        || { echo "FAIL: add-apply-cycle: apply did not terminate"; return 1; }
+    assert_eq "add-apply-cycle: all rejected" "ticket_add_rejected C-1 blocker-not-in-queue C-2|ticket_add_rejected C-2 blocker-not-in-queue C-1|ticket_add_rejected C-3 blocker-not-in-queue C-3" \
+        "$(jq -r '"\(.event) \(.ticket) \(.reason)"' "$ev" | LC_ALL=C sort | paste -sd'|')"
+    assert_eq "add-apply-cycle: no Plan row" 0 "$(grep -c '| C-' "$q" || true)"
+}
+
 # N1-617 AC6: concurrent --add. 20 distinct stagers and 5 stagers of one key race a runner that interleaves Plan
 # rewrites with applies (one process, as in the runner). Bugs caught: lost rows, duplicated rows or row numbers, a
 # lost runner rewrite, an undrained spool.
@@ -3074,6 +3141,10 @@ test_add_gate
 test_add_active_ids
 test_add_stage
 test_add_apply
+test_add_stage_same_call_blocker
+test_add_apply_same_call_blocker
+test_add_apply_blocker_rejected
+test_add_apply_cycle
 test_add_concurrent
 test_rerun_release
 test_rerun_release_pr_merged

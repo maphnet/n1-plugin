@@ -47,7 +47,7 @@ On a non-zero exit, relay the line as is. The queue may be unknown, story mode, 
 Apply the list-mode checks of `<N1_ROOT>/skills/n1-queue/steps/intake.md` to each ticket. Refuse a ticket with a one-line reason, and keep going with the next ticket:
 - **Readable and open:** the ticket is read with the tracker read operation. A ticket that is not found, or has a done-class status, is refused (`not found`, `already done`).
 - **Story check:** a Story or Epic is refused: `is a Story/Epic; run it with --story <ID>`.
-- **Blocker check:** follow `<N1_ROOT>/references/blocker-check.md`. If there are no open blockers, Reason is empty. If there is exactly one open blocker and it has a Plan row in this queue, Reason is `blocked_on <ID> · ` (the row starts `held`). A blocker that has no Plan row in this queue is refused: `blocked by <ID> (not in queue)`. Two or more open blockers are refused: `blocked by <ID>, <ID> (more than one open blocker)`.
+- **Blocker check:** follow `<N1_ROOT>/references/blocker-check.md`. If there are no open blockers, Reason is empty. If there is exactly one open blocker and it has a Plan row in this queue, or it is another ticket in this same `--add` call that this section accepts, Reason is `blocked_on <ID> · ` (the row starts `held`). A blocker that has no Plan row in this queue and is not in this call is refused: `blocked by <ID> (not in queue)`. A blocker refused here leaves its dependent refused the same way. Two or more open blockers are refused: `blocked by <ID>, <ID> (more than one open blocker)`.
 - **Description quality:** apply intake.md § Description quality (a `Refined by N1` block counts as Adequate). Poor is refused: `description quality Poor; run /n1:n1-refine <KEY> first`. No interactive repair.
 - **Model, Repo and N1 Home:** as intake.md resolves them for this queue's mode. A Repo or N1 Home pair that no existing Plan row has is refused at staging.
 
@@ -55,7 +55,7 @@ Then run `<N1_ROOT>/skills/n1-queue/steps/preview.md` § Plan-Resolve step 1 (br
 
 ## 4. Stage
 
-For each accepted ticket, use the file-write mechanism to write `<QUEUE_DIR>/add-<KEY>.tsv`. The file holds one line of 10 tab-separated fields: Title, Repo, N1 Home, Model, Reason, then Touches, Order, Pre-Decision, Desc Checksum (the helper computes it from `desc/<KEY>.*`) and Notes, all empty. Leave a field empty when it has no value. Never put a tab or newline inside a field, and never put free text inside a shell argument. Then run:
+For each accepted ticket, in an order that stages a blocker before the ticket that is blocked by it (the helper accepts a blocker only once it is staged), use the file-write mechanism to write `<QUEUE_DIR>/add-<KEY>.tsv`. The file holds one line of 10 tab-separated fields: Title, Repo, N1 Home, Model, Reason, then Touches, Order, Pre-Decision, Desc Checksum (the helper computes it from `desc/<KEY>.*`) and Notes, all empty. Leave a field empty when it has no value. Never put a tab or newline inside a field, and never put free text inside a shell argument. Then run:
 
 ```bash
 source ~/.n1/preamble.sh
@@ -70,7 +70,7 @@ done
 The helper refuses the following, and stages nothing for that ticket:
 - a key already in the Plan or `## Excluded`, in any status
 - a key already being added
-- a blocker outside the queue, or a blocker that is failed, escalated or skipped
+- a blocker that is neither in the Plan nor staged in this call, or a blocker that is failed, escalated or skipped
 - a foreign repo
 - an invalid model
 
