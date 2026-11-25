@@ -708,7 +708,7 @@ def _worker_deny(cmd: str, pr: bool, sid: str = "") -> bool:
 
 
 # N1-645 SEC-3: local-testing-worker never pushes or opens/comments on a PR (ci-worker pushes, so not in TAIL_DENY_RE scope)
-_LT_PUSH_RE = re.compile(r"\bgit\s+(-C\s+\S+\s+)?push\b|\bgh\s+pr\s+(create|comment)\b")
+_LT_PUSH_RE = re.compile(r"\bgit(?:\s+(?:-[Cc]\s+\S+|--?[\w-]+(?:=\S+)?))*\s+push\b|\bgh(?:\s+(?:(?:-R|--repo)\s+\S+|--?[\w-]+=\S+))*\s+pr\s+(?:create|comment)\b")
 
 
 def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:

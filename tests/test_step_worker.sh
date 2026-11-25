@@ -159,7 +159,7 @@ for N1H in "" 1; do
         eq "bash[$w,$N1H]: default-branch push denied" 2 "$(polx $w Bash 'git push origin HEAD:main')"
         eq "bash[$w,$N1H]: worktree remove denied" 2 "$(polx $w Bash 'git worktree remove /x')"
     done
-        for c in 'git push' 'git push -u origin feat/x' 'gh pr create --fill' 'gh pr comment 7 -b x'; do
+        for c in 'git push' 'git push -u origin feat/x' 'gh pr create --fill' 'gh pr comment 7 -b x' 'git -c advice.pushUpdateRejected=false push origin feat/x' 'git --no-pager push' 'gh --repo o/r pr create --fill'; do
         eq "bash[local-testing-worker,$N1H]: '$c' denied" 2 "$(polx n1:local-testing-worker Bash "$c")"
     done
     eq "bash[ci-worker,$N1H]: feature-branch push allowed" 0 "$(polx n1:ci-worker Bash 'git push')"
