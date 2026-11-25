@@ -46,8 +46,9 @@ n1_sw_result() {
 n1_sw_question() {
     # Usage: n1_sw_question <ci|lt> — prints class:, stop_list:, recommended:, question: and one option: line per option
     # from <memory>/<s>-question.md, then removes the file. Fails closed: unknown class -> stop_list:security and
-    # recommended:none; missing stop_list -> security; ci-escalate always prints recommended:none.
-    local S="${1:-}" F C L RC Q N
+    # recommended:none; missing stop_list -> security. recommended is set by class (lt-fix-exhausted 2 with 2+ options, else none)
+    # and the file field is ignored; stop_list is raised by stop-list wording in the question/options.
+    local S="${1:-}" F C L RC Q N OPTS D
     _n1_sw_persona "$S" >/dev/null || { echo "class:unknown"; return 1; }
     F="$N1_HOME/memory/$ID/$S-question.md"
     [ -s "$F" ] || { echo "class:unknown"; return 1; }
@@ -57,14 +58,23 @@ n1_sw_question() {
         *) C=unknown;;
     esac
     L=$(sed -nE 's/^stop_list: (none|security|architecture|public-api)\r?$/\1/p' "$F" | head -1)
-    RC=$(sed -nE 's/^recommended: ([1-9]|none)\r?$/\1/p' "$F" | head -1)
     N=$(grep -c '^option: ' "$F")
-    [ "$C" = unknown ] && { L=security; RC=none; }
-    [ "$C" = ci-escalate ] && RC=none
-    [[ "$RC" =~ ^[0-9]+$ ]] && [ "$RC" -gt "$N" ] && RC=none
-    Q=$(sed -n 's/^question: //p' "$F" | head -1 | tr -cd '[:print:]' | cut -c1-500)
-    echo "class:$C"; echo "stop_list:${L:-security}"; echo "recommended:${RC:-none}"; echo "question:$Q"
-    sed -n 's/^option: //p' "$F" | head -9 | tr -cd '[:print:]\n' | cut -c1-300 | sed 's/^/option:/'
+    # The class fixes the recommendation (step text: "No recommendation" except the 9d skip action); the file's field is ignored.
+    RC=none; [ "$C" = lt-fix-exhausted ] && [ "$N" -ge 2 ] && RC=2
+    Q=$(sed -n 's/^question: //p' "$F" | head -1 | tr -cd '[:print:]' | cut -c1-4000)
+    OPTS=$(sed -n 's/^option: //p' "$F" | head -9 | tr -cd '[:print:]\n' | cut -c1-1000)
+    # The stop list can only grow here: question/option text naming a stop-list category overrides the worker's field.
+    if [ "${L:-none}" = none ] || [ "$C" = unknown ]; then
+        D=$(grep -oiE -m1 'secur|vulnerab|credential|secret|authori[sz]|authenticat|architect|public[ -]?(api|interface)|breaking change' <<<"$Q"$'\n'"$OPTS" | head -1)
+        case "${D,,}" in
+            secur*|vulnerab*|credential|secret|authori*|authenticat*) L=security;;
+            architect*) L=architecture;;
+            ?*) L=public-api;;
+        esac
+    fi
+    [ "$C" = unknown ] && L=security
+    echo "class:$C"; echo "stop_list:${L:-security}"; echo "recommended:$RC"; echo "question:$Q"
+    sed 's/^/option:/' <<<"$OPTS"
     rm -f "$F"
 }
 

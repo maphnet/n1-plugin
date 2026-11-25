@@ -707,6 +707,10 @@ def _worker_deny(cmd: str, pr: bool, sid: str = "") -> bool:
     return False
 
 
+# N1-645 SEC-3: local-testing-worker never pushes or opens/comments on a PR (ci-worker pushes, so not in TAIL_DENY_RE scope)
+_LT_PUSH_RE = re.compile(r"\bgit\s+(-C\s+\S+\s+)?push\b|\bgh\s+pr\s+(create|comment)\b")
+
+
 def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     # N1-230 SEC-2: the tail-worker never merges, clears the run pointer or releases, even when merging is authorized
     agent_type = str(payload.get("agent_type") or "")
@@ -722,7 +726,8 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     elif persona_of(agent_type) in ("pr-worker", "tech-writer", "ci-worker", "local-testing-worker"):
         # N1-645: ci/local-testing workers share the pr-worker denies; not tail-gated, since ci pushes the feature branch
         cmd = _command(payload) or ""
-        if _worker_deny(cmd, True, str(payload.get("session_id") or "")):
+        if _worker_deny(cmd, True, str(payload.get("session_id") or "")) or (
+                persona_of(agent_type) == "local-testing-worker" and _LT_PUSH_RE.search(_mask(cmd.replace("\\\n", " ")))):
             sys.stderr.write(f"N1: {persona_of(agent_type)} may not run cleanup/run-pointer/step-marker/review-pin --confirmed/workspace-removal/n1-clean|n1-release commands; the orchestrator owns them\n")
             return 2
     elif not agent_type and merge_authorized(config):
