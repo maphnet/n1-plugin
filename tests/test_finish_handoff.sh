@@ -107,6 +107,7 @@ if [ -n "$A" ] && [ -n "$D" ] && [ -n "$C" ] && [ -n "$G" ] && [ -n "$K" ] && [ 
 has "finalize: stale gate3.md removed before dispatch" "$FZ" 'rm -f .*gate3\.md'
 has "finalize: gate3.md header validated, else fallback" "$FZ" 'first line of `gate3\.md` is not .=== <ID> — done ===.*worker failed'
 has "handoff: cleanup appends the block with cat" "$C6" 'cat. instead of the heredoc'
+has "cleanup: closes this session's unfinalized n1-start run (N1-646)" "$C6" '^n1_close_unfinalized_run "\$ID" "\$\(\[ -n "\$PR" \] && echo pr_created \|\| echo pr_skipped\)"'
 # N1-240: +237 B for the deterministic Merge path line in the Chain paragraph.
 SZ=$(wc -c < "$FZ"); if [ "$SZ" -le 1974 ]; then ok "finalize: $SZ B <= 1974 (byte-negative >= 250)"; else no "finalize: $SZ B <= 1974"; fi
 

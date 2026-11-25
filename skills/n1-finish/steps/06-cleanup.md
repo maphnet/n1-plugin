@@ -47,6 +47,7 @@ n1_active_run_clear_if n1-finish
 n1_containers_teardown "$ID"   # N1-54 backstop: stops containers a crashed/skipped local-testing run left behind
 PR="<PR number; empty on local merge>"; OID=""
 case "$PR" in *[!0-9]*) echo pr:invalid; exit 1;; esac
+n1_close_unfinalized_run "$ID" "$([ -n "$PR" ] && echo pr_created || echo pr_skipped)"   # N1-646: this session's n1-start run that FINALIZE never closed (compaction) gets its outcome before stale cleanup marks it abandoned; no-op otherwise
 [ -n "$PR" ] && OID=$(gh pr view "$PR" --json state,headRefOid -q 'select(.state=="MERGED").headRefOid' 2>/dev/null)   # empty unless merged
 BR=$(git rev-parse --abbrev-ref HEAD)
 if [ ! -f "$(git rev-parse --show-toplevel)/.git" ]; then   # plain checkout (a linked worktree never checks out the default branch)
