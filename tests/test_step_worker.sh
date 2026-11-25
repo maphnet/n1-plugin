@@ -106,5 +106,42 @@ printf '%s\n' 'class: lt-fix-exhausted' 'stop_list: none' 'recommended: 1' 'ques
 eq "question: class from the other step rejected" unknown "$(line class "$(sw n1_sw_question ci)")"
 rm -f "$MEM/ci-question.md"; eq "question: missing file" unknown "$(line class "$(sw n1_sw_question ci)")"
 
+# 3. Hook boundaries (AC6): spawn allowlist, step markers, push and merge
+polx() { local rc=0; jq -cn --arg a "$1" --arg t "$2" --arg c "$3" --arg w "$WT" \
+    '{tool_name:$t,session_id:"s-sw",cwd:$w,tool_input:(if $t=="Bash" then {command:$c} else {subagent_type:$c} end),agent_type:$a}' \
+    | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS -u N1_HOME HOME="$T/home" ${N1H:+N1_HEADLESS=$N1H} ${NH:+N1_HOME=$NH} python3 hooks/enforce-agent-policy.py "${CFG:-}" "$REPO" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+NH="$T/nh"; mkdir -p "$NH"; echo '{"ticketId":"T-1"}' > "$NH/active-run.s-sw.json"; CFG=
+for N1H in "" 1; do
+    for tool in Agent Task; do
+        eq "spawn[$tool,$N1H]: ci-worker -> developer allowed" 0 "$(polx n1:ci-worker $tool n1:developer)"
+        for p in general-purpose n1:local-test-planner n1:tech-writer n1:ci-worker n1:tail-worker; do
+            eq "spawn[$tool,$N1H]: ci-worker -> $p denied" 2 "$(polx n1:ci-worker $tool $p)"
+        done
+        eq "spawn[$tool,$N1H]: local-testing-worker -> developer allowed" 0 "$(polx n1:local-testing-worker $tool n1:developer)"
+        eq "spawn[$tool,$N1H]: local-testing-worker -> local-test-planner allowed" 0 "$(polx n1:local-testing-worker $tool n1:local-test-planner)"
+        for p in general-purpose n1:tech-writer n1:local-testing-worker n1:code-reviewer; do
+            eq "spawn[$tool,$N1H]: local-testing-worker -> $p denied" 2 "$(polx n1:local-testing-worker $tool $p)"
+        done
+    done
+    for w in n1:ci-worker n1:local-testing-worker; do
+        eq "bash[$w,$N1H]: step end denied" 2 "$(polx $w Bash 'source ~/.n1/preamble.sh; n1_step_end ci 13 success')"
+        eq "bash[$w,$N1H]: step begin denied" 2 "$(polx $w Bash 'n1_step_begin local-testing 11')"
+        eq "bash[$w,$N1H]: run pointer clear denied" 2 "$(polx $w Bash 'n1_active_run_clear')"
+        eq "bash[$w,$N1H]: merge denied" 2 "$(polx $w Bash 'gh pr merge 7 --squash')"
+        eq "bash[$w,$N1H]: default-branch push denied" 2 "$(polx $w Bash 'git push origin HEAD:main')"
+        eq "bash[$w,$N1H]: worktree remove denied" 2 "$(polx $w Bash 'git worktree remove /x')"
+    done
+    eq "bash[ci-worker,$N1H]: feature-branch push allowed" 0 "$(polx n1:ci-worker Bash 'git push')"
+    eq "bash[ci-worker,$N1H]: explicit feature push allowed" 0 "$(polx n1:ci-worker Bash 'git push -u origin feat/x')"
+    eq "bash[ci-worker,$N1H]: CI log read allowed" 0 "$(polx n1:ci-worker Bash 'gh run view 5 --log-failed')"
+done
+N1H=; NH=
+# outside any run scope the workers are still gated (gated_worker)
+for w in n1:ci-worker n1:local-testing-worker; do
+    eq "bash[$w,no run]: merge denied" 2 "$(polx $w Bash 'gh pr merge 7 --squash')"
+    eq "bash[$w,no run]: default-branch push denied" 2 "$(polx $w Bash 'git push origin HEAD:main')"
+done
+eq "bash[ci-worker,no run]: feature push allowed" 0 "$(polx n1:ci-worker Bash 'git push -u origin feat/x')"
+
 # --- end of checks ---
 exit "$FAIL"
