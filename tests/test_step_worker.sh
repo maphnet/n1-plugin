@@ -188,6 +188,24 @@ has "ci: inline fallback keeps n1-ci" $CI 'n1:n1-ci'
 has "ci: no-pr goes inline" $CI 'ci-worker:no-pr'
 has "ci: prMode skip guard kept" $CI '\*\*If `prMode` is `"skip"`\*\*'
 eq "ci: at most 2 bash fences in the step" yes "$([ "$(grep -c '^```bash' $CI)" -le 2 ] && echo yes || echo no)"
+has "ci: end block never after a worker result" $CI 'never after a worker result'
+has "dispatch: verbatim no-recommendation sentence" $D 'No recommendation\. The options are equivalent given the available evidence; select based on team preference\.'
+has "dispatch: headless escalation includes the run-ending recommended branch" $D 'including the guard.s branch for a recommended option that ends the run'
+
+# 6. local-testing wiring (AC1, AC5)
+LT=skills/n1-start/steps/local-testing.md; LTR=skills/n1-start/procedures/local-testing-run.md
+has "lt: begin fence enters the worker when live" $LT '\[ "\$MODE" = live \]'
+eq "lt: entry called in begin fence and offer path" 2 "$(grep -c 'else n1_sw_entry lt; fi' $LT)"
+has "lt: dispatch reference" $LT 'procedures/step-worker-dispatch.md'
+has "lt: inline fallback keeps the run procedure" $LT 'read `procedures/local-testing-run.md`'
+has "lt: QA runner block marked inline fallback" $LT 'QA runner commands \(inline fallback only\)'
+has "lt: step end never after a worker result" $LT 'never after a worker result'
+has "lt-run: Worker mode paragraph" $LTR '^\*\*Worker mode \(N1-645\)\.\*\*'
+has "lt-run: Worker mode writes lt-result.md" $LTR 'lt-result.md'
+has "lt-run: Worker mode prompts become question files" $LTR 'question file'
+# begin fence of the default live path: begin + auto-skip + entry in one call
+BEGIN=$(awk '/^```bash/{n++} n==1' $LT)
+eq "lt: one fence holds begin, auto-skip and entry" "1 1 1" "$(grep -c 'n1_step_begin "local-testing" 11' <<<"$BEGIN") $(grep -c 'n1_sw_lt_auto_skip' <<<"$BEGIN") $(grep -c 'n1_sw_entry lt' <<<"$BEGIN")"
 
 # --- end of checks ---
 exit "$FAIL"

@@ -46,8 +46,11 @@ else
     echo "PASS: local-testing: QA dedup gate removed (N1-559)"; PASS=$((PASS+1))
 fi
 assert_contains "local-testing: auto-skip uses classifier" \
-    "skills/n1-start/steps/local-testing.md" \
+    "lib/worker-step.sh" \
     'n1_classify_local_test_skip "$CHANGED_FILES"'
+assert_contains "local-testing: step calls the auto-skip helper" \
+    "skills/n1-start/steps/local-testing.md" \
+    'SKIP=$(n1_sw_lt_auto_skip)'
 if grep -qE 'no runtime-affecting code|`\.yml`/`\.yaml` config' "$REPO_ROOT/skills/n1-start/steps/local-testing.md"; then
     echo "FAIL: local-testing: model-judged or YAML-config auto-skip still present"; FAIL=$((FAIL+1))
 else
