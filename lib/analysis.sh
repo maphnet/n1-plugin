@@ -61,3 +61,34 @@ n1_analysis_finalize() {
     [ -n "$CONTEXT_BLOCK" ] && printf 'CONTEXT_BLOCK<<\n%s\nCONTEXT_BLOCK>>\n' "$CONTEXT_BLOCK"
     return 0
 }
+
+n1_brainstorm_file_count() {
+    # Usage: n1_brainstorm_file_count <brainstorm.md> — prints the raw count of distinct file-like tokens; 0 when missing.
+    # Shared by the planning-need override and the brainstorm User Gate signals (N1-647); callers clamp if they need >= 1.
+    local n
+    n=$(grep -oE '[a-zA-Z0-9_/.-]+\.(py|ts|tsx|js|jsx|go|rs|java|rb|sh|sql|yaml|yml|json|toml|md|css|html)' "$1" 2>/dev/null | sort -u | wc -l)
+    echo $((n + 0))
+}
+
+n1_planning_need_override() {
+    # Usage: n1_planning_need_override <brainstormer route> (N1-647) — prints the final route. Needs $N1_HOME and $ID.
+    # Standard tier only: `plan` becomes `direct` when brainstorm.md names 1..4 files, analysis has security_relevant=false
+    # and blast_radius low|medium, and brainstorm.md has no open-question / new-abstraction heading or n1:unknown marker.
+    # Fails closed: a missing signal or brainstorm.md keeps the route. Records the planning-need decision (standard tier only).
+    # ponytail: file count is a regex over brainstorm.md (non-file .md mentions inflate it, safe direction); tighten to 3 if the re-measure shows misroutes.
+    local route="$1" mem="$N1_HOME/memory/$ID" threshold=4 tier files security blast open_q=false new_abs=false final moved=false
+    final="$route"
+    tier=$(n1_read_frontmatter "$mem/overview.md" "tier")
+    [ "$tier" = "standard" ] || { echo "$final"; return 0; }
+    files=$(n1_brainstorm_file_count "$mem/brainstorm.md")
+    security=$(n1_read_signal "$mem/analysis.md" "security_relevant"); blast=$(n1_read_signal "$mem/analysis.md" "blast_radius")
+    grep -qiE '^#{2,4}[[:space:]].*open question|n1:unknown' "$mem/brainstorm.md" 2>/dev/null && open_q=true
+    grep -qiE '^#{2,4}[[:space:]].*new abstraction' "$mem/brainstorm.md" 2>/dev/null && new_abs=true
+    [ "$route" = "plan" ] && [ "$files" -ge 1 ] && [ "$files" -le "$threshold" ] && [ "$security" = "false" ] \
+        && { [ "$blast" = "low" ] || [ "$blast" = "medium" ]; } && [ "$open_q" = false ] && [ "$new_abs" = false ] \
+        && final=direct && moved=true
+    n1_record_decision planning-need "$moved" '{"all":[{"frontmatter":"tier","eq":"standard"},{"input":"brainstormer_route","eq":"plan"},{"input":"files","gte":1},{"input":"files","lte":4},{"signal":"analysis.security_relevant","eq":"false"},{"any":[{"signal":"analysis.blast_radius","eq":"low"},{"signal":"analysis.blast_radius","eq":"medium"}]},{"input":"open_questions","eq":"false"},{"input":"new_abstractions","eq":"false"}]}' \
+        "tier=$tier" "files=$files" "threshold=$threshold" "security_relevant=${security:-}" "blast=${blast:-}" \
+        "open_questions=$open_q" "new_abstractions=$new_abs" "brainstormer_route=$route" "final_route=$final"
+    echo "$final"
+}
