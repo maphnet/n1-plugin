@@ -1529,7 +1529,8 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
     lines.append("")
 
     # Per-group table
-    header = ["partition (host/version)", "runs", "incomplete", "unlinked", "quality_cov"] + [m.name for m in METRICS] + ["abandon_rate"]
+    header = (["partition (host/version)", "runs", "incomplete", "unlinked", "quality_cov"] + [m.name for m in METRICS]
+              + ["abandon_rate", "restarts"])
     lines.append("## Per-partition metrics (host/version)" if snapshot.get("by") == "version" else "## Per-partition metrics (host/week)")
     lines.append("")
     lines.append("| " + " | ".join(header) + " |")
@@ -1556,10 +1557,14 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
             row.append(cell)
         ar = grp.get("abandon_rate")
         row.append(f"{ar:.0%}" if ar is not None else "n/a")
+        row.append(str(grp.get("n_restarts", "n/a")))
         lines.append("| " + " | ".join(row) + " |")
         if grp["sufficient"]:
             prev_key_by_host[host_part] = key
     lines.append("")
+    lines.append("abandon_rate = abandoned / (all - pr_skipped - restarts); a restart is an incomplete run whose "
+                 "ticket completed in a later run (N1-646). Partitions with restarts n/a come from older "
+                 "snapshots, where abandon_rate counted every incomplete run.")
     lines.append("Cells: mean [95% bootstrap CI] (n); duration_min and work_min: median / p90 (n), no delta. "
                  "Deltas compare against the previous sufficient partition of the same host.")
     legacy_keys = [k for k in _sorted_groups(snapshot) if is_legacy_key(k)]
@@ -1732,8 +1737,8 @@ def render_summary(snapshot, baseline_group, baseline_note, full_path) -> str:
     suff = _sufficient_groups(snapshot, hg) if hg else []
     shown = set(suff[-SUMMARY_TABLE_ROWS:])
     lines += ["## Sufficient partitions (newest last; deltas vs previous partition of the same host)", "",
-              "| partition | runs | interventions | corrections | quality_cov | abandon_rate |",
-              "|---|---|---|---|---|---|"]
+              "| partition | runs | interventions | corrections | quality_cov | abandon_rate | restarts |",
+              "|---|---|---|---|---|---|---|"]
     prev = {}
     for k in suff:
         host = k.partition("/")[0]
@@ -1742,11 +1747,12 @@ def render_summary(snapshot, baseline_group, baseline_note, full_path) -> str:
             row = [k, f"{grp['n_runs']}/{grp['n_all']}"]
             for m in ("interventions", "corrections"):
                 row.append(_mean_vs(grp["metrics"].get(m), hg[p]["metrics"].get(m) if p else None))
-            row += [_fmt_pct(grp.get("quality_coverage")), _fmt_pct(grp.get("abandon_rate"))]
+            row += [_fmt_pct(grp.get("quality_coverage")), _fmt_pct(grp.get("abandon_rate")),
+                    str(grp.get("n_restarts", "n/a"))]
             lines.append("| " + " | ".join(row) + " |")
         prev[host] = k
     if not suff:
-        lines.append("| none | | | | | |")
+        lines.append("| none | | | | | | |")
     elif len(suff) > len(shown):
         lines.append(f"{len(suff) - len(shown)} older partition(s) are in the full report.")
     lines.append("")

@@ -1257,6 +1257,26 @@ class MergeVersionsTest(unittest.TestCase):
 
 
 class ReportTest(unittest.TestCase):
+    def test_report_and_summary_show_restarts_and_tolerate_old_snapshots(self):
+        new = group(2, 1, 3)
+        new["n_restarts"] = 4
+        old = group(2, 1, 3)  # snapshot written before N1-646: no n_restarts
+        snap = snap_with({"claude-code/5.109.0": old, "claude-code/5.110.0": new})
+        snap["merged"] = {"claude-code/5.109.0": old, "claude-code/5.110.0": new}
+        rep = bm.render_report(snap, None, None, "", {})
+        self.assertIn("| abandon_rate | restarts |", rep)
+        rows = {}
+        for ln in rep.splitlines():  # first table only; later tables reuse the same row prefixes
+            if ln.startswith("| claude-code/5.1"):
+                rows.setdefault(ln.split(" | ")[0], ln)
+        self.assertTrue(rows["| claude-code/5.110.0"].endswith("| 0% | 4 |"))
+        self.assertTrue(rows["| claude-code/5.109.0"].endswith("| 0% | n/a |"))
+        self.assertIn("abandon_rate = abandoned / (all - pr_skipped - restarts)", rep)
+        summ = bm.render_summary(snap, None, "no baseline pinned", "/x/full.md")
+        self.assertIn("| quality_cov | abandon_rate | restarts |", summ)
+        self.assertIn("| 0% | 4 |", summ)
+        self.assertIn("| 0% | n/a |", summ)
+
     def test_stat_has_nearest_rank_p90(self):
         s = bm._stat(list(range(1, 11)))
         self.assertEqual((s["n"], s["median"], s["p90"]), (10, 5.5, 9))
