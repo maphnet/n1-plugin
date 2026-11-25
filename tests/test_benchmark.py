@@ -494,6 +494,16 @@ class CollectTest(unittest.TestCase):
         self.collect()
         self.assertFalse(json.loads(p.read_text())["eligible"])
 
+    def test_cached_ineligible_run_refreshes_final_outcome_to_pr_skipped(self):
+        self.collect()
+        p = self.d.out / "runs" / "n1-run-2.json"
+        self.assertNotEqual(json.loads(p.read_text())["final_outcome"], "pr_skipped")
+        self.d.add_run(make_run(run_id="n1-run-2", ticket="T-2", outcome="pr_skipped"))
+        self.collect()
+        c = json.loads(p.read_text())
+        self.assertEqual(c["final_outcome"], "pr_skipped")
+        self.assertFalse(c["eligible"])
+
     def test_cached_ineligible_run_is_rebuilt_once_inference_makes_it_eligible(self):
         self.collect()
         self.assertFalse(json.loads((self.d.out / "runs" / "n1-run-2.json").read_text())["eligible"])

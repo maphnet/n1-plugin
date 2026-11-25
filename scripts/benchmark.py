@@ -331,7 +331,7 @@ def infer_outcome(rec: dict, ov: dict, is_last: bool) -> str:
 def _light_fields(run: dict) -> dict:
     """Cache fields that never need a transcript: inference flag, tier, plan path."""
     ov = run.get("_ov") or {}
-    return {"outcome_inferred": bool(run.get("outcome_inferred")),
+    return {"final_outcome": run.get("final_outcome"), "outcome_inferred": bool(run.get("outcome_inferred")),
             "tier": run.get("estimated_tier") or ov.get("tier") or "unknown",
             "plan_path": ov.get("planning_need") or "none"}
 
