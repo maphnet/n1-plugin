@@ -68,5 +68,43 @@ eq "auto-skip: runtime change does not skip" false "$(sw n1_sw_lt_auto_skip)"
 echo deadbeef > "$MEM/branch-point"
 eq "auto-skip: unresolvable base never skips" false "$(sw n1_sw_lt_auto_skip)"
 
+# 2. Question round trip, lib side (AC4)
+# ci mid-loop prompt: cap exhausted (skills/n1-ci/steps/02-fix.md Step 6b)
+printf 'status: question\nreason: -\n' > "$MEM/ci-result.md"
+printf '%s\n' 'class: ci-cap-exhausted' 'stop_list: none' 'recommended: none' \
+    'question: After 3 CI fix attempts these checks still fail: lint. Options:' \
+    'option: Provide guidance' 'option: Skip CI' 'option: Fix manually' > "$MEM/ci-question.md"
+eq "roundtrip ci: result is question" question "$(line sw "$(sw n1_sw_result ci)")"
+Q=$(sw n1_sw_question ci)
+eq "roundtrip ci: class" ci-cap-exhausted "$(line class "$Q")"
+eq "roundtrip ci: stop_list" none "$(line stop_list "$Q")"
+eq "roundtrip ci: recommended" none "$(line recommended "$Q")"
+eq "roundtrip ci: options in order" "Provide guidance|Skip CI|Fix manually" "$(sed -n 's/^option://p' <<<"$Q" | paste -sd'|')"
+eq "roundtrip ci: question file consumed" no "$([ -e "$MEM/ci-question.md" ] && echo yes || echo no)"
+# local-testing mid-loop prompt: 9d fix loop exhausted; option 2 matches the Autonomy gate action (local-testing-run.md 9d)
+printf 'status: question\nreason: -\n' > "$MEM/lt-result.md"
+printf '%s\n' 'class: lt-fix-exhausted' 'stop_list: none' 'recommended: 2' \
+    'question: After 3 local testing fix cycles, these scenarios still fail: login. Options:' \
+    "option: Fix manually, type 'continue' to re-test" 'option: Skip local testing, proceed to PR' \
+    'option: Provide guidance for another fix attempt' > "$MEM/lt-question.md"
+eq "roundtrip lt: result is question" question "$(line sw "$(sw n1_sw_result lt)")"
+Q=$(sw n1_sw_question lt)
+eq "roundtrip lt: class" lt-fix-exhausted "$(line class "$Q")"
+eq "roundtrip lt: recommended" 2 "$(line recommended "$Q")"
+eq "roundtrip lt: three options" 3 "$(grep -c '^option:' <<<"$Q")"
+# fail-closed parsing
+printf '%s\n' 'class: ci-escalate' 'stop_list: none' 'recommended: 1' 'question: q' 'option: a' > "$MEM/ci-question.md"
+eq "question: ci-escalate never has a recommendation" none "$(line recommended "$(sw n1_sw_question ci)")"
+printf '%s\n' 'class: ci-made-up' 'stop_list: none' 'recommended: 1' 'question: q' 'option: a' > "$MEM/ci-question.md"
+Q=$(sw n1_sw_question ci); eq "question: unknown class" unknown "$(line class "$Q")"; eq "question: unknown class -> security" security "$(line stop_list "$Q")"
+eq "question: unknown class -> no recommendation" none "$(line recommended "$Q")"
+printf '%s\n' 'class: lt-fix-exhausted' 'recommended: 1' 'question: q' 'option: a' > "$MEM/lt-question.md"
+eq "question: missing stop_list -> security" security "$(line stop_list "$(sw n1_sw_question lt)")"
+printf '%s\n' 'class: lt-env-failure' 'stop_list: none' 'recommended: 5' 'question: q' 'option: a' 'option: b' > "$MEM/lt-question.md"
+eq "question: out-of-range recommendation dropped" none "$(line recommended "$(sw n1_sw_question lt)")"
+printf '%s\n' 'class: lt-fix-exhausted' 'stop_list: none' 'recommended: 1' 'question: q' 'option: a' > "$MEM/ci-question.md"
+eq "question: class from the other step rejected" unknown "$(line class "$(sw n1_sw_question ci)")"
+rm -f "$MEM/ci-question.md"; eq "question: missing file" unknown "$(line class "$(sw n1_sw_question ci)")"
+
 # --- end of checks ---
 exit "$FAIL"
