@@ -114,7 +114,8 @@ NH="$T/nh"; mkdir -p "$NH"; echo '{"ticketId":"T-1"}' > "$NH/active-run.s-sw.jso
 for N1H in "" 1; do
     for tool in Agent Task; do
         eq "spawn[$tool,$N1H]: ci-worker -> developer allowed" 0 "$(polx n1:ci-worker $tool n1:developer)"
-        for p in general-purpose n1:local-test-planner n1:tech-writer n1:ci-worker n1:tail-worker; do
+        eq "spawn[$tool,$N1H]: ci-worker -> tech-writer allowed (PR body reconcile)" 0 "$(polx n1:ci-worker $tool n1:tech-writer)"
+        for p in general-purpose n1:local-test-planner n1:ci-worker n1:tail-worker; do
             eq "spawn[$tool,$N1H]: ci-worker -> $p denied" 2 "$(polx n1:ci-worker $tool $p)"
         done
         eq "spawn[$tool,$N1H]: local-testing-worker -> developer allowed" 0 "$(polx n1:local-testing-worker $tool n1:developer)"
@@ -157,9 +158,12 @@ for f in $CW $LW; do
     has "$f: file-write mechanism" "$f" 'file-write-mechanism\.md'
     lacks "$f: no host tool names" "$f" 'SendMessage|AskUserQuestion|ToolSearch|spawn_agent|Agent tool'
 done
-has "ci-worker: dispatch list" $CW '^- Dispatch only developer;'
+has "ci-worker: dispatch list" $CW '^- Dispatch only developer and tech-writer '
 has "ci-worker: reads n1-ci from files" $CW 'skills/n1-ci/SKILL.md'
 for c in ci-escalate ci-low-confidence ci-not-branch-caused ci-cap-exhausted ci-pending-budget; do has "ci-worker: class $c" $CW "\`$c\`"; done
+has "$CW: stop path wins over question classes" $CW 'stop path wins over § Question'
+has "$LW: stop path wins over question classes" $LW 'stop path wins over § Question'
+has "local-testing-worker: complete result carries outcome" $LW '^outcome: <the step end outcome>$'
 has "local-testing-worker: dispatch list" $LW '^- Dispatch only local-test-planner and developer;'
 has "local-testing-worker: runs the run procedure in Worker mode" $LW 'local-testing-run.md.*Worker mode'
 for c in lt-env-failure lt-fix-exhausted; do has "local-testing-worker: class $c" $LW "\`$c\`"; done

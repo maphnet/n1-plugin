@@ -130,7 +130,7 @@ PUSH_VALUE_FLAGS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 
 # SEC-1 (N1-435): restricted workers inherit all tools, so bound what they can dispatch
 SPAWN_ALLOW = {"pr-worker": {"tech-writer", "tail-worker"}, "tail-worker": {"code-reviewer", "developer", "post-deploy-verifier"}, "post-deploy-verifier": set(),
-               "ci-worker": {"developer"}, "local-testing-worker": {"developer", "local-test-planner"}}  # N1-645
+               "ci-worker": {"developer", "tech-writer"}, "local-testing-worker": {"developer", "local-test-planner"}}  # N1-645
 
 
 def persona_of(agent_type: str):
