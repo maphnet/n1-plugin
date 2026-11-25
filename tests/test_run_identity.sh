@@ -208,6 +208,41 @@ test ! -e "$N1_HOME/memory/telemetry"
 test -z "$(find "$N1_HOME/memory" -path '*nolock*' 2>/dev/null)"
 echo 'PASS: n1_close_run with ID unset derives the ticket from the run lock, no-op when unresolvable'
 
+# --- N1-646: n1-finish closes this session's n1-start run that FINALIZE never closed (compaction) ---
+export N1_SESSION_ID=thread-fin
+ID=FN-A; n1_run_begin "$ID"; FA="$N1_RUN_ID"
+unset N1_RUN_ID N1_VERSION
+SA="$N1_HOME/memory/FN-A/telemetry/raw/steps/$FA.jsonl"
+n1_close_unfinalized_run FN-A pr_created
+test "$(grep -c '"layer":"envelope_close"' "$SA")" = 1
+grep envelope_close "$SA" | grep -q '"final_outcome":"pr_created"'
+test -s "$N1_HOME/memory/FN-A/telemetry/runs/$FA.jsonl"
+test -z "${N1_RUN_ID:-}"   # nothing leaks to the caller
+n1_close_unfinalized_run FN-A pr_created   # idempotent: the close exists, no second one
+test "$(grep -c '"layer":"envelope_close"' "$SA")" = 1
+# An existing close (e.g. abandoned) is never overwritten.
+ID=FN-B; n1_run_begin "$ID"; FB="$N1_RUN_ID"; unset N1_RUN_ID
+SB="$N1_HOME/memory/FN-B/telemetry/raw/steps/$FB.jsonl"
+printf '{"layer":"envelope_close","run_id":"%s","final_outcome":"abandoned"}\n' "$FB" >> "$SB"
+n1_close_unfinalized_run FN-B pr_created
+test "$(grep -c '"layer":"envelope_close"' "$SB")" = 1
+if grep -q '"final_outcome":"pr_created"' "$SB"; then echo 'FAIL: existing close overwritten' >&2; exit 1; fi
+# Another session's lock is never closed.
+export N1_SESSION_ID=thread-other
+ID=FN-C; n1_run_begin "$ID"; FC="$N1_RUN_ID"; unset N1_RUN_ID
+export N1_SESSION_ID=thread-fin
+n1_close_unfinalized_run FN-C pr_created
+if grep -q envelope_close "$N1_HOME/memory/FN-C/telemetry/raw/steps/$FC.jsonl"; then echo 'FAIL: foreign run closed' >&2; exit 1; fi
+# Two unfinalized runs of this session on one ticket: ambiguous, no guess.
+ID=FN-D; n1_run_begin "$ID"; FD1="$N1_RUN_ID"; n1_run_begin "$ID"; FD2="$N1_RUN_ID"; unset N1_RUN_ID
+n1_close_unfinalized_run FN-D pr_created
+if grep -q envelope_close "$N1_HOME/memory/FN-D/telemetry/raw/steps/$FD1.jsonl" "$N1_HOME/memory/FN-D/telemetry/raw/steps/$FD2.jsonl"; then
+    echo 'FAIL: ambiguous run closed' >&2; exit 1; fi
+# Bad outcome or ID: no-op, rc 0.
+n1_close_unfinalized_run FN-C abandoned
+n1_close_unfinalized_run '../x' pr_created
+echo 'PASS: n1_close_unfinalized_run closes only the session-owned unfinalized run, once'
+
 # n1_step_begin with no bound run says so on stderr instead of dropping silently (N1-229)
 ERR=$(bash -c "source '$ROOT/lib/preamble.sh' >/dev/null 2>&1; unset N1_RUN_ID; ID=NP-NONE; n1_step_begin ticket 1" 2>&1 >/dev/null)
 case "$ERR" in *"no run bound for NP-NONE"*) ;; *) echo "missing step-begin diagnostic: $ERR" >&2; exit 1 ;; esac
