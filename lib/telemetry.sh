@@ -175,6 +175,36 @@ n1_close_run() {
     return 0
 }
 
+# n1_close_unfinalized_run <ID> <pr_created|pr_skipped> (N1-646): n1-finish closes the n1-start run of <ID>
+# that this session owns and FINALIZE never closed (compaction/resume), so stale-run cleanup
+# (n1_abandon_run) later sees a terminal envelope instead of marking it abandoned. Exactly one
+# session-owned lock under <ID>, else no-op (never guesses); an existing envelope_close is never
+# overwritten (same grep as n1_abandon_run), so repeat calls no-op. A finish from another session finds
+# no lock and no-ops. Subshell: caller's ID/N1_RUN_ID/N1_VERSION stay untouched. Always returns 0.
+n1_close_unfinalized_run() {
+    local id="$1" outcome="$2" mem="${N1_HOME:-$(n1_home)}/memory" sid lock cand run="" n=0
+    case "$id" in ''|*[!A-Za-z0-9_-]*) return 0 ;; esac
+    case "$outcome" in pr_created|pr_skipped) ;; *) return 0 ;; esac
+    sid=$(n1_session_id); [ -n "$sid" ] || return 0
+    for lock in "$mem/$id"/telemetry/locks/*.json; do
+        [ -f "$lock" ] || continue
+        [ "$(n1_hook_field session_id < "$lock")" = "$sid" ] || continue
+        cand="${lock##*/}"; cand="${cand%.json}"
+        _n1_valid_run_id "$cand" || continue
+        run="$cand"; n=$((n + 1))
+    done
+    [ "$n" = 1 ] || return 0
+    grep -q '"layer"[[:space:]]*:[[:space:]]*"envelope_close"' "$mem/$id/telemetry/raw/steps/$run.jsonl" 2>/dev/null && return 0
+    (
+        ID="$id"; N1_RUN_ID="$run"
+        N1_VERSION=$(n1_hook_field n1_version < "$mem/$id/telemetry/locks/$run.json")
+        case "$N1_VERSION" in *[!0-9A-Za-z.+-]*) N1_VERSION="" ;; esac
+        FINAL_OUTCOME="$outcome"
+        n1_close_run
+    ) || true
+    return 0
+}
+
 n1_read_lock() {
     local memory_dir="$1"
     local lock_file="" candidate session owner run host selected_run=""

@@ -494,6 +494,16 @@ class CollectTest(unittest.TestCase):
         self.collect()
         self.assertFalse(json.loads(p.read_text())["eligible"])
 
+    def test_cached_ineligible_run_refreshes_final_outcome_to_pr_skipped(self):
+        self.collect()
+        p = self.d.out / "runs" / "n1-run-2.json"
+        self.assertNotEqual(json.loads(p.read_text())["final_outcome"], "pr_skipped")
+        self.d.add_run(make_run(run_id="n1-run-2", ticket="T-2", outcome="pr_skipped"))
+        self.collect()
+        c = json.loads(p.read_text())
+        self.assertEqual(c["final_outcome"], "pr_skipped")
+        self.assertFalse(c["eligible"])
+
     def test_cached_ineligible_run_is_rebuilt_once_inference_makes_it_eligible(self):
         self.collect()
         self.assertFalse(json.loads((self.d.out / "runs" / "n1-run-2.json").read_text())["eligible"])
@@ -893,6 +903,14 @@ def cache_for(version, run_id, interventions, eligible=True, started="2026-09-01
             "turns": []}
 
 
+def ticket_cache(version, run_id, ticket, started, eligible=False, outcome=""):
+    """cache_for with an explicit ticket and final_outcome (N1-646 restart/pr_skipped fixtures)."""
+    c = cache_for(version, run_id, 1.0 if eligible else None, eligible=eligible, started=started)
+    c["ticket_id"] = ticket
+    c["final_outcome"] = outcome or ("pr_created" if eligible else "abandoned")
+    return c
+
+
 class AggregateTest(unittest.TestCase):
     def test_quality_coverage_excludes_unlinkable_by_construction(self):
         caches = [cache_for("3.0.0", f"r{i}", 1.0) for i in range(4)]
@@ -974,9 +992,50 @@ class AggregateTest(unittest.TestCase):
         self.assertEqual(g["metrics"]["interventions"]["median"], 2.0)
         self.assertIsNone(g["metrics"]["orchestrator_output_tokens"])
         self.assertAlmostEqual(g["abandon_rate"], 1 / 6)
+        self.assertEqual((g["n_pr_skipped"], g["n_restarts"], g["n_abandoned"]), (0, 0, 1))
         h = agg["claude-code/2.81.0"]
         self.assertFalse(h["sufficient"])
         self.assertEqual(h["metrics"]["interventions"]["n"], 1)
+
+    def test_abandon_rate_excludes_pr_skipped(self):
+        caches = [ticket_cache("5.110.0", f"d{i}", f"T-{i}", "2026-11-01T10:00:00Z", eligible=True) for i in range(4)]
+        caches += [ticket_cache("5.110.0", "s", "T-S", "2026-11-01T10:00:00Z", outcome="pr_skipped"),
+                   ticket_cache("5.110.0", "ab", "T-A", "2026-11-01T10:00:00Z")]
+        g = bm.aggregate(caches, "version")["claude-code/5.110.0"]
+        self.assertEqual((g["n_all"], g["n_incomplete"], g["n_pr_skipped"], g["n_restarts"], g["n_abandoned"]),
+                         (6, 2, 1, 0, 1))
+        self.assertAlmostEqual(g["abandon_rate"], 1 / 5)
+
+    def test_restart_followed_by_pr_is_not_an_abandon_across_partitions(self):
+        first = ticket_cache("5.110.0", "r1", "T-R", "2026-11-01T10:00:00Z")
+        later = ticket_cache("5.111.0", "r2", "T-R", "2026-11-02T10:00:00Z", eligible=True)
+        lone = ticket_cache("5.110.0", "l1", "T-L", "2026-11-01T10:00:00Z")
+        lone2 = ticket_cache("5.110.0", "l2", "T-L", "2026-11-03T10:00:00Z")  # abandoned after abandoned: both abandons
+        done = ticket_cache("5.110.0", "d1", "T-D", "2026-11-01T10:00:00Z", eligible=True)
+        agg = bm.aggregate([first, later, lone, lone2, done], "version")
+        g = agg["claude-code/5.110.0"]
+        self.assertEqual((g["n_all"], g["n_restarts"], g["n_abandoned"]), (4, 1, 2))
+        self.assertAlmostEqual(g["abandon_rate"], 2 / 3)
+        self.assertEqual(agg["claude-code/5.111.0"]["n_restarts"], 0)
+        self.assertEqual(agg["claude-code/5.111.0"]["abandon_rate"], 0)
+
+    def test_restart_rule_edges(self):
+        a = ticket_cache("5.110.0", "a", "T-K", "2026-11-01T10:00:00Z")
+        skip = ticket_cache("5.110.0", "s", "T-K", "2026-11-02T10:00:00Z", outcome="pr_skipped")  # pr_skipped finishes the ticket
+        after = ticket_cache("5.110.0", "z", "T-K", "2026-11-03T10:00:00Z")  # later than the completed run: abandon
+        other = ticket_cache("5.110.0", "o", "T-K", "2026-11-01T09:00:00Z")
+        other["project"] = "q"  # same ticket id, other project: abandon
+        noticket = ticket_cache("5.110.0", "n", "", "2026-11-01T09:00:00Z")  # no ticket: never a restart
+        g = bm.aggregate([a, skip, after, other, noticket], "version")["claude-code/5.110.0"]
+        self.assertEqual((g["n_pr_skipped"], g["n_restarts"], g["n_abandoned"]), (1, 1, 3))
+        self.assertAlmostEqual(g["abandon_rate"], 1.0)
+        self.assertEqual(bm._restart_run_ids([a, skip, after, other, noticket]), {"a"})
+
+    def test_abandon_rate_none_when_only_pr_skipped(self):
+        only = ticket_cache("5.110.0", "s", "T-S", "2026-11-01T10:00:00Z", outcome="pr_skipped")
+        g = bm.aggregate([only], "version")["claude-code/5.110.0"]
+        self.assertIsNone(g["abandon_rate"])
+        self.assertEqual(g["n_pr_skipped"], 1)
 
     def test_aggregate_counts_only_registered_gate_ids(self):
         # N1-596: ids with no emit site (improvised by the orchestrator) are not gates.
@@ -1208,6 +1267,26 @@ class MergeVersionsTest(unittest.TestCase):
 
 
 class ReportTest(unittest.TestCase):
+    def test_report_and_summary_show_restarts_and_tolerate_old_snapshots(self):
+        new = group(2, 1, 3)
+        new["n_restarts"] = 4
+        old = group(2, 1, 3)  # snapshot written before N1-646: no n_restarts
+        snap = snap_with({"claude-code/5.109.0": old, "claude-code/5.110.0": new})
+        snap["merged"] = {"claude-code/5.109.0": old, "claude-code/5.110.0": new}
+        rep = bm.render_report(snap, None, None, "", {})
+        self.assertIn("| abandon_rate | restarts |", rep)
+        rows = {}
+        for ln in rep.splitlines():  # first table only; later tables reuse the same row prefixes
+            if ln.startswith("| claude-code/5.1"):
+                rows.setdefault(ln.split(" | ")[0], ln)
+        self.assertTrue(rows["| claude-code/5.110.0"].endswith("| 0% | 4 |"))
+        self.assertTrue(rows["| claude-code/5.109.0"].endswith("| 0% | n/a |"))
+        self.assertIn("abandon_rate = abandoned / (all - pr_skipped - restarts)", rep)
+        summ = bm.render_summary(snap, None, "no baseline pinned", "/x/full.md")
+        self.assertIn("| quality_cov | abandon_rate | restarts |", summ)
+        self.assertIn("| 0% | 4 |", summ)
+        self.assertIn("| 0% | n/a |", summ)
+
     def test_stat_has_nearest_rank_p90(self):
         s = bm._stat(list(range(1, 11)))
         self.assertEqual((s["n"], s["median"], s["p90"]), (10, 5.5, 9))

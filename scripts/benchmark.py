@@ -331,7 +331,7 @@ def infer_outcome(rec: dict, ov: dict, is_last: bool) -> str:
 def _light_fields(run: dict) -> dict:
     """Cache fields that never need a transcript: inference flag, tier, plan path."""
     ov = run.get("_ov") or {}
-    return {"outcome_inferred": bool(run.get("outcome_inferred")),
+    return {"final_outcome": run.get("final_outcome"), "outcome_inferred": bool(run.get("outcome_inferred")),
             "tier": run.get("estimated_tier") or ov.get("tier") or "unknown",
             "plan_path": ov.get("planning_need") or "none"}
 
@@ -1141,14 +1141,42 @@ def _stat(vals):
             "ci": list(bootstrap_ci(vals))}
 
 
+def _completed(c) -> bool:
+    """N1-646: the run finished its ticket (PR/investigation, or a legitimate local merge)."""
+    return bool(c.get("eligible")) or c.get("final_outcome") == "pr_skipped"
+
+
+def _restart_run_ids(caches) -> set:
+    """N1-646: non-completed runs whose (project, ticket_id) has a completed run started strictly later.
+    A completed run is never a restart; a run without project, ticket or started_at never is either.
+    Only the caches passed in are seen: the merged-bucket aggregate call in main() receives non-legacy runs only,
+    so a restart whose completing run sits in the legacy partition stays counted as an abandon (accepted ceiling)."""
+    def key(c):
+        return (c.get("project"), c.get("ticket_id"))
+    last_done = {}
+    for c in caches:
+        k = key(c)
+        if k[0] and k[1] and c.get("started_at") and _completed(c):
+            last_done[k] = max(last_done.get(k, ""), c["started_at"])
+    return {c["run_id"] for c in caches
+            if not _completed(c) and c.get("started_at") and key(c) in last_done
+            and c["started_at"] < last_done[key(c)]}
+
+
 def aggregate(caches, by: str, keyfn=None) -> dict:
     keyfn = keyfn or (lambda c: group_key(c, by))
+    caches = list(caches)
+    restarts = _restart_run_ids(caches)  # over all caches: a restart may finish in another partition
     groups = {}
     for c in caches:
         groups.setdefault(keyfn(c), []).append(c)
     out = {}
     for key, members in groups.items():
         eligible = [c for c in members if c.get("eligible")]
+        n_pr_skipped = sum(1 for c in members if not c.get("eligible") and c.get("final_outcome") == "pr_skipped")
+        n_restarts = sum(1 for c in members if c.get("run_id") in restarts)
+        n_abandoned = len(members) - len(eligible) - n_pr_skipped - n_restarts
+        ar_denom = len(members) - n_pr_skipped - n_restarts
         metrics = {m.name: _stat([c["metrics"].get(m.name) for c in eligible]) for m in METRICS}
         cell_vals = {}
         for c in eligible:
@@ -1186,13 +1214,15 @@ def aggregate(caches, by: str, keyfn=None) -> dict:
         out[key] = {
             "n_runs": len(eligible), "n_all": len(members),
             "n_incomplete": len(members) - len(eligible),
+            "n_pr_skipped": n_pr_skipped, "n_restarts": n_restarts, "n_abandoned": n_abandoned,
             "n_unlinked": n_unlinked,
             "n_inferred": sum(1 for c in eligible if c.get("outcome_inferred")),
             "cells": {k: _stat(v) for k, v in cell_vals.items()},
             "quality_coverage": quality_coverage,
             "sufficient": len(eligible) >= MIN_SAMPLE,
             "metrics": metrics,
-            "abandon_rate": (1 - len(eligible) / len(members)) if members else None,
+            # N1-646: true abandons only; pr_skipped runs and restarts are excluded from both sides.
+            "abandon_rate": (n_abandoned / ar_denom) if ar_denom else None,
             "run_ids": sorted(c["run_id"] for c in eligible),
             "gate_activation_rates": gate_activation_rates,
             "codex_review": {
@@ -1499,7 +1529,8 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
     lines.append("")
 
     # Per-group table
-    header = ["partition (host/version)", "runs", "incomplete", "unlinked", "quality_cov"] + [m.name for m in METRICS] + ["abandon_rate"]
+    header = (["partition (host/version)", "runs", "incomplete", "unlinked", "quality_cov"] + [m.name for m in METRICS]
+              + ["abandon_rate", "restarts"])
     lines.append("## Per-partition metrics (host/version)" if snapshot.get("by") == "version" else "## Per-partition metrics (host/week)")
     lines.append("")
     lines.append("| " + " | ".join(header) + " |")
@@ -1526,10 +1557,14 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
             row.append(cell)
         ar = grp.get("abandon_rate")
         row.append(f"{ar:.0%}" if ar is not None else "n/a")
+        row.append(str(grp.get("n_restarts", "n/a")))
         lines.append("| " + " | ".join(row) + " |")
         if grp["sufficient"]:
             prev_key_by_host[host_part] = key
     lines.append("")
+    lines.append("abandon_rate = abandoned / (all - pr_skipped - restarts); a restart is an incomplete run whose "
+                 "ticket completed in a later run (N1-646). Partitions with restarts n/a come from older "
+                 "snapshots, where abandon_rate counted every incomplete run.")
     lines.append("Cells: mean [95% bootstrap CI] (n); duration_min and work_min: median / p90 (n), no delta. "
                  "Deltas compare against the previous sufficient partition of the same host.")
     legacy_keys = [k for k in _sorted_groups(snapshot) if is_legacy_key(k)]
@@ -1702,8 +1737,8 @@ def render_summary(snapshot, baseline_group, baseline_note, full_path) -> str:
     suff = _sufficient_groups(snapshot, hg) if hg else []
     shown = set(suff[-SUMMARY_TABLE_ROWS:])
     lines += ["## Sufficient partitions (newest last; deltas vs previous partition of the same host)", "",
-              "| partition | runs | interventions | corrections | quality_cov | abandon_rate |",
-              "|---|---|---|---|---|---|"]
+              "| partition | runs | interventions | corrections | quality_cov | abandon_rate | restarts |",
+              "|---|---|---|---|---|---|---|"]
     prev = {}
     for k in suff:
         host = k.partition("/")[0]
@@ -1712,11 +1747,12 @@ def render_summary(snapshot, baseline_group, baseline_note, full_path) -> str:
             row = [k, f"{grp['n_runs']}/{grp['n_all']}"]
             for m in ("interventions", "corrections"):
                 row.append(_mean_vs(grp["metrics"].get(m), hg[p]["metrics"].get(m) if p else None))
-            row += [_fmt_pct(grp.get("quality_coverage")), _fmt_pct(grp.get("abandon_rate"))]
+            row += [_fmt_pct(grp.get("quality_coverage")), _fmt_pct(grp.get("abandon_rate")),
+                    str(grp.get("n_restarts", "n/a"))]
             lines.append("| " + " | ".join(row) + " |")
         prev[host] = k
     if not suff:
-        lines.append("| none | | | | | |")
+        lines.append("| none | | | | | | |")
     elif len(suff) > len(shown):
         lines.append(f"{len(suff) - len(shown)} older partition(s) are in the full report.")
     lines.append("")
