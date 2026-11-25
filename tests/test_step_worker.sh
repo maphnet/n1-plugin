@@ -143,5 +143,26 @@ for w in n1:ci-worker n1:local-testing-worker; do
 done
 eq "bash[ci-worker,no run]: feature push allowed" 0 "$(polx n1:ci-worker Bash 'git push -u origin feat/x')"
 
+# 4. Persona contract
+CW=agents/ci-worker.md; LW=agents/local-testing-worker.md
+for f in $CW $LW; do
+    has "$f: sonnet model" "$f" '^model: sonnet$'
+    lacks "$f: no tools list (inherits dynamic MCP)" "$f" '^tools:'
+    has "$f: foreground wait (N1-300)" "$f" 'never end your turn while a dispatched persona has no final report'
+    has "$f: no step markers" "$f" 'no `n1_step_begin` or `n1_step_end`'
+    has "$f: never asks the user" "$f" '^- Never ask the user\.'
+    has "$f: pre-side-effect prompt stops" "$f" 'reason: prompt: <the question, verbatim>'
+    has "$f: question status" "$f" '^status: question$'
+    has "$f: answer resume" "$f" 'answer: <n>'
+    has "$f: file-write mechanism" "$f" 'file-write-mechanism\.md'
+    lacks "$f: no host tool names" "$f" 'SendMessage|AskUserQuestion|ToolSearch|spawn_agent|Agent tool'
+done
+has "ci-worker: dispatch list" $CW '^- Dispatch only developer;'
+has "ci-worker: reads n1-ci from files" $CW 'skills/n1-ci/SKILL.md'
+for c in ci-escalate ci-low-confidence ci-not-branch-caused ci-cap-exhausted ci-pending-budget; do has "ci-worker: class $c" $CW "\`$c\`"; done
+has "local-testing-worker: dispatch list" $LW '^- Dispatch only local-test-planner and developer;'
+has "local-testing-worker: runs the run procedure in Worker mode" $LW 'local-testing-run.md.*Worker mode'
+for c in lt-env-failure lt-fix-exhausted; do has "local-testing-worker: class $c" $LW "\`$c\`"; done
+
 # --- end of checks ---
 exit "$FAIL"

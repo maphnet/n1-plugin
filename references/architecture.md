@@ -506,6 +506,8 @@ Config keys: `release.enabled` (boolean, default `false`), `release.procedure` (
 | post-deploy-verifier | sonnet | medium | inherits (dynamic observability MCP provider names) | Post-deploy acceptance verification |
 | tail-worker | sonnet | medium | inherits (needs dynamic tracker MCP) | Memory finalize, Gate 3, post-merge finish steps, Codex triage |
 | pr-worker | sonnet | medium | inherits (needs dynamic tracker MCP) | PR step (n1-pr steps 01-03) |
+| ci-worker | sonnet | medium | inherits (needs dynamic tracker MCP) | CI step (n1-ci watch and fix loop) |
+| local-testing-worker | sonnet | medium | inherits (same set as the other step workers) | Local testing step, live mode (local-testing-run.md 9a-9d) |
 
 **MCP tool scope.** Agents with an explicit `tools:` frontmatter list (developer, code-reviewer, qa-engineer, security-reviewer, planner, local-test-planner, tech-writer) get no MCP tool definitions in their system prompt: per the [sub-agents docs](https://code.claude.com/docs/en/sub-agents), "MCP tool definitions for excluded tools are not injected into the agent's system prompt". Agents without `tools:` (brainstormer, solution-architect, implementer, product-analyst, post-deploy-verifier) inherit everything, including all MCP servers, intentionally: brainstormer, solution-architect and product-analyst need dynamic MCP, implementer needs Skill and Agent. Never add `mcp__*` to a `tools:` list; `tests/test_agent_tools_no_mcp.sh` enforces this.
 

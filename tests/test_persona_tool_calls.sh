@@ -39,11 +39,11 @@ done
 has "security-reviewer keeps Grep (no Bash)" 'tools: Read, Grep, Glob, Write' agents/security-reviewer.md
 
 # Class 3/4: subagents get no session routing; personas that call deferred tools carry the rules.
-for p in product-analyst pr-worker tail-worker; do
+for p in product-analyst pr-worker tail-worker ci-worker local-testing-worker; do
     has "$p loads deferred tool schemas first" 'before its first call' "agents/$p.md"
     hasnt "$p names no host-only tool" 'ToolSearch' "agents/$p.md"
 done
-for p in pr-worker tail-worker; do
+for p in pr-worker tail-worker ci-worker local-testing-worker; do
     has "$p states Monitor required args" 'Monitor requires both `command` and `description`' "agents/$p.md"
 done
 has "product-analyst scopes cloudId to the Atlassian MCP" 'For jc-mcp: pass `issueKey` only' agents/product-analyst.md
