@@ -94,7 +94,7 @@ Recovery never touches a run whose owner pid is a live claude process, whatever 
 Emitted decision ids (N1-596). This is the same set as `KNOWN_GATE_IDS` and `GATE_ID_PREFIXES` in `scripts/benchmark.py`:
 
 - `escalation:<agent>:<step>` and `downgrade:<agent>:<step>`: emitted automatically for every `escalation_triggers` / `downgrade_triggers` evaluation in `n1_resolve_model` (`lib/config.sh`).
-- `lite-analysis-gate` and `simple-path` (`lib/analysis.sh`), `qa-engineer-skip` (`lib/qa-step.sh`), `codex-review` (`lib/codex-review.sh`).
+- `lite-analysis-gate`, `simple-path` and `planning-need` (`lib/analysis.sh`), `qa-engineer-skip` (`lib/qa-step.sh`), `codex-review` (`lib/codex-review.sh`).
 - `simplicity-gate` (`skills/n1-start/steps/implementation.md`), `release-gate` (`skills/n1-start/steps/release.md`), `local-testing-gate`, `local-testing-offer` and `local-testing-auto-skip` (`skills/n1-start/steps/local-testing.md`), `review-tier` (`skills/n1-start/review-core.md`).
 
 Raw telemetry also contains ids that the orchestrator improvised and that have no emit site: `review-rerun`, `finish-merge`, `review-fix-cap`, `review-extra-cycle` and `review-fix-cap-extra`. The merge keeps them. The benchmark gate counts (`## Gate Activation Rates`) and the `n1-telemetry` gate table ignore every id that is not in the list above. To add a gate, add the emit site, the registry entry in `scripts/benchmark.py` and a line here. `GateRegistryTest` in `tests/test_benchmark.py` fails when these three disagree.

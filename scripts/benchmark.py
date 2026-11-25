@@ -1110,7 +1110,7 @@ UNLINKABLE_CAUSES = ("no project", "no timestamps")
 KNOWN_GATE_IDS = frozenset({
     "lite-analysis-gate", "simple-path", "qa-engineer-skip", "codex-review", "simplicity-gate",
     "release-gate", "local-testing-gate", "local-testing-offer", "local-testing-auto-skip",
-    "review-tier",
+    "review-tier", "planning-need",
 })
 # Parameterized ids built in lib/config.sh n1_resolve_model: escalation:<agent>:<step>, downgrade:<agent>:<step>.
 GATE_ID_PREFIXES = ("escalation:", "downgrade:")

@@ -23,10 +23,13 @@ After: parse `context:`; if updated replace `## Context` in overview.md.
 
 ```bash
 source ~/.n1/preamble.sh
-PLANNING_NEED="<reported planning_need>"
+source "$N1_ROOT/lib/analysis.sh"
 n1_verify_dependencies "$N1_HOME/memory/$ID" brainstorm.md || { n1_step_end "brainstorm" 3 failed; echo "ERROR: brainstorm.md not written by SA — aborting" >&2; exit 1; }
-n1_step_end "brainstorm" 3 success "{\"planning_need\":\"$PLANNING_NEED\"}"
+PLANNING_NEED=$(n1_planning_need_override "<reported planning_need>")
+n1_step_end "brainstorm" 3 success "{\"planning_need\":\"$PLANNING_NEED\",\"brainstormer_route\":\"<reported planning_need>\"}"
+echo "PLANNING_NEED=$PLANNING_NEED"
 ```
+Use the printed `PLANNING_NEED` from here on; for a standard-tier ticket it may differ from the reported route.
 
 ### User Gate
 
@@ -38,13 +41,13 @@ n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/t
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need" "$PLANNING_NEED"
 [ "$PLANNING_NEED" = "direct" ] && DESIGN_CLARITY="high" || DESIGN_CLARITY="medium"
 APPROACH_COUNT=$(grep -c -iE '^#{2,3}\s*(approach|option)\s' "$N1_HOME/memory/$ID/brainstorm.md" 2>/dev/null); [ "${APPROACH_COUNT:-0}" -gt 0 ] || APPROACH_COUNT=1
-BRAINSTORM_FILES=$(grep -oE '[a-zA-Z0-9_/.-]+\.(py|ts|tsx|js|jsx|go|rs|java|rb|sh|sql|yaml|yml|json|toml|md|css|html)' "$N1_HOME/memory/$ID/brainstorm.md" 2>/dev/null | sort -u | wc -l); BRAINSTORM_FILES=$((BRAINSTORM_FILES > 0 ? BRAINSTORM_FILES : 1))
+source "$N1_ROOT/lib/analysis.sh"; BRAINSTORM_FILES=$(n1_brainstorm_file_count "$N1_HOME/memory/$ID/brainstorm.md"); BRAINSTORM_FILES=$((BRAINSTORM_FILES > 0 ? BRAINSTORM_FILES : 1))
 ANALYSIS_BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius")
 [ "$BRAINSTORM_FILES" -le 2 ] && BRAINSTORM_BLAST="low" || { [ "$BRAINSTORM_FILES" -le 5 ] && BRAINSTORM_BLAST="${ANALYSIS_BLAST:-medium}" || BRAINSTORM_BLAST="${ANALYSIS_BLAST:-high}"; }
 n1_write_signals "$N1_HOME/memory/$ID/brainstorm.md" "planning_need=$PLANNING_NEED" "design_clarity=$DESIGN_CLARITY" "approach_count=$APPROACH_COUNT" "files_changed=$BRAINSTORM_FILES" "blast_radius=$BRAINSTORM_BLAST"
 ```
 Auto-confirm with an `[auto]` ledger row. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
-`direct`: specified+independent+no design+no test strategy. `plan`: coordination/open questions/new abstractions/security/API/cross-cutting. Default `plan`.
+`direct`: specified+independent+no design+no test strategy. `plan`: coordination/open questions/new abstractions/security/API/cross-cutting. Default `plan`. Standard tier: `n1_planning_need_override` turns `plan` into `direct` when brainstorm.md names 1-4 files, analysis has `security_relevant: false` and blast not high, and brainstorm.md has no open-question/new-abstraction heading; it logs a `planning-need` decision.
 
 **Post-Brainstorm Enrichment:** ticket ID + `ticketEnrichment.enabled!==false` + `editTicket` + `addComment`. Append refined AC/scope/approach (idempotent if `*Refined after design review — N1*`; skip the append if the description has a `*Refined by N1*` line (match regardless of `*` or `_` emphasis, whole line), still post the summary). Post design summary. Non-blocking (queue: <N1_ROOT>/references/desc-hash-chain.md).
