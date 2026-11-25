@@ -129,7 +129,8 @@ PUSH_VALUE_FLAGS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 
 
 # SEC-1 (N1-435): restricted workers inherit all tools, so bound what they can dispatch
-SPAWN_ALLOW = {"pr-worker": {"tech-writer", "tail-worker"}, "tail-worker": {"code-reviewer", "developer", "post-deploy-verifier"}, "post-deploy-verifier": set()}
+SPAWN_ALLOW = {"pr-worker": {"tech-writer", "tail-worker"}, "tail-worker": {"code-reviewer", "developer", "post-deploy-verifier"}, "post-deploy-verifier": set(),
+               "ci-worker": {"developer", "tech-writer"}, "local-testing-worker": {"developer", "local-test-planner"}}  # N1-645
 
 
 def persona_of(agent_type: str):
@@ -706,22 +707,28 @@ def _worker_deny(cmd: str, pr: bool, sid: str = "") -> bool:
     return False
 
 
+# N1-645 SEC-3: local-testing-worker never pushes or opens/comments on a PR (ci-worker pushes, so not in TAIL_DENY_RE scope)
+_LT_PUSH_RE = re.compile(r"\bgit(?:\s+(?:-[Cc]\s+\S+|--?[\w-]+(?:=\S+)?))*\s+push\b|\bgh(?:\s+(?:(?:-R|--repo)\s+\S+|--?[\w-]+=\S+))*\s+pr\s+(?:create|comment)\b")
+
+
 def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     # N1-230 SEC-2: the tail-worker never merges, clears the run pointer or releases, even when merging is authorized
     agent_type = str(payload.get("agent_type") or "")
     tail_persona = persona_of(agent_type)
     tail = tail_persona in ("tail-worker", "post-deploy-verifier")  # the verifier is the tail-worker's delegate: same Bash denies
-    gated_worker = tail_persona in ("pr-worker", "tail-worker", "post-deploy-verifier")
+    gated_worker = tail_persona in ("pr-worker", "tail-worker", "post-deploy-verifier", "ci-worker", "local-testing-worker")
     sink_worker = gated_worker or tail_persona == "tech-writer"  # tech-writer outside a run returns below
     if tail:
         cmd = _command(payload) or ""
         if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)) or TAIL_DENY_RE.search(_mask(cmd.replace("\\\n", " "))) or _worker_deny(cmd, False, str(payload.get("session_id") or "")):
             sys.stderr.write(f"N1: {tail_persona} may not run merge/cleanup/run-pointer/release/push/PR-comment commands; the orchestrator owns them\n")
             return 2
-    elif persona_of(agent_type) in ("pr-worker", "tech-writer"):
+    elif persona_of(agent_type) in ("pr-worker", "tech-writer", "ci-worker", "local-testing-worker"):
+        # N1-645: ci/local-testing workers share the pr-worker denies; not tail-gated, since ci pushes the feature branch
         cmd = _command(payload) or ""
-        if _worker_deny(cmd, True, str(payload.get("session_id") or "")):
-            sys.stderr.write("N1: pr-worker/tech-writer may not run cleanup/run-pointer/step-marker/review-pin --confirmed/workspace-removal/n1-clean|n1-release commands; the orchestrator owns them\n")
+        if _worker_deny(cmd, True, str(payload.get("session_id") or "")) or (
+                persona_of(agent_type) == "local-testing-worker" and _LT_PUSH_RE.search(_mask(cmd.replace("\\\n", " ")))):
+            sys.stderr.write(f"N1: {persona_of(agent_type)} may not run cleanup/run-pointer/step-marker/review-pin --confirmed/workspace-removal/n1-clean|n1-release commands; the orchestrator owns them\n")
             return 2
     elif not agent_type and merge_authorized(config):
         return 0  # main session only: no subagent merges (n1-finish merges inline)

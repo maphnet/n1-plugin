@@ -5,15 +5,22 @@ Run `n1_config_val '.localTesting.enabled'` (default: `true`).
 
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/worker-step.sh"
 n1_step_begin "local-testing" 11
 rm -f "$N1_HOME/memory/$ID/local-testing.md"
 GATE_ENABLED=$(n1_config_val '.localTesting.enabled' 2>/dev/null || echo 'true')
 n1_record_decision local-testing-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && echo true || echo false )" '{"config":"localTesting.enabled"}' "enabled=${GATE_ENABLED:-true}"
 [ "${GATE_ENABLED:-true}" = "true" ] || n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"disabled"}'
 LT_ROOT=$(git rev-parse --show-toplevel)
-echo "LOCAL_TESTING_MODE=$(n1_resolve_local_testing_mode "$LT_ROOT")"
+MODE=$(n1_resolve_local_testing_mode "$LT_ROOT"); echo "LOCAL_TESTING_MODE=$MODE"
 echo "LOCAL_TESTING_OFFER=$(n1_local_testing_offer "$LT_ROOT")"
+if [ "${GATE_ENABLED:-true}" = "true" ] && [ "$MODE" = live ]; then
+  SKIP=$(n1_sw_lt_auto_skip) || exit 1; echo "LOCAL_TESTING_AUTO_SKIP=$SKIP"
+  if [ "$SKIP" = "true" ]; then n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"auto_skip"}'; else n1_sw_entry lt; fi
+fi
 ```
+
+If the fence printed a `model:` line, go straight to **Gates passed**; if it ended the step (`LOCAL_TESTING_AUTO_SKIP=true` or the gate is disabled), log the decision and skip to Step 10.
 
 > The gate key (`localTesting.enabled`) and its default (`true`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
 
@@ -59,23 +66,18 @@ n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"
 ```
 Skip to Step 10 (PR CREATION).
 
-> **ORCHESTRATOR GUARDRAIL (local testing): do not run test suites, `pytest`/`make test`/`npm test`, coverage runs, package installs (`pip`, `uv`, `npm`), interpreter/venv discovery or repair, or app/infrastructure startup in this step. All execution belongs to the developer spawn in 9c. If the environment is broken, the developer reports it and it is routed through the `local_test_env_failure` escalation — the orchestrator never debugs it inline. The only permitted orchestrator commands here are the memory/config helpers (including the live-testing offer helpers and the stub write), `git diff --no-renames --name-only` and `n1_classify_local_test_skip` for the auto-skip check, removing a stale `local-test-plan.md` and `test -s` on it, and the Ensure Dependencies fast path.**
+> **ORCHESTRATOR GUARDRAIL (local testing): do not run test suites, `pytest`/`make test`/`npm test`, coverage runs, package installs (`pip`, `uv`, `npm`), interpreter/venv discovery or repair, or app/infrastructure startup in this step. All execution belongs to the developer spawn in 9c. If the environment is broken, the developer reports it and it is routed through the `local_test_env_failure` escalation — the orchestrator never debugs it inline. The only permitted orchestrator commands here are the memory/config helpers (including the live-testing offer helpers and the stub write), `n1_sw_lt_auto_skip` and `n1_sw_entry lt` (auto-skip check and worker input), removing a stale `local-test-plan.md` and `test -s` on it, and the Ensure Dependencies fast path.**
 
-**Auto-skip (even when enabled):** skip only when every changed file is non-runtime (docs, `.gitignore`; any YAML or env file is runtime). An unresolvable base, a failed diff or an empty diff never skips. Run via Bash:
+**Auto-skip (even when enabled):** skip only when every changed file is non-runtime (docs, `.gitignore`; any YAML or env file is runtime). An unresolvable base, a failed diff or an empty diff never skips. The begin fence ran this check when the mode was already `live`; run this fence only when the mode became `live` through the live-testing offer:
 ```bash
 source ~/.n1/preamble.sh
-source "$N1_ROOT/lib/classify.sh"
-SB=$(n1_story_base) || { echo "ERROR: invalid story base" >&2; exit 1; }
-BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_REF=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || { [ -n "$SB" ] && echo "origin/$SB"; } || n1_config_val '.git.defaultBranch' )
-SKIP=false
-if BASE=$(git merge-base "$BASE_REF" HEAD 2>/dev/null) && CHANGED_FILES=$(git diff --no-renames --name-only "$BASE" 2>/dev/null); then SKIP=$(n1_classify_local_test_skip "$CHANGED_FILES"); fi
-n1_record_decision local-testing-auto-skip "$SKIP" '{}' "skip=$SKIP"
-echo "LOCAL_TESTING_AUTO_SKIP=$SKIP"
-if [ "$SKIP" = "true" ]; then n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"auto_skip"}'; fi
+source "$N1_ROOT/lib/worker-step.sh"
+SKIP=$(n1_sw_lt_auto_skip) || exit 1; echo "LOCAL_TESTING_AUTO_SKIP=$SKIP"
+if [ "$SKIP" = "true" ]; then n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"auto_skip"}'; else n1_sw_entry lt; fi
 ```
 If `LOCAL_TESTING_AUTO_SKIP=true`: log under `## Key Decisions`: "Local testing skipped — documentation-only changes." Skip to Step 10 (PR CREATION).
 
-**QA runner commands:** capture the commands the QA step already ran, for the planner prompt in 9a. Run via Bash:
+**QA runner commands (inline fallback only):** Skip on the worker route: `n1_sw_entry lt` writes them to `lt-input.md`. Capture the commands the QA step already ran, for the planner prompt in 9a. Run via Bash:
 ```bash
 source ~/.n1/preamble.sh
 QA_MD="$N1_HOME/memory/$ID/qa.md"
@@ -90,7 +92,7 @@ fi
 ```
 Capture the `QA_RUNNER_CMDS` value (may be empty) for injection into the planner prompt in 9a.
 
-**Ensure dependencies (worktree mode).** Run the **Ensure Dependencies(`<ID>`)**
+**Ensure dependencies (worktree mode; inline fallback only, the worker runs it).** Run the **Ensure Dependencies(`<ID>`)**
 procedure before infrastructure/app startup. Marker-guarded no-op if already installed.
 
-**Gates passed (not skipped):** read `procedures/local-testing-run.md` and follow it through 9a-9d; it ends this step exactly once on every exit (success, skipped, failed). Do not end the step here.
+**Gates passed (not skipped):** read `procedures/step-worker-dispatch.md` and follow § Dispatch with persona `local-testing-worker`, then § local-testing; the Result fence ends this step, so end it nowhere else (never after a worker result). Only on its § Inline fallback: run the two blocks above, then read `procedures/local-testing-run.md` and follow it through 9a-9d; it ends this step exactly once on every exit (success, skipped, failed). Do not end the step here.
