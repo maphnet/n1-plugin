@@ -203,6 +203,9 @@ has "lt: step end never after a worker result" $LT 'never after a worker result'
 has "lt-run: Worker mode paragraph" $LTR '^\*\*Worker mode \(N1-645\)\.\*\*'
 has "lt-run: Worker mode writes lt-result.md" $LTR 'lt-result.md'
 has "lt-run: Worker mode prompts become question files" $LTR 'question file'
+has "lt: begin fence that ended the step skips to Step 10" $LT 'if it ended the step .*skip to Step 10'
+lacks "lt: no unconditional jump to Gates passed" $LT 'With mode `live`, this fence'
+has "lt-run: pre-side-effect prompts follow persona Boundaries" $LTR 'except before any side effect: `agents/local-testing-worker.md` § Boundaries'
 # begin fence of the default live path: begin + auto-skip + entry in one call
 BEGIN=$(awk '/^```bash/{n++} n==1' $LT)
 eq "lt: one fence holds begin, auto-skip and entry" "1 1 1" "$(grep -c 'n1_step_begin "local-testing" 11' <<<"$BEGIN") $(grep -c 'n1_sw_lt_auto_skip' <<<"$BEGIN") $(grep -c 'n1_sw_entry lt' <<<"$BEGIN")"

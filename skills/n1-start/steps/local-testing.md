@@ -20,7 +20,7 @@ if [ "${GATE_ENABLED:-true}" = "true" ] && [ "$MODE" = live ]; then
 fi
 ```
 
-With mode `live`, this fence already ran the auto-skip check and, when not skipped, printed the worker `model:` line: go straight to **Gates passed**.
+If the fence printed a `model:` line, go straight to **Gates passed**; if it ended the step (`LOCAL_TESTING_AUTO_SKIP=true` or the gate is disabled), log the decision and skip to Step 10.
 
 > The gate key (`localTesting.enabled`) and its default (`true`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
 
