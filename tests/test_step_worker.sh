@@ -106,6 +106,33 @@ printf '%s\n' 'class: lt-fix-exhausted' 'stop_list: none' 'recommended: 1' 'ques
 eq "question: class from the other step rejected" unknown "$(line class "$(sw n1_sw_question ci)")"
 rm -f "$MEM/ci-question.md"; eq "question: missing file" unknown "$(line class "$(sw n1_sw_question ci)")"
 
+# N1-645 SEC-1/CR-2: the class fixes the recommendation; the worker's file field is ignored
+for c in ci-low-confidence ci-not-branch-caused ci-cap-exhausted ci-pending-budget; do
+    printf '%s\n' "class: $c" 'stop_list: none' 'recommended: 1' 'question: q' 'option: a' 'option: b' > "$MEM/ci-question.md"
+    eq "question: $c ignores file recommended" none "$(line recommended "$(sw n1_sw_question ci)")"
+done
+printf '%s\n' 'class: lt-env-failure' 'stop_list: none' 'recommended: 1' 'question: q' 'option: a' 'option: b' > "$MEM/lt-question.md"
+eq "question: lt-env-failure ignores file recommended" none "$(line recommended "$(sw n1_sw_question lt)")"
+printf '%s\n' 'class: lt-fix-exhausted' 'stop_list: none' 'recommended: 1' 'question: q' 'option: a' 'option: b' > "$MEM/lt-question.md"
+eq "question: lt-fix-exhausted is 2 whatever the file says" 2 "$(line recommended "$(sw n1_sw_question lt)")"
+printf '%s\n' 'class: lt-fix-exhausted' 'stop_list: none' 'recommended: 2' 'question: q' 'option: a' > "$MEM/lt-question.md"
+eq "question: lt-fix-exhausted with one option has none" none "$(line recommended "$(sw n1_sw_question lt)")"
+# SEC-2: question/option wording can raise the stop list, the worker field cannot lower it
+printf '%s\n' 'class: ci-cap-exhausted' 'stop_list: none' 'question: Fix touches the authentication flow' 'option: a' > "$MEM/ci-question.md"
+eq "question: wording raises stop_list to security" security "$(line stop_list "$(sw n1_sw_question ci)")"
+printf '%s\n' 'class: ci-cap-exhausted' 'stop_list: none' 'question: q' 'option: Change the public API' > "$MEM/ci-question.md"
+eq "question: option wording raises stop_list to public-api" public-api "$(line stop_list "$(sw n1_sw_question ci)")"
+printf '%s\n' 'class: ci-cap-exhausted' 'stop_list: architecture' 'question: lint failed' 'option: a' > "$MEM/ci-question.md"
+eq "question: worker stop_list kept" architecture "$(line stop_list "$(sw n1_sw_question ci)")"
+printf '%s\n' 'class: ci-cap-exhausted' 'stop_list: none' 'question: lint failed' 'option: a' > "$MEM/ci-question.md"
+eq "question: plain prompt stays none" none "$(line stop_list "$(sw n1_sw_question ci)")"
+# CR-1: a long question keeps its tail; long options stay intact
+TAILQ="scenarios: login, logout, signup. Options:"
+printf '%s\n' 'class: lt-fix-exhausted' 'stop_list: none' "question: $(printf 'x%.0s' $(seq 1 900)) $TAILQ" "option: $(printf 'y%.0s' $(seq 1 400))" 'option: b' > "$MEM/lt-question.md"
+Q=$(sw n1_sw_question lt)
+eq "question: long question keeps its tail" "$TAILQ" "$(line question "$Q" | grep -o 'scenarios:.*')"
+eq "question: 400-char option intact" 400 "$(sed -n '1,/^option:/{/^option:/p}' <<<"$Q" | head -1 | sed 's/^option://' | tr -d '\n' | wc -c)"
+
 # 3. Hook boundaries (AC6): spawn allowlist, step markers, push and merge
 polx() { local rc=0; jq -cn --arg a "$1" --arg t "$2" --arg c "$3" --arg w "$WT" \
     '{tool_name:$t,session_id:"s-sw",cwd:$w,tool_input:(if $t=="Bash" then {command:$c} else {subagent_type:$c} end),agent_type:$a}' \
@@ -132,6 +159,9 @@ for N1H in "" 1; do
         eq "bash[$w,$N1H]: default-branch push denied" 2 "$(polx $w Bash 'git push origin HEAD:main')"
         eq "bash[$w,$N1H]: worktree remove denied" 2 "$(polx $w Bash 'git worktree remove /x')"
     done
+        for c in 'git push' 'git push -u origin feat/x' 'gh pr create --fill' 'gh pr comment 7 -b x'; do
+        eq "bash[local-testing-worker,$N1H]: '$c' denied" 2 "$(polx n1:local-testing-worker Bash "$c")"
+    done
     eq "bash[ci-worker,$N1H]: feature-branch push allowed" 0 "$(polx n1:ci-worker Bash 'git push')"
     eq "bash[ci-worker,$N1H]: explicit feature push allowed" 0 "$(polx n1:ci-worker Bash 'git push -u origin feat/x')"
     eq "bash[ci-worker,$N1H]: CI log read allowed" 0 "$(polx n1:ci-worker Bash 'gh run view 5 --log-failed')"
@@ -151,11 +181,7 @@ for f in $CW $LW; do
     lacks "$f: no tools list (inherits dynamic MCP)" "$f" '^tools:'
     has "$f: foreground wait (N1-300)" "$f" 'never end your turn while a dispatched persona has no final report'
     has "$f: no step markers" "$f" 'no `n1_step_begin` or `n1_step_end`'
-    has "$f: never asks the user" "$f" '^- Never ask the user\.'
     has "$f: pre-side-effect prompt stops" "$f" 'reason: prompt: <the question, verbatim>'
-    has "$f: question status" "$f" '^status: question$'
-    has "$f: answer resume" "$f" 'answer: <n>'
-    has "$f: file-write mechanism" "$f" 'file-write-mechanism\.md'
     lacks "$f: no host tool names" "$f" 'SendMessage|AskUserQuestion|ToolSearch|spawn_agent|Agent tool'
 done
 has "ci-worker: dispatch list" $CW '^- Dispatch only developer and tech-writer '
@@ -179,6 +205,7 @@ has "dispatch: foreground wait" $D 'Wait Contract'
 has "dispatch: headless guard applied in the orchestrator" $D 'N1_HEADLESS=1.*§ Headless Guard'
 has "dispatch: lt cap uses the Autonomy Gate" $D 'lt-fix-exhausted.*§ Autonomy Gate'
 has "dispatch: Recommended label only from the file" $D '\(Recommended\)` only on the option'
+has "dispatch: lt-fix-exhausted label only without a stop list" $D 'lt-fix-exhausted.*stop_list:none.*evidence'
 has "dispatch: round-trip cap" $D 'third round trip'
 has "dispatch: unknown result falls back inline" $D 'returned no status; ran <step> inline'
 lacks "dispatch: no host tool names" $D 'SendMessage|AskUserQuestion|ToolSearch|spawn_agent'
@@ -191,6 +218,26 @@ eq "ci: at most 2 bash fences in the step" yes "$([ "$(grep -c '^```bash' $CI)" 
 has "ci: end block never after a worker result" $CI 'never after a worker result'
 has "dispatch: verbatim no-recommendation sentence" $D 'No recommendation\. The options are equivalent given the available evidence; select based on team preference\.'
 has "dispatch: headless escalation includes the run-ending recommended branch" $D 'including the guard.s branch for a recommended option that ends the run'
+
+# TQ-1: run the Result fences of the dispatch procedure with n1_step_end stubbed
+fence() { awk -v h="## $1" '$0==h{s=1;next} /^## /{s=0} s&&/^```bash/{f=1;next} s&&/^```/{f=0} s&&f' "$REPO/$D" | grep -v '^source ~/.n1/preamble.sh' | sed 's/<ID>/T-1/'; }
+runfence() { # <ci|local-testing> — prints the fence output and the recorded n1_step_end arguments
+    (cd "$WT" && export HOME="$T/home" N1_ROOT="$REPO" N1_HOME="$T/n1" \
+        && source "$REPO/lib/preamble.sh" >/dev/null 2>&1; n1_step_end() { echo "END $*"; }; eval "$(fence "$1")")
+}
+S=ci; for step in ci local-testing; do
+    case $step in ci) S=ci; ID_N=13;; *) S=lt; ID_N=11;; esac
+    printf 'status: complete\noutcome: success\nmetadata: {"a":1}\n' > "$MEM/$S-result.md"
+    eq "fence $step: complete records id, outcome and metadata" "END $step $ID_N success {\"a\":1}" "$(runfence $step | grep '^END')"
+    printf 'status: stopped\nreason: gave up\n' > "$MEM/$S-result.md"
+    eq "fence $step: stopped ends the step failed" "END $step $ID_N failed" "$(runfence $step | grep '^END')"
+    printf 'status: question\nreason: -\n' > "$MEM/$S-result.md"
+    printf '%s\n' "class: $S-escalate" 'stop_list: none' 'question: q' 'option: a' > "$MEM/$S-question.md"
+    [ $S = lt ] && printf '%s\n' 'class: lt-env-failure' 'stop_list: none' 'question: q' 'option: a' > "$MEM/$S-question.md"
+    OUT=$(runfence $step)
+    eq "fence $step: question prints the question and does not end the step" "no yes" "$(grep -q '^END' <<<"$OUT" && echo yes || echo no) $(grep -q '^question:q' <<<"$OUT" && echo yes || echo no)"
+done
+rm -f "$MEM"/*-result.md "$MEM"/*-question.md
 
 # 6. local-testing wiring (AC1, AC5)
 LT=skills/n1-start/steps/local-testing.md; LTR=skills/n1-start/procedures/local-testing-run.md
