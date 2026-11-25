@@ -22,12 +22,13 @@ events() { [ -f "$EV" ] && wc -l < "$EV" | tr -d ' ' || echo 0; }
 last() { tail -1 "$EV" | jq -r "$1"; }
 
 # fx <tier> <file count> <security_relevant|-> <blast_radius|-> [extra brainstorm.md line]
-# "-" leaves the signal out; a file count of "none" removes brainstorm.md.
+# $AFC sets analysis files_changed (default 3, "-" omits it). "-" leaves the signal out; a file count of "none" removes brainstorm.md.
 fx() {
     printf -- '---\ntier: %s\ntype: task\n---\n' "$1" > "$MEM/overview.md"
     { echo '# Analysis'; echo '<!-- n1:signals'
       [ "$3" = "-" ] || echo "security_relevant: $3"
       [ "$4" = "-" ] || echo "blast_radius: $4"
+      [ "${AFC:-3}" = "-" ] || echo "files_changed: ${AFC:-3}"
       echo '-->'; } > "$MEM/analysis.md"
     if [ "$2" = "none" ]; then rm -f "$MEM/brainstorm.md"; return; fi
     { echo '# Design'; local i; for ((i = 1; i <= $2; i++)); do echo "- lib/f$i.sh"; done
@@ -117,5 +118,24 @@ L_DEC=$(grep -n 'n1_record_decision planning-need' <<< "$FN" | head -1 | cut -d:
 if [ -n "$L_CNT" ] && [ -n "$L_DEC" ] && [ "$L_CNT" -lt "$L_DEC" ]; then ok "wiring: helper counts files before deciding"; else no "wiring: helper counts before deciding"; fi
 ARCH="$REPO_ROOT/references/architecture.md"
 if grep -qF 'planning-need' "$ARCH"; then ok "docs: architecture names planning-need event"; else no "docs: architecture names planning-need event"; fi
+
+# --- analysis files_changed guard (CR-3): missing or above 8 keeps plan ---
+AFC=9 fx standard 2 false medium; eq "files_changed 9 keeps plan" "plan" "$(route plan)"
+AFC=8 fx standard 2 false medium; eq "files_changed 8 still moves" "direct" "$(route plan)"
+AFC=- fx standard 2 false medium; eq "files_changed missing keeps plan" "plan" "$(route plan)"
+AFC=many fx standard 2 false medium; eq "files_changed non-numeric keeps plan" "plan" "$(route plan)"
+
+# --- real brainstormer template shape (agents/brainstormer.md): flag lives in the Planning Need reason line ---
+real() { # real <reason>
+    { printf '# Design: t\n\n## Selected Approach\n\nA.\n\n## Components\n\n- lib/a.sh\n- lib/b.sh\n\n## Clarifying Questions\n\nQ: x? A: y\n\n## Planning Need\n\nPlanning need: plan because %s\n' "$1"; } > "$MEM/brainstorm.md"
+}
+fx standard 1 false medium; real "ordering matters across components"
+eq "real shape, no flag in reason -> direct" "direct" "$(route plan)"
+fx standard 1 false medium; real "open questions remain about the schema"
+eq "real shape, open questions reason keeps plan" "plan" "$(route plan)"
+eq "real shape: open_questions event true" "true" "$(last '.signals.open_questions')"
+fx standard 1 false medium; real "new abstractions introduced"
+eq "real shape, new abstractions reason keeps plan" "plan" "$(route plan)"
+eq "real shape: new_abstractions event true" "true" "$(last '.signals.new_abstractions')"
 
 [ "$FAIL" -eq 0 ] && echo "ALL PASS"|| { echo "SOME FAILED"; exit 1; }

@@ -160,6 +160,10 @@ Write the selected approach to `$N1_HOME/memory/<ID>/brainstorm.md` using this s
 ## Research Findings
 
 <Web research results with citations, if any>
+
+## Planning Need
+
+Planning need: <plan|direct> because <one-line reason; name "open questions" or "new abstractions" when they apply>
 ```
 
 ### 7b. Context Update (scope change only)
