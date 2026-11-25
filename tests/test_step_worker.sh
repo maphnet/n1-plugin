@@ -168,5 +168,26 @@ has "local-testing-worker: dispatch list" $LW '^- Dispatch only local-test-plann
 has "local-testing-worker: runs the run procedure in Worker mode" $LW 'local-testing-run.md.*Worker mode'
 for c in lt-env-failure lt-fix-exhausted; do has "local-testing-worker: class $c" $LW "\`$c\`"; done
 
+# 5. Dispatch procedure and ci wiring (AC1, AC3, AC4, AC5)
+D=skills/n1-start/procedures/step-worker-dispatch.md; CI=skills/n1-start/steps/ci.md
+has "dispatch: ci result ends the step" $D 'n1_step_end "ci" 13 "\$O"'
+has "dispatch: lt result ends the step" $D 'n1_step_end "local-testing" 11 "\$O"'
+has "dispatch: question parsed" $D 'n1_sw_question'
+has "dispatch: resume same worker with the answer" $D 'answer: <n> <text>'
+has "dispatch: resume via host message mechanism" $D 'host message mechanism'
+has "dispatch: foreground wait" $D 'Wait Contract'
+has "dispatch: headless guard applied in the orchestrator" $D 'N1_HEADLESS=1.*§ Headless Guard'
+has "dispatch: lt cap uses the Autonomy Gate" $D 'lt-fix-exhausted.*§ Autonomy Gate'
+has "dispatch: Recommended label only from the file" $D '\(Recommended\)` only on the option'
+has "dispatch: round-trip cap" $D 'third round trip'
+has "dispatch: unknown result falls back inline" $D 'returned no status; ran <step> inline'
+lacks "dispatch: no host tool names" $D 'SendMessage|AskUserQuestion|ToolSearch|spawn_agent'
+has "ci: entry in begin fence" $CI 'n1_sw_entry ci "\$PR"'
+has "ci: dispatch reference" $CI 'procedures/step-worker-dispatch.md'
+has "ci: inline fallback keeps n1-ci" $CI 'n1:n1-ci'
+has "ci: no-pr goes inline" $CI 'ci-worker:no-pr'
+has "ci: prMode skip guard kept" $CI '\*\*If `prMode` is `"skip"`\*\*'
+eq "ci: at most 2 bash fences in the step" yes "$([ "$(grep -c '^```bash' $CI)" -le 2 ] && echo yes || echo no)"
+
 # --- end of checks ---
 exit "$FAIL"
