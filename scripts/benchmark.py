@@ -1141,14 +1141,42 @@ def _stat(vals):
             "ci": list(bootstrap_ci(vals))}
 
 
+def _completed(c) -> bool:
+    """N1-646: the run finished its ticket (PR/investigation, or a legitimate local merge)."""
+    return bool(c.get("eligible")) or c.get("final_outcome") == "pr_skipped"
+
+
+def _restart_run_ids(caches) -> set:
+    """N1-646: non-completed runs whose (project, ticket_id) has a completed run started strictly later.
+    A completed run is never a restart; a run without project, ticket or started_at never is either.
+    Only the caches passed in are seen: the merged-bucket aggregate call in main() receives non-legacy runs only,
+    so a restart whose completing run sits in the legacy partition stays counted as an abandon (accepted ceiling)."""
+    def key(c):
+        return (c.get("project"), c.get("ticket_id"))
+    last_done = {}
+    for c in caches:
+        k = key(c)
+        if k[0] and k[1] and c.get("started_at") and _completed(c):
+            last_done[k] = max(last_done.get(k, ""), c["started_at"])
+    return {c["run_id"] for c in caches
+            if not _completed(c) and c.get("started_at") and key(c) in last_done
+            and c["started_at"] < last_done[key(c)]}
+
+
 def aggregate(caches, by: str, keyfn=None) -> dict:
     keyfn = keyfn or (lambda c: group_key(c, by))
+    caches = list(caches)
+    restarts = _restart_run_ids(caches)  # over all caches: a restart may finish in another partition
     groups = {}
     for c in caches:
         groups.setdefault(keyfn(c), []).append(c)
     out = {}
     for key, members in groups.items():
         eligible = [c for c in members if c.get("eligible")]
+        n_pr_skipped = sum(1 for c in members if not c.get("eligible") and c.get("final_outcome") == "pr_skipped")
+        n_restarts = sum(1 for c in members if c.get("run_id") in restarts)
+        n_abandoned = len(members) - len(eligible) - n_pr_skipped - n_restarts
+        ar_denom = len(members) - n_pr_skipped - n_restarts
         metrics = {m.name: _stat([c["metrics"].get(m.name) for c in eligible]) for m in METRICS}
         cell_vals = {}
         for c in eligible:
@@ -1186,13 +1214,15 @@ def aggregate(caches, by: str, keyfn=None) -> dict:
         out[key] = {
             "n_runs": len(eligible), "n_all": len(members),
             "n_incomplete": len(members) - len(eligible),
+            "n_pr_skipped": n_pr_skipped, "n_restarts": n_restarts, "n_abandoned": n_abandoned,
             "n_unlinked": n_unlinked,
             "n_inferred": sum(1 for c in eligible if c.get("outcome_inferred")),
             "cells": {k: _stat(v) for k, v in cell_vals.items()},
             "quality_coverage": quality_coverage,
             "sufficient": len(eligible) >= MIN_SAMPLE,
             "metrics": metrics,
-            "abandon_rate": (1 - len(eligible) / len(members)) if members else None,
+            # N1-646: true abandons only; pr_skipped runs and restarts are excluded from both sides.
+            "abandon_rate": (n_abandoned / ar_denom) if ar_denom else None,
             "run_ids": sorted(c["run_id"] for c in eligible),
             "gate_activation_rates": gate_activation_rates,
             "codex_review": {
