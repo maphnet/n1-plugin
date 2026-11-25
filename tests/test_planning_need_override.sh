@@ -97,4 +97,25 @@ for tier in simple complex; do
     eq "$tier tier records no event" "$BEFORE" "$(events)"
 done
 
-[ "$FAIL" -eq 0 ] && echo "ALL PASS" || { echo "SOME FAILED"; exit 1; }
+# --- step wiring (AC4: count computed before the routing value is used) ---
+STEP="$REPO_ROOT/skills/n1-start/steps/brainstorm.md"
+ln_of() { grep -nF -- "$1" "$STEP" | head -1 | cut -d: -f1; }
+L_VERIFY=$(ln_of 'n1_verify_dependencies "$N1_HOME/memory/$ID" brainstorm.md')
+L_OVERRIDE=$(ln_of 'PLANNING_NEED=$(n1_planning_need_override "<reported planning_need>")')
+L_STEP_END=$(ln_of 'n1_step_end "brainstorm" 3 success')
+L_FRONT=$(ln_of 'n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need" "$PLANNING_NEED"')
+if [ -n "$L_OVERRIDE" ] && [ -n "$L_VERIFY" ] && [ "$L_VERIFY" -lt "$L_OVERRIDE" ]; then ok "wiring: override runs after brainstorm.md is verified"; else no "wiring: override after verify ($L_VERIFY/$L_OVERRIDE)"; fi
+if [ -n "$L_OVERRIDE" ] && [ -n "$L_STEP_END" ] && [ "$L_OVERRIDE" -lt "$L_STEP_END" ]; then ok "wiring: override before step-end metadata"; else no "wiring: override before step-end ($L_OVERRIDE/$L_STEP_END)"; fi
+if [ -n "$L_OVERRIDE" ] && [ -n "$L_FRONT" ] && [ "$L_OVERRIDE" -lt "$L_FRONT" ]; then ok "wiring: override before planning_need frontmatter"; else no "wiring: override before frontmatter ($L_OVERRIDE/$L_FRONT)"; fi
+if grep -qF 'PLANNING_NEED="<reported planning_need>"' "$STEP"; then no "wiring: raw reported route no longer assigned directly"; else ok "wiring: raw reported route no longer assigned directly"; fi
+if grep -qF 'n1_brainstorm_file_count "$N1_HOME/memory/$ID/brainstorm.md"' "$STEP"; then ok "wiring: User Gate uses shared count helper"; else no "wiring: User Gate uses shared count helper"; fi
+if grep -qF "grep -oE '[a-zA-Z0-9_/.-]+" "$STEP"; then no "wiring: inline count regex removed from step text"; else ok "wiring: inline count regex removed from step text"; fi
+if grep -qF 'brainstormer_route' "$STEP"; then ok "wiring: step-end metadata carries brainstormer route"; else no "wiring: step-end metadata carries brainstormer route"; fi
+FN=$(sed -n '/^n1_planning_need_override()/,/^}/p' "$REPO_ROOT/lib/analysis.sh")
+L_CNT=$(grep -n 'n1_brainstorm_file_count' <<< "$FN" | head -1 | cut -d: -f1)
+L_DEC=$(grep -n 'n1_record_decision planning-need' <<< "$FN" | head -1 | cut -d: -f1)
+if [ -n "$L_CNT" ] && [ -n "$L_DEC" ] && [ "$L_CNT" -lt "$L_DEC" ]; then ok "wiring: helper counts files before deciding"; else no "wiring: helper counts before deciding"; fi
+ARCH="$REPO_ROOT/references/architecture.md"
+if grep -qF 'planning-need' "$ARCH"; then ok "docs: architecture names planning-need event"; else no "docs: architecture names planning-need event"; fi
+
+[ "$FAIL" -eq 0 ] && echo "ALL PASS"|| { echo "SOME FAILED"; exit 1; }

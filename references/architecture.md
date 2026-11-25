@@ -82,7 +82,7 @@ Each step reads ONLY its declared dependencies:
 |------|-------|--------|
 | ticket | — | `ticket.md` (+ `<!-- n1:signals -->` block: `task_type`, `has_acceptance_criteria`, `description_quality`). For tracker tickets: parent context (`### Parent Context`) appended when the ticket has a parent; current ticket's non-parent links (`### Linked Tickets`) appended when qualifying links exist (blockers, relates-to, depends-on). The analyst also writes `linked-tickets.md` next to it (same table, `none` or `unknown` marker; analyst-owned, no tracker text); the ticket-step blocker check (CALLER=start) reuses it only when it is exactly one table or one `none` line, otherwise it makes the live link call. |
 | analysis | `ticket.md` | `analysis.md` (+ signals: `blast_radius`, `security_relevant`, `files_changed`, `complexity_delta`, `has_bug_root_cause`, `ticket_contradictions`) |
-| brainstorm | `ticket.md`, `analysis.md`, `investigation.md` (optional) | `brainstorm.md` (+ signals: `planning_need`, `design_clarity`, `approach_count`) |
+| brainstorm | `ticket.md`, `analysis.md`, `investigation.md` (optional) | `brainstorm.md` (+ signals: `planning_need`, `design_clarity`, `approach_count`). Standard tier: `n1_planning_need_override` (`lib/analysis.sh`, N1-647) turns a brainstormer `plan` into `direct` when the brainstorm-time file count is 1-4, analysis `security_relevant` is `false`, `blast_radius` is `low`/`medium`, and brainstorm.md has no open-question/new-abstraction heading or `n1:unknown` marker (missing signals keep `plan`); it records a `planning-need` decision event (result `true` = moved) with the count, threshold, guard values, brainstormer route and final route |
 | plan | `ticket.md`, `brainstorm.md`, `analysis.md` | `plan.md` |
 | plan-review | `ticket.md`, `analysis.md`, `brainstorm.md`, `plan.md` | `plan.md` (in-place fixes) |
 | implementation | `brainstorm.md`, `plan.md`, `analysis.md` | `implementation.md` (+ signals: `diff_surface`, `lines_changed`, `new_files_count`) |
@@ -153,7 +153,7 @@ Steps emit runtime signals stored as `<!-- n1:signals -->` blocks in memory file
 |------|---------|-----------|
 | ticket | `task_type`, `has_acceptance_criteria`, `description_quality` | ticket.md |
 | analysis | `blast_radius`, `security_relevant`, `files_changed`, `complexity_delta`, `has_bug_root_cause`, `self_resolved`, `ticket_contradictions` | analysis.md |
-| brainstorm | `planning_need`, `design_clarity`, `approach_count`, `files_changed`, `blast_radius` | brainstorm.md |
+| brainstorm | `planning_need` (after the standard-tier `planning-need` override), `design_clarity`, `approach_count`, `files_changed`, `blast_radius` | brainstorm.md |
 | implementation | `diff_surface`, `lines_changed`, `new_files_count` | implementation.md |
 | qa | `tests_added`, `tests_broken`, `coverage_change` | qa.md |
 | investigation-deliverable | `confidence`, `implementable`, `unknowns_resolved`, `findings_count`, `recommendations_count`, `self_resolved`, `validation_confidence` | investigation.md |
