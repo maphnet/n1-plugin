@@ -19,7 +19,7 @@ Carry `N1_SESSION_ID` and `N1_RUN_ID` from the session routing context and `n1_r
 |-------------|-----------|-----------------|
 | 1 | `ticket` | `{}`; `{"skip_reason":"investigation_moved"}` on skip |
 | 2 | `analysis` | `{}`; cross_repo fields when `relatedProjects.enabled` (analysis.md) |
-| 3 | `brainstorm` | `{"planning_need":"plan\|direct"}` |
+| 3 | `brainstorm` | `{"planning_need":"plan\|direct","brainstormer_route":"plan\|direct"}` |
 | 4 | `plan` | `{}` |
 | 5 | `plan-review` | `{"verdict":"CLEAN\|FIXED"}` |
 | 7 | `implementation` | `{}` |
