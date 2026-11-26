@@ -17,7 +17,7 @@ No recommendation. The options are equivalent given the available evidence; sele
 1 — Continue: keep the ticket's direction; record each contradicted claim as an Assumption with its risk
 2 — Redirect: end refine without writing anything; edit the ticket, then re-run
 
-List mode with a `(premise)` claim: ask nothing; the ticket was a drop candidate on the `00-list.md` Step 7 triage screen and the user kept it, so record the claim as an Assumption (Continue) and go on.
+List mode with a `(premise)` claim: ask nothing; when the ticket was not dropped on the `00-list.md` Step 7 triage screen, record the claim as an Assumption (Continue) and go on.
 
 Every `unable to verify` line (match case-insensitively) in `### Ticket Validation` (any count, no gate): show it to the user as `Unverified: <claim>` and record it as an Assumption whose If-wrong names the claim; no new prompt.
 

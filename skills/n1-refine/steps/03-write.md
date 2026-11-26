@@ -84,7 +84,7 @@ Next: /n1:n1-start <ID>            (investigation-typed ticket: /n1:n1-start <ID
 Or queue it: add it to a /n1:n1-queue batch (tag or story), then run --plan.
 ```
 
-List mode (`00-list.md`): print only the `Refined` line and, when they apply, the `Actions` and `Listed, not run` lines; no Re-run, Next or queue line and no Sub-task offer (`00-list.md` Step 6 reports the Sub-task keys); then return to `00-list.md` Step 9.
+List mode (`00-list.md`): print only the `Refined` line and, when they apply, the `Actions` and `Listed, not run` lines; no Re-run, Next or queue line and no Sub-task offer (`00-list.md` Step 10 reports the Sub-task keys); then return to `00-list.md` Step 9.
 
 **Sub-task offer:** after the handoff, when `ISSUE_TYPE` is `story` and `CHILDREN` holds at least one key, run the check below, then ask the user (format: `<N1_ROOT>/references/question-format.md`). No offer when `CHILDREN` is empty or `unknown`, or when the check prints `queue-run:yes` or `headless:yes` (queue and headless runs end here).
 
