@@ -152,7 +152,7 @@ source ~/.n1/preamble.sh
 No marker: ask the user (format: `<N1_ROOT>/references/question-format.md`) "Plan a queue for these <N> refined tickets now?" with the list for 2 to 5 refined tickets (exactly 5 counts here), or the list for more than 5:
 
 ```
-1 — Plan now (Recommended): invoke skill n1-queue with "<REFINED IDs> --plan"; <N> refines peaked at 235K-265K context against an autocompact trigger near 287K (ticket N1-651, audit 2026-11-26)
+1 — Plan now (Recommended): invoke skill n1-queue with "<REFINED IDs> --plan"; list refines of 5-8 tickets peaked at 235K-265K context against an autocompact trigger near 287K; 2-5 tickets stay below that peak (ticket N1-651, audit 2026-11-26)
 2 — Later: print /n1:n1-queue <REFINED IDs> --plan for a fresh session; works when the session should end here
 ```
 
