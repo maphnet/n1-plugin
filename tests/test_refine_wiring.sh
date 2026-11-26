@@ -347,9 +347,9 @@ has "N1-516: closed blockers still order" 'Status is ignored' "$Q"
 has "N1-516: listed parent orders before its child" 'A listed parent is a blocker of `T`' "$Q"
 has "N1-516: edges only among listed tickets" 'an edge is kept only when both ends are in `IDS`' "$Q"
 has "N1-516: cycle lets the user pick the order" '1 — Keep listed order' "$Q"
-before "N1-607: order shown before the first refine" '## Step 4: Order' '## Step 5: Refine Each Ticket' "$Q"
+before "N1-607: order shown before the first refine" '## Step 4: Order' '## Step 5: Analyze All' "$Q"
 has "N1-516: INVESTIGATE reset per ticket" 'reset `INVESTIGATE` to the Input flag value' "$Q"
-has "N1-516: per-ticket held state cleared between tickets" 'clear every value those files hold for one ticket (`DESC_ORIG`, `CHILDREN`, `PARENT`, `GRANDPARENT`, `SIBLINGS`, `LINKS`, `CONVERT`, `PROPOSED`, `DUP_LINKS`); only `IDS`, `AFTER`, `ORDER`, `PRIOR` and `OUTCOMES` carry over' "$Q"
+has "N1-650: per-ticket values held per ticket" 'Hold the per-ticket values those files set (`DESC_ORIG`, `CHILDREN`, `PARENT`, `GRANDPARENT`, `SIBLINGS`, `LINKS`, `CONVERT`, `PROPOSED`, `DUP_LINKS`, `DUP_HITS`, `INVESTIGATE`, `ISSUE_TYPE`) keyed by ticket' "$Q"
 has "N1-516: a stopped ticket does not stop the rest" 'does not stop the rest' "$Q"
 has "N1-516: report has an outcome per ticket" '<ID>: refined (description|comment) | skipped: <reason> | failed: <reason>' "$Q"
 has "N1-516: architecture names list mode" 'refines a list of tickets in dependency order' references/architecture.md
@@ -497,5 +497,52 @@ has "N1-607: architecture names the auto-decided marker" 'auto-decides clearly-r
 has "N1-607: architecture says a lone conversion is not asked" 'a conversion alone is listed, not asked' references/architecture.md
 lacks "N1-607: architecture drops the order confirmation" 'the user confirms the order' references/architecture.md
 lacks "N1-607: architecture drops the conversion confirmation" 'confirms the proposed children and conversion' references/architecture.md
+
+# --- N1-650: list mode analyzes all first, triages stale tickets, asks shared questions once
+# Catches: a question asked before every analysis finished; a wave analyzed one SA at a time; a stale ticket
+# dropped without confirmation, without evidence or in a headless run; a failed drop removing the ticket; a
+# shared point asked once per ticket; a per-ticket override list in list mode; dropped tickets missing from the report.
+Q=skills/n1-refine/steps/00-list.md
+has "N1-650: analysis finishes before the first question" "every ticket's analysis finishes before the first question of the run" "$Q"
+has "N1-650: one SA per wave ticket, concurrently" 'dispatch persona `solution-architect` once per ticket of the wave, all concurrently' "$Q"
+has "N1-650: a wave finishes before the next" 'A wave finishes before the next one starts' "$Q"
+before "N1-650: analyze before resolve" '## Step 5: Analyze All' '## Step 6: Resolve' "$Q"
+before "N1-650: resolve before triage" '## Step 6: Resolve' '## Step 7: Triage' "$Q"
+before "N1-650: triage before shared questions" '## Step 7: Triage' '## Step 8: Shared Questions' "$Q"
+before "N1-650: shared questions before writes" '## Step 8: Shared Questions' '## Step 9: Write Each Ticket' "$Q"
+has "N1-650: main session reads only the verdict line" "grep -m1 '^stale: '" "$Q"
+has "N1-650: missing verdict is not stale" 'echo "stale: no - verdict missing"' "$Q"
+has "N1-650: triage row for a drop candidate" '| <KEY> | drop candidate | <reason> (<file:line or PR>) |' "$Q"
+has "N1-650: triage row for a simple ticket" '| <KEY> | simple |' "$Q"
+has "N1-650: triage row for questions" '| <KEY> | <N> questions |' "$Q"
+has "N1-650: triage row for auto-decided points" '| <KEY> | <M> auto-decided |' "$Q"
+has "N1-650: drop candidate line" '`<KEY>: <reason> (<file:line or PR>)`' "$Q"
+has "N1-650: drop question is multi-select" 'Drop Q: which tickets should leave the run as obsolete? (select any)' "$Q"
+has "N1-650: drop question has a keep-all option" 'None: keep every ticket in the run; works when' "$Q"
+has "N1-650: nothing dropped without a selection" 'Nothing is dropped without a selection' "$Q"
+has "N1-650: headless drops nothing" 'print the table, ask nothing, drop nothing' "$Q"
+has "N1-650: transition name order" "\`Won't Do\`, \`Rejected\`, \`Declined\`, \`Obsolete\`, \`Won't Fix\`, \`Closed\`" "$Q"
+line_has "N1-650: comment only after a successful move" 'Only after a successful move' 'ticket obsolete: <reason> (<evidence>)' "$Q"
+has "N1-650: failed drop keeps the ticket" 'print "Could not drop <KEY>: <error>" and the ticket stays in the run' "$Q"
+has "N1-650: no status op drops nothing" 'No status op configured; nothing dropped.' "$Q"
+has "N1-650: shared point tagged with all keys" 'Q<n> [<KEY1>, <KEY2>] <topic>:' "$Q"
+has "N1-650: shared answer recorded per ticket" 'Why: decided with <KEYS>' "$Q"
+has "N1-650: shared questions at most 4 per message" 'Ask at most 4 questions per message' "$Q"
+has "N1-650: one override list across tickets" 'O<n> — <KEY> D<n> <topic>:' "$Q"
+has "N1-650: no per-ticket override list in list mode" 'This is the only override list of the run' "$Q"
+has "N1-650: report names dropped tickets" '| failed: <reason> | dropped: <reason>' "$Q"
+lacks "N1-650: list step holds no PRIOR" 'PRIOR' "$Q"
+
+# Catches: the landed-key scan matching an ID that is only mentioned mid-line, or missing a squash-merge title.
+R650=$PWD
+SNIP650=$(awk '/^```bash/{b=1;buf="";next} b&&/^```/{b=0; if (buf ~ /n1_release_ticket_ids/) {printf "%s", buf; exit}; next} b{buf=buf $0 "\n"}' "$Q" | grep -v 'preamble.sh' | sed "s|<T1>|N1-5|; s|<T2>|N1-7|")
+G650=$(mktemp -d -p "$PT")
+git -C "$G650" init -q
+for m650 in '[N1-5] Done thing (#1)' 'Mention N1-7 later in the line' 'N1-8: other ticket'; do
+    git -C "$G650" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "$m650"
+done
+OUT650=$(cd "$G650" && PREFIX=N1 N1_ROOT="$R650" bash -c "source \"\$N1_ROOT/lib/config.sh\"; $SNIP650" 2>/dev/null)
+[ "$OUT650" = "landed: N1-5" ] && echo "PASS: N1-650: landed scan keeps only listed keys named by git log" \
+    || { echo "FAIL: N1-650: landed scan got: $OUT650"; FAIL=1; }
 
 exit $FAIL
