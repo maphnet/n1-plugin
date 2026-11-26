@@ -1,6 +1,6 @@
 <!-- Purpose: contradiction gate, tiering, simple-ticket exit, question batches, scope classification, readiness verdict (Steps 1-5). -->
 
-List mode (`00-list.md`): a **STOP**, "end refine" or "refine ends here" in this file ends only the current ticket; `00-list.md` Step 5 records the outcome and goes on with the next ticket.
+List mode (`00-list.md`): a **STOP**, "end refine" or "refine ends here" in this file ends only the current ticket; `00-list.md` records the outcome and goes on with the other tickets.
 
 ## Step 1: Contradiction Gate
 
@@ -17,7 +17,7 @@ No recommendation. The options are equivalent given the available evidence; sele
 1 — Continue: keep the ticket's direction; record each contradicted claim as an Assumption with its risk
 2 — Redirect: end refine without writing anything; edit the ticket, then re-run
 
-List mode with a `(premise)` claim: ask nothing; record it as an Assumption and the outcome is `skipped: premise removed (stale-ticket check, N1-650)`.
+List mode with a `(premise)` claim: ask nothing; when the ticket was not dropped on the `00-list.md` Step 7 triage screen, record the claim as an Assumption (Continue) and go on.
 
 Every `unable to verify` line (match case-insensitively) in `### Ticket Validation` (any count, no gate): show it to the user as `Unverified: <claim>` and record it as an Assumption whose If-wrong names the claim; no new prompt.
 
@@ -31,7 +31,7 @@ Collect open points: `### Decision Points` in analysis.md, `### Ambiguities` in 
 
 Re-run: Decisions from the existing block stay unless the user changes them; its Assumptions are re-tiered with the rest.
 
-List mode with non-empty `PRIOR` (`00-list.md` Step 5): a `PRIOR` Decision that bears on this ticket is carried over as a Decision (`Why: decided in <KEY>`). When it conflicts with this ticket's own Decisions, its text or the code, it becomes an A-tier point for Step 3 that shows both sides with their sources; a conflict is never overridden silently in either direction.
+List mode (`00-list.md`): Steps 1, 2 and 2b run in `00-list.md` Step 6 and ask nothing. The Step 3 questions, the Step 4 Actions question and the Override list below are asked once for all tickets in `00-list.md` Step 8; no ticket shows them on its own.
 
 **Override list:** once per ticket, after Step 2 resolved all points and when at least one was auto-decided, show `Auto-decided:` then one line per point: `O1 — D<n> <topic>: <chosen> (<file:line or ticket statement>)`. The user replies `O<n> <new choice>` to change it, or "ok". A changed point replaces the Decision (marker removed, Why says `chosen by user`) and Rejected is updated; a choice outside the point's options is recorded as the user's Decision with the old choice under Rejected. A reply that is neither: ask once to restate. Headless (`N1_HEADLESS=1`) or queue run: print the list, wait for nothing, treated as "ok". Show it in the same message as the first Step 3 batch; when Step 3 has no batch, show it alone as its own message and wait for the reply (headless and queue: print and continue). Show it before `03-write.md` writes the block.
 
@@ -50,7 +50,7 @@ case "$F" in ''|*[!0-9]*) F=99;; esac
 Exit only when all hold (same thresholds as the n1-start simple path):
 - The output is `signals=simple`; a missing or unparseable signal prints `signals=not-simple` and means no exit.
 - `ISSUE_TYPE` is `task` or `bug`, and `CHILDREN` is empty (not `unknown`).
-- Step 1 recorded no contradicted claim, Step 2 found no A-tier point (asked or auto-decided), and no `PRIOR` Decision was carried over.
+- Step 1 recorded no contradicted claim, and Step 2 found no A-tier point (asked or auto-decided).
 - The Step 4 classification, run now without its Actions question, leaves `PROPOSED` and `CONVERT` empty.
 - This is not a re-run (`01-fetch.md` Step 2), and `INVESTIGATE` is not `true`.
 
