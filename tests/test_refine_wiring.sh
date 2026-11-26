@@ -419,9 +419,9 @@ lacks "N1-557: architecture row has no picked actions" 'only for actions the use
 # Catches: a clearly-right A point still asked; an auto-decided Decision indistinguishable from a human answer;
 # stop-list or preference points auto-decided.
 L=skills/n1-refine/steps/02-loop.md
-line_has "N1-607: auto-decide uses the question-format test" '"which one is right?"' 'question-format.md' "$L"
+line_has "N1-649: auto-decide needs a citation" 'file:line or a ticket statement' 'not on the stop-list' "$L"
 has "N1-607: auto-decided Decision carries the marker" 'Why: (auto-decided) <file:line or ticket statement>. Rejected: <alt>.' "$L"
-line_has "N1-607: auto-decide needs no other option to hold" '"which one is right?"' "no other option's works-when condition holds" "$L"
+lacks "N1-649: works-when guard dropped from auto-decide" "no other option's works-when condition holds" "$L"
 line_has "N1-607: stop-list topics always asked" '**Always ask**' 'alwaysAskOn' "$L"
 line_has "N1-607: preference points always asked" '**Always ask**' 'intent, preference or cost the code cannot show' "$L"
 has "N1-607: doubt means ask" 'When in doubt, ask.' "$L"
@@ -431,7 +431,30 @@ has "N1-607: doubt means ask" 'When in doubt, ask.' "$L"
 before "N1-607: simple exit sits before the questions" '## Step 2b: Simple-Ticket Exit' '## Step 3: Question Batches' "$L"
 has "N1-607: exit writes nothing and points to n1-start" 'Simple ticket: nothing to settle. Refine ends here and writes nothing to the ticket. Run /n1:n1-start <ID>.' "$L"
 line_has "N1-607: exit only for Task or Bug with known empty children" '`ISSUE_TYPE` is `task` or `bug`' 'not `unknown`' "$L"
-line_has "N1-607: exit needs no A point and no contradiction" 'no contradicted claim' 'no A-tier point (asked or auto-decided)' "$L"
+line_has "N1-607: exit needs no A point and no contradiction" 'recorded no contradicted claim' 'no A-tier point (asked or auto-decided)' "$L"
+
+# --- N1-649: non-blocking contradiction gate, override list
+# Catches: a contradicted claim that still blocks; premise claims not asked; SA without the (premise) tag or
+# recommendations; auto-decisions never shown; override list after the questions or block write.
+has "N1-649: contradicted claims are shown" 'Contradicted: <claim>' "$L"
+line_has "N1-649: contradicted claims become Assumptions" 'Contradicted: <claim>' 'Assumption' "$L"
+line_has "N1-649: only premise claims ask Continue" '(premise)' 'ask the user' "$L"
+lacks "N1-649: no unconditional ask on contradictions" 'Above 0: list the Contradicted claims from `### Ticket Validation`, then ask' "$L"
+has "N1-649: list mode skips a premise ticket" 'skipped: premise removed' "$L"
+line_has "N1-649: SA tags premise claims" 'Dispatch persona `solution-architect`' '`(premise)`' "$F"
+line_has "N1-649: SA must recommend" 'Dispatch persona `solution-architect`' 'must carry a recommended option' "$F"
+line_has "N1-649: no-recommendation only on equal cost" 'Dispatch persona `solution-architect`' 'equal implementation cost and risk' "$F"
+has "N1-649: override list shown" 'Auto-decided:' "$L"
+line_has "N1-649: override reply is a number or ok" 'Auto-decided:' '"ok"' "$L"
+has "N1-649: headless override list never waits" 'wait for nothing, treated as "ok"' "$L"
+has "N1-649: override list own message when no Step 3 batch" 'when Step 3 has no batch, show it alone as its own message' "$L"
+has "N1-649: override lines use O<n> prefix" 'O<n> <new choice>' "$L"
+has "N1-649: question template has plain-language line" 'What it is:' "$L"
+line_has "N1-649: stop-list still always asked" '**Always ask**' 'alwaysAskOn' "$L"
+lacks "N1-649: write no longer keys on Continue alone" "If the user chose to keep the ticket's direction (Continue)" "$W"
+has "N1-649: write keeps non-premise direction" 'contradicted but not a premise' "$W"
+has "N1-649: override changes apply before block is built" 'Override-list changes (`02-loop.md`) are applied before the block is built.' "$W"
+line_has "N1-649: override replaces the Decision" 'A changed point replaces the Decision' 'chosen by user' "$L"
 has "N1-607: exit needs empty classification" 'leaves `PROPOSED` and `CONVERT` empty' "$L"
 line_has "N1-607: exit skipped on re-run and investigate" 'not a re-run' '`INVESTIGATE`' "$L"
 has "N1-607: unverified claims shown on exit" 'Unverified, not recorded: <claim>' "$L"
