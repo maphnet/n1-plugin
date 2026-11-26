@@ -355,20 +355,20 @@ has "N1-516: report has an outcome per ticket" '<ID>: refined (description|comme
 has "N1-516: architecture names list mode" 'refines a list of tickets in dependency order' references/architecture.md
 
 # --- N1-516: hand-off and list-mode scoping (Steps 1-3)
-# Catches: a later ticket's SA or loop never seeing earlier Decisions; a conflicting earlier Decision silently
-# winning or losing; PRIOR fed from a failed write; a nested Sub-task refine breaking the outer list; a STOP
-# inside one ticket ending the whole list.
+# Catches: a nested Sub-task refine breaking the outer list; a STOP inside one ticket ending the whole list;
+# the SA in list mode missing the stale verdict or its evidence inputs; a list-mode duplicate check prompting.
 F=skills/n1-refine/steps/01-fetch.md
 L=skills/n1-refine/steps/02-loop.md
 W=skills/n1-refine/steps/03-write.md
 for f516 in "$F" "$L" "$W"; do
     has "N1-516: list-mode stop scope in $(basename "$f516")" 'or "refine ends here" in this file ends only the current ticket' "$f516"
 done
-line_has "N1-516: SA receives PRIOR" 'Dispatch persona `solution-architect`' 'Earlier refined tickets in this list:' "$F"
-line_has "N1-516: SA treats PRIOR Decisions as resolved" 'Dispatch persona `solution-architect`' 'Decisions under `Earlier refined tickets in this list:` are resolved' "$F"
-line_has "N1-516: loop carries PRIOR Decisions over" '`PRIOR` Decision that bears on this ticket' 'Why: decided in <KEY>' "$L"
-line_has "N1-516: loop raises a conflict as a question" '`PRIOR`' 'never overridden silently' "$L"
-line_has "N1-516: write appends to PRIOR only after success" 'append to `PRIOR`' 'A failed write appends nothing' "$W"
+line_has "N1-650: SA writes a stale verdict in list mode" 'Dispatch persona `solution-architect`' '### Stale Verdict' "$F"
+line_has "N1-650: age never makes a ticket stale" 'Dispatch persona `solution-architect`' 'Age alone never makes a ticket stale' "$F"
+line_has "N1-650: SA gets duplicate hits and landed evidence" 'Duplicate hits: <DUP_HITS>' 'Landed in git log: yes' "$F"
+has "N1-650: list-mode duplicate check never prompts" 'List mode (`00-list.md`): run it as if `HEADLESS=1`' "$F"
+has "N1-650: loop defers questions to the list step" 'asked once for all tickets in `00-list.md` Step 8' "$L"
+line_has "N1-650: signal block reads that ticket's own SA output" 'Dispatch persona `solution-architect`' "that ticket's own solution-architect dispatch" "$F"
 line_has "N1-516: list handoff suppresses the Sub-task offer" 'List mode (`00-list.md`): print only' 'no Sub-task offer' "$W"
 
 # --- N1-557: no preview, no draft files; write right after the loop
@@ -440,7 +440,7 @@ has "N1-649: contradicted claims are shown" 'Contradicted: <claim>' "$L"
 line_has "N1-649: contradicted claims become Assumptions" 'Contradicted: <claim>' 'Assumption' "$L"
 line_has "N1-649: only premise claims ask Continue" '(premise)' 'ask the user' "$L"
 lacks "N1-649: no unconditional ask on contradictions" 'Above 0: list the Contradicted claims from `### Ticket Validation`, then ask' "$L"
-has "N1-649: list mode skips a premise ticket" 'skipped: premise removed' "$L"
+has "N1-650: list mode keeps a premise ticket the user did not drop" 'the user kept it, so record the claim as an Assumption (Continue)' "$L"
 line_has "N1-649: SA tags premise claims" 'Dispatch persona `solution-architect`' '`(premise)`' "$F"
 line_has "N1-649: SA must recommend" 'Dispatch persona `solution-architect`' 'must carry a recommended option' "$F"
 line_has "N1-649: no-recommendation only on equal cost" 'Dispatch persona `solution-architect`' 'equal implementation cost and risk' "$F"
@@ -544,5 +544,12 @@ done
 OUT650=$(cd "$G650" && PREFIX=N1 N1_ROOT="$R650" bash -c "source \"\$N1_ROOT/lib/config.sh\"; $SNIP650" 2>/dev/null)
 [ "$OUT650" = "landed: N1-5" ] && echo "PASS: N1-650: landed scan keeps only listed keys named by git log" \
     || { echo "FAIL: N1-650: landed scan got: $OUT650"; FAIL=1; }
+
+W=skills/n1-refine/steps/03-write.md
+has "N1-650: write records shared Decisions" 'Why: decided with <KEYS>' "$W"
+has "N1-650: list handoff returns to the write step" 'then return to `00-list.md` Step 9' "$W"
+lacks "N1-650: PRIOR removed from refine" 'PRIOR' skills/n1-refine
+lacks "N1-650: no list step number 5 pointer left" '`00-list.md` Step 5' skills/n1-refine
+has "N1-650: architecture names stale triage" 'stale tickets offered for drop' references/architecture.md
 
 exit $FAIL

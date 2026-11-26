@@ -1,11 +1,11 @@
 <!-- Purpose: draft block, show it with actions, write or comment, listed conversion, children, handoff (Steps 1-4). -->
 
-List mode (`00-list.md`): a **STOP**, "end refine" or "refine ends here" in this file ends only the current ticket; `00-list.md` Step 5 records the outcome and goes on with the next ticket.
+List mode (`00-list.md`): a **STOP**, "end refine" or "refine ends here" in this file ends only the current ticket; `00-list.md` records the outcome and goes on with the other tickets.
 
 ## Step 1: Draft Block
 
 Build the block from the Step 2-5 results of `02-loop.md`. Plain bullets for both trackers (Jira strips checkbox brackets; see `references/description-quality.md` § Jira formatting rule). An empty section holds `- None`.
-Never restate a contradicted or unverified ticket claim about current behavior as fact in Scope, Decisions or Acceptance Criteria; use the evidence-backed version, and record the claim as an Assumption per `02-loop.md` Step 1. Requirements for behavior not yet implemented stay in Acceptance Criteria; they are not claims. Keep the ticket's direction as a Decision when the claim was contradicted but not a premise, or the user chose Continue; record the contradicting evidence as an Assumption. Override-list changes (`02-loop.md`) are applied before the block is built.
+Never restate a contradicted or unverified ticket claim about current behavior as fact in Scope, Decisions or Acceptance Criteria; use the evidence-backed version, and record the claim as an Assumption per `02-loop.md` Step 1. Requirements for behavior not yet implemented stay in Acceptance Criteria; they are not claims. Keep the ticket's direction as a Decision when the claim was contradicted but not a premise, or the user chose Continue; record the contradicting evidence as an Assumption. Override-list changes (`02-loop.md`) are applied before the block is built. List mode: a Decision answered once for several tickets (`00-list.md` Step 8) keeps `Why: decided with <KEYS>. <reason>`, naming the other tickets that shared the question.
 
 ```
 *Refined by N1*
@@ -41,8 +41,6 @@ Print the verdict line from `02-loop.md` Step 5, then the block, then the Action
 **Write:** Re-fetch the ticket immediately before the write (`mcp__<TRACKER_MCP>__<READ_OP>`); never overwrite blindly. If the description differs from `DESC_ORIG`, set `DESC_ORIG` to the fresh description, print what changed, and re-fetch once more; if that second re-fetch differs again, write nothing, print the block and say "Description changed again; re-run /n1:n1-refine <ID>." **STOP.** Use the Step 1 block exactly, both marker lines included. Build the new description from the latest fetched description: if it has a line `*Refined by N1*` (match regardless of `*` or `_` emphasis, whole line), replace exactly the lines from it through the next `End of Refined by N1` line (same emphasis rule), inclusive, and nothing else. A block with no end line (written before the end line existed): replace from the marker through the last contiguous `- ` line directly under its `### Assumptions` heading, stopping at the first blank line or heading; text after that belongs to people. Otherwise append a blank line and the block. Print the full old and new description as a diff before the call; this is output, not a question. Then make one `mcp__<TRACKER_MCP>__<EDIT_OP>` call carrying only the description (Jira: `cloudId`, `issueIdOrKey`, `description`; YouTrack: `issueId`, `description`) as structured tool arguments, never through a shell string. On failure: print the error, then post the block with **Comment** without asking; with `COMMENT_OP` empty, print the block and the Actions and say "No tracker write available; paste it yourself." **STOP.**
 
 **Comment:** one `mcp__<TRACKER_MCP>__<COMMENT_OP>` call with the Step 1 block as the comment body, passed as a structured tool argument. A comment is never edited in place; a later re-run posts a new one. Downstream reads only the newest of the last 5 comments whose first line equals the marker (whole line, `*` or `_` emphasis), so re-run refine if later comments push it out. On failure: print the error and the block. **STOP.**
-
-**List mode** (`00-list.md`): after the Write or Comment call succeeds, append to `PRIOR` one entry: `<ID>:` followed by the block's Scope, Decisions and Assumptions lines. A failed write appends nothing.
 
 **Actions:** only with a non-empty Actions list, and only after the Write or Comment call succeeded; a failed block write runs no Actions. Run Step 3b, then Step 3c, taking `A1` and every `C<n>` from the Step 2 list. Refine never changes the ticket's status and creates no branch.
 
@@ -86,7 +84,7 @@ Next: /n1:n1-start <ID>            (investigation-typed ticket: /n1:n1-start <ID
 Or queue it: add it to a /n1:n1-queue batch (tag or story), then run --plan.
 ```
 
-List mode (`00-list.md`): print only the `Refined` line and, when they apply, the `Actions` and `Listed, not run` lines; no Re-run, Next or queue line and no Sub-task offer (`00-list.md` Step 6 reports the Sub-task keys); then return to `00-list.md` Step 5.
+List mode (`00-list.md`): print only the `Refined` line and, when they apply, the `Actions` and `Listed, not run` lines; no Re-run, Next or queue line and no Sub-task offer (`00-list.md` Step 6 reports the Sub-task keys); then return to `00-list.md` Step 9.
 
 **Sub-task offer:** after the handoff, when `ISSUE_TYPE` is `story` and `CHILDREN` holds at least one key, run the check below, then ask the user (format: `<N1_ROOT>/references/question-format.md`). No offer when `CHILDREN` is empty or `unknown`, or when the check prints `queue-run:yes` or `headless:yes` (queue and headless runs end here).
 
