@@ -50,6 +50,7 @@ pre_gate() { local BRANCH_ID="$1" PENDING_IDS="$2" SRC_D="$3" PRE_GATE_IDS=""; e
 expect "pre-gate set merges A, B, D and drops malformed IDs (D7)" $'VEL-1\nVEL-2\nVEL-3' "$(pre_gate VEL-2 $'VEL-1\n$(touch x)\nvel-9' $'VEL-3\nVEL-1')"
 
 # --- 01: D6 wording, D7 data rule, safety statements (AC4, AC5)
+check "01 warns with the init hint when links-op is empty" 'Warning: blocker check skipped (getIssueLinks not configured; run /n1:n1-init to add it).' "$R01"
 check "01 warns when the op is missing" 'Warning: blocker check skipped (getIssueLinks not available).' "$R01"
 check "01 warns when the link format is unsupported" 'Warning: blocker check skipped (<links-op> link format not supported).' "$R01"
 check "01 warns once on a call error" 'Warning: blocker check skipped (<reason>).' "$R01"
