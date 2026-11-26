@@ -1,4 +1,4 @@
-<!-- Purpose: Analysis sections 4-6, brainstorm context-contribution analysis, local testing effectiveness, output format. -->
+<!-- Purpose: Analysis sections 4-7, brainstorm context-contribution analysis, local testing effectiveness, output format. -->
 
 ## Analysis: Section 4 — Token Usage Summary
 
@@ -49,6 +49,30 @@ If question events are available in run records (`questions` array non-empty):
 For each project with >= 20 runs, compute a rolling 10-run average of questions/run. If the trend is monotonically decreasing over the last 3 data points AND the current average is below 1.0, report: "Project <name> has earned autonomy -- consider tightening escalation thresholds."
 
 If no question events are found across any runs, report: "No question telemetry data found. Question events are emitted starting from v2.90.0."
+
+## Analysis: Section 7 — Refine Questions
+
+n1-refine starts no pipeline run, so its events live in `telemetry/refine.jsonl`, not in `runs/` (`references/telemetry.md` § Refine question events). Read them, adding `--since`/`--until` when the report has a window:
+
+```bash
+source ~/.n1/preamble.sh
+python3 "$N1_ROOT/scripts/telemetry_analyzer.py" refine
+```
+
+From the JSON:
+- Questions per refined ticket: `questions_per_ticket` (`asked` / `refined_tickets`). Baseline before N1-652: about 3.5. Tickets refined with no question and no auto-decided point emit nothing, so this value is biased upward. Re-running refine on one ticket adds its questions to the numerator but counts the ticket once, which also biases it upward.
+- Per tier, from `by_tier`:
+
+| Tier | Asked | Recommended share | Auto-decided | Overridden | Override rate |
+|------|-------|-------------------|--------------|------------|---------------|
+| A | N | X% | N | N | X% |
+| B | N | X% | N | N | X% |
+| C | N | X% | N | N | X% |
+
+- Counts by `kind` (contradiction, decision, actions, drop, queue-offer) and by `answer`.
+- N1-649 auto-decide threshold: a high A-tier override rate means auto-decided points are often wrong (decide fewer); a high A-tier recommended share with a low override rate supports deciding more without asking.
+
+`events` is 0: report "No refine telemetry found. Refine question events are emitted starting from v5.126.0."
 
 ## Brainstorm Context-Contribution Analysis
 

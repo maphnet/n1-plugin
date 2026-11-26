@@ -7,6 +7,7 @@ cross-run aggregations. Persists reports as JSON.
 
 Usage:
   python3 scripts/telemetry_analyzer.py collect [--n1-root DIR] [--last N] [--projects P1,P2] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--deep] [--out FILE]
+  python3 scripts/telemetry_analyzer.py refine [--n1-root DIR] [--since YYYY-MM-DD] [--until YYYY-MM-DD]
 
 The script never calls a model. All analysis is deterministic.
 Read-only with respect to ~/.n1/<project>/ and ~/.claude/projects/.
@@ -14,6 +15,7 @@ Read-only with respect to ~/.n1/<project>/ and ~/.claude/projects/.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import datetime as dt
 import importlib.util
 import json
@@ -100,6 +102,13 @@ def build_parser():
                          help="Second run ID to compare")
     compare.add_argument("--out", type=str, default=None,
                          help="Output file path")
+    refine = sub.add_parser("refine", help="Aggregate n1-refine question events (N1-652)")
+    refine.add_argument("--n1-root", default=os.path.expanduser("~/.n1"),
+                        help="Root directory containing N1 project dirs (default: ~/.n1)")
+    refine.add_argument("--since", type=_date_arg, default=None,
+                        help="YYYY-MM-DD (UTC); ignore events earlier")
+    refine.add_argument("--until", type=_date_arg, default=None,
+                        help="YYYY-MM-DD (UTC, inclusive); ignore events later")
     return p
 
 
@@ -839,6 +848,78 @@ def cmd_compare(args):
     print(output)
 
 
+# ---------------------------------------------------------------- refine questions (N1-652)
+
+REFINE_TIERS = ("A", "B", "C")
+REFINE_NOT_ASKED = ("auto-decided", "overridden")
+
+
+def _rate(num, den):
+    return round(num / den, 3) if den else None
+
+
+def collect_refine(n1_root, since=None, until=None):
+    """Aggregate <n1_root>/<project>/memory/<ticket>/telemetry/refine.jsonl events.
+
+    Refine starts no pipeline run, so these events never reach runs/*.jsonl.
+    A refined ticket is a (project, ticket) with at least one event in the window,
+    so tickets refined with zero questions and zero auto-decisions are not counted.
+    """
+    events, malformed, files, tickets = [], 0, 0, set()
+    for path in sorted(Path(n1_root).glob("*/memory/*/telemetry/refine.jsonl")):
+        files += 1
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not line.strip():
+                continue
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                malformed += 1
+                continue
+            if not isinstance(ev, dict) or ev.get("event") != "refine_question":
+                malformed += 1
+                continue
+            day = str(ev.get("timestamp", ""))[:10]
+            if (since and day < since) or (until and day > until):
+                continue
+            events.append(ev)
+            tickets.add((path.parts[-5], path.parts[-3]))
+
+    asked = [e for e in events if e.get("answer") not in REFINE_NOT_ASKED]
+    by_tier = {}
+    for tier in REFINE_TIERS:
+        te = [e for e in events if e.get("tier") == tier]
+        ta = [e for e in te if e.get("answer") not in REFINE_NOT_ASKED]
+        with_rec = [e for e in ta if e.get("had_recommendation") is True]
+        rec = sum(1 for e in with_rec if e.get("answer") == "recommended")
+        auto = sum(1 for e in te if e.get("answer") == "auto-decided")
+        over = sum(1 for e in te if e.get("answer") == "overridden")
+        by_tier[tier] = {
+            "asked": len(ta), "with_recommendation": len(with_rec), "recommended": rec,
+            "recommended_share": _rate(rec, len(with_rec)),
+            "auto_decided": auto, "overridden": over, "override_rate": _rate(over, auto + over),
+        }
+    auto_all = sum(1 for e in events if e.get("answer") == "auto-decided")
+    over_all = sum(1 for e in events if e.get("answer") == "overridden")
+    return {
+        "files": files, "events": len(events), "malformed": malformed,
+        "refined_tickets": len(tickets), "asked": len(asked),
+        "questions_per_ticket": _rate(len(asked), len(tickets)),
+        "by_kind": dict(sorted(Counter(str(e.get("kind")) for e in events).items())),
+        "by_answer": dict(sorted(Counter(str(e.get("answer")) for e in events).items())),
+        "by_tier": by_tier,
+        "override_rate": _rate(over_all, auto_all + over_all),
+    }
+
+
+def cmd_refine(args):
+    n1_root = Path(args.n1_root)
+    if not n1_root.is_dir():
+        print(json.dumps({"error": f"N1 root not found: {n1_root}"}), file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps(collect_refine(n1_root, args.since, args.until), indent=2))
+
+
 # ---------------------------------------------------------------- main
 
 def main():
@@ -851,6 +932,8 @@ def main():
         cmd_collect(args)
     elif args.command == "compare":
         cmd_compare(args)
+    elif args.command == "refine":
+        cmd_refine(args)
 
 
 if __name__ == "__main__":

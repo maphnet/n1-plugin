@@ -98,7 +98,7 @@ No recommendation. The options are equivalent given the available evidence; sele
 <n> — None: keep every ticket in the run; works when the stale evidence is wrong
 ```
 
-One numbered option per drop candidate, then None. Nothing is dropped without a selection: a reply that selects no candidate drops nothing.
+One numbered option per drop candidate, then None. Nothing is dropped without a selection: a reply that selects no candidate drops nothing. Telemetry (asked only, `02-loop.md` § Telemetry): each drop candidate emits `n1_emit_refine_question <KEY> drop "" false false <answer> true <tickets in the run>`; `<answer>` is `other-option` for a numbered-option reply, `free-text` otherwise.
 
 For the selected keys, read the status ops once:
 
@@ -123,6 +123,8 @@ Q<n> [<KEY1>, <KEY2>] <topic>: <why it matters, one line>
 Also compare the existing `### Decisions` and auto-decided points of the tickets: two that settle the same topic differently (for example different formats for one API field) become one question tagged with their keys, naming both choices. Points that look alike but need different answers stay separate questions. Ask at most 4 questions per message; there is no round cap and "done" parks the rest, as in `02-loop.md` Step 3. One answer applies to every tagged ticket: each records it as a Decision with `Why: decided with <KEYS>. <reason>` (the other tagged keys). An answer that widens a ticket's scope reruns `02-loop.md` Step 4 for that ticket.
 
 Then show one override list for all tickets: `Auto-decided:` followed by one line per auto-decided point of every ticket, numbered across tickets: `O<n> — <KEY> D<n> <topic>: <chosen> (<file:line or ticket statement>)`. Replies, changes and the headless rule follow the `02-loop.md` Step 2 Override list. Show it with the first question batch, or alone as its own message when there is no question. This is the only override list of the run: no ticket shows its own list.
+
+Telemetry (`02-loop.md` § Telemetry, `<LM> <N>` = `true <tickets in the run>`): each shared question emits one event under its first tagged key; each override-list point emits under its own key, as in the `02-loop.md` Override list.
 
 ## Step 9: Write Each Ticket
 
@@ -161,4 +163,4 @@ No marker: ask the user (format: `<N1_ROOT>/references/question-format.md`) "Pla
 2 — Plan now: invoke skill n1-queue with "<REFINED IDs> --plan"; works when the context headroom is acceptable
 ```
 
-Plan now: n1-queue saves the plan and stops. Later: print the command.
+Plan now: n1-queue saves the plan and stops. Later: print the command. Telemetry (asked only): `n1_emit_refine_question <first REFINED ID> queue-offer "" false true <answer> true <N>`; `<answer>` is `recommended` for option 1, `other-option` for option 2, `free-text` otherwise.
