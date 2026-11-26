@@ -56,7 +56,7 @@ source "$N1_ROOT/lib/release.sh"
 n1_release_ticket_ids "" HEAD | grep -xF -e '<T1>' -e '<T2>' | sed 's/^/landed: /'
 ```
 
-Each `landed: <T>` line is evidence for `<T>`'s stale verdict (`01-fetch.md` Step 4).
+Each `landed: <T>` line is evidence for `<T>`'s stale verdict (`01-fetch.md` Step 4), never sufficient alone: history includes reverted work, so the verdict also needs current-code evidence.
 
 Then, for each wave of the Step 3 output, in order:
 1. For each ticket of the wave, in `ORDER`: set `<ID>`, say "Analyzing <ID> (<n>/<total>)" and follow `01-fetch.md` Steps 1-3c. Their output goes to files under `refine/`; do not read those files back into the conversation here.
@@ -120,7 +120,7 @@ Collect the open A-tier points of every ticket still in the run, plus each ticke
 Q<n> [<KEY1>, <KEY2>] <topic>: <why it matters, one line>
 ```
 
-Points that look alike but need different answers stay separate questions. Ask at most 4 questions per message; there is no round cap and "done" parks the rest, as in `02-loop.md` Step 3. One answer applies to every tagged ticket: each records it as a Decision with `Why: decided with <KEYS>. <reason>` (the other tagged keys). An answer that widens a ticket's scope reruns `02-loop.md` Step 4 for that ticket.
+Also compare the existing `### Decisions` and auto-decided points of the tickets: two that settle the same topic differently (for example different formats for one API field) become one question tagged with their keys, naming both choices. Points that look alike but need different answers stay separate questions. Ask at most 4 questions per message; there is no round cap and "done" parks the rest, as in `02-loop.md` Step 3. One answer applies to every tagged ticket: each records it as a Decision with `Why: decided with <KEYS>. <reason>` (the other tagged keys). An answer that widens a ticket's scope reruns `02-loop.md` Step 4 for that ticket.
 
 Then show one override list for all tickets: `Auto-decided:` followed by one line per auto-decided point of every ticket, numbered across tickets: `O<n> — <KEY> D<n> <topic>: <chosen> (<file:line or ticket statement>)`. Replies, changes and the headless rule follow the `02-loop.md` Step 2 Override list. Show it with the first question batch, or alone as its own message when there is no question. This is the only override list of the run: no ticket shows its own list.
 

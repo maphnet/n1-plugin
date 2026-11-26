@@ -512,6 +512,8 @@ before "N1-650: triage before shared questions" '## Step 7: Triage' '## Step 8: 
 before "N1-650: shared questions before writes" '## Step 8: Shared Questions' '## Step 9: Write Each Ticket' "$Q"
 has "N1-650: main session reads only the verdict line" "grep -m1 '^stale: '" "$Q"
 has "N1-650: missing verdict is not stale" 'echo "stale: no - verdict missing"' "$Q"
+has "N1-650: landed key needs current-code evidence" 'a reverted or absent change is not stale' skills/n1-refine/steps/01-fetch.md
+has "N1-650: shared questions reconcile conflicting decisions" 'settle the same topic differently' "$Q"
 has "N1-650: triage row for a drop candidate" '| <KEY> | drop candidate | <reason> (<file:line or PR>) |' "$Q"
 has "N1-650: triage row for a simple ticket" '| <KEY> | simple |' "$Q"
 has "N1-650: triage row for questions" '| <KEY> | <N> questions |' "$Q"
