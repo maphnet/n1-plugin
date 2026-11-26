@@ -555,4 +555,20 @@ lacks "N1-650: PRIOR removed from refine" 'PRIOR' skills/n1-refine
 lacks "N1-650: no list step number 5 pointer left" '`00-list.md` Step 5' skills/n1-refine
 has "N1-650: architecture names stale triage" 'stale tickets offered for drop' references/architecture.md
 
+# --- N1-651: queue --plan offer at the end of list mode
+# Catches: the offer asked in headless/queue runs; two (Recommended) in one list; REFINED including dropped/skipped/failed tickets; the threshold drifting from "2 to 5".
+Q=skills/n1-refine/steps/00-list.md
+has "N1-651: queue offer question" 'Plan a queue for these <N> refined tickets now?' "$Q"
+has "N1-651: REFINED is refined rows in ORDER order" 'whose `OUTCOMES` row starts `refined`, in `ORDER` order; dropped, skipped and failed rows are excluded' "$Q"
+has "N1-651: offer needs 2 or more IDs" 'Fewer than 2 IDs: no offer' "$Q"
+has "N1-651: marker snippet reused" '[ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes' "$Q"
+line_has "N1-651: headless/queue prints and asks nothing" 'queue-run:yes' 'ask nothing' "$Q"
+has "N1-651: printed queue command" 'Queue: /n1:n1-queue <REFINED IDs> --plan' "$Q"
+has "N1-651: Plan now invokes n1-queue --plan" 'invoke skill n1-queue with "<REFINED IDs> --plan"' "$Q"
+has "N1-651: 2 to 5 recommends Plan now" '1 — Plan now (Recommended)' "$Q"
+has "N1-651: over 5 recommends Later" '1 — Later (Recommended)' "$Q"
+has "N1-651: exactly 5 counts as 2 to 5" 'exactly 5 counts here' "$Q"
+if [ "$(sed -n '/^\*\*Queue offer:\*\*/,$p' "$Q" | grep -c '(Recommended)')" = 2 ]; then echo "PASS: N1-651: one (Recommended) per list"; else echo "FAIL: N1-651: one (Recommended) per list"; FAIL=1; fi
+has "N1-651: Next line is the n1-start form" 'Next: /n1:n1-start <first refined ID>' "$Q"
+
 exit $FAIL

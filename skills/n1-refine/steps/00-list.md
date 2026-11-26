@@ -137,7 +137,28 @@ Refined list (<n> tickets):
 <ID>: refined (description|comment) | skipped: <reason> | failed: <reason> | dropped: <reason>
 Ignored: <input> (not a ticket)
 Sub-tasks not refined: <keys>   (refine them with /n1:n1-refine <keys>)
-Next: /n1:n1-start <first refined ID>, or add the refined tickets to a /n1:n1-queue batch, then run --plan.
+Next: /n1:n1-start <first refined ID>
 ```
 
 One row per ticket in `ORDER`, showing only its own outcome. Omit the Ignored and Sub-tasks lines when empty and the Next line when no ticket was refined. An investigation-typed refined ticket uses the `--type task` form, as in `03-write.md` Step 4.
+
+**Queue offer:** `REFINED` = the IDs in `ORDER` whose `OUTCOMES` row starts `refined`, in `ORDER` order; dropped, skipped and failed rows are excluded. Fewer than 2 IDs: no offer. Otherwise run the check below, then print `Queue: /n1:n1-queue <REFINED IDs> --plan` and ask nothing when it prints `queue-run:yes` or `headless:yes`.
+
+```bash
+source ~/.n1/preamble.sh
+[ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes
+```
+
+No marker: ask the user (format: `<N1_ROOT>/references/question-format.md`) "Plan a queue for these <N> refined tickets now?" with the list for 2 to 5 refined tickets (exactly 5 counts here), or the list for more than 5:
+
+```
+1 — Plan now (Recommended): invoke skill n1-queue with "<REFINED IDs> --plan"; list refines of 5-8 tickets peaked at 235K-265K context against an autocompact trigger near 287K; 2-5 tickets stay below that peak (ticket N1-651, audit 2026-11-26)
+2 — Later: print /n1:n1-queue <REFINED IDs> --plan for a fresh session; works when the session should end here
+```
+
+```
+1 — Later (Recommended): print /n1:n1-queue <REFINED IDs> --plan for a fresh session; list refines of 5-8 tickets peaked at 235K-265K context, near the ~287K autocompact trigger (ticket N1-651, audit 2026-11-26)
+2 — Plan now: invoke skill n1-queue with "<REFINED IDs> --plan"; works when the context headroom is acceptable
+```
+
+Plan now: n1-queue saves the plan and stops. Later: print the command.
