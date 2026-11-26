@@ -265,25 +265,23 @@ out=$(cd "$NREPO" && bash -c "$DETECT" 2>/dev/null)
 [ -n "$DETECT" ] && [ -z "$out" ] \
     && echo "PASS: 7b detection: no auto-apply (CI test workflow ignored) prints nothing" || { echo "FAIL: 7b detection no-match case printed: $out"; FAIL=1; }
 
-check "7b: match writes an After deploy Check: row naming the migration" 'Check: dev migration status or history output lists <file> as applied \(the deploy runs <command>\)' "$TWC"
+check "7b: match writes an After deploy Check: row naming the migration" 'Check: dev deploy logs, or a SELECT on the tool.s history table .*show <file> applied \(the deploy runs <command>\); do not run the migration tool.s CLI' "$TWC"
 check "7b: Check: row is not a per-file log line" 'reads the tool.s history, not per-file log lines' "$TWC"
 check "7b: diff-derived Check: goes under After deploy, not Before" 'auto-applied migration .Check:. goes under After deploy' "$TWC"
 check "7b: doubt about test/dev variants falls back to Manual" 'any doubt \(a match only in a test, dev or example variant' "$TWC"
 
-# nested deploy dirs match; test/dev variants are excluded; every match is shown (cap 20)
-for spec in "deploy/helm/templates/job.yaml:helm" "ops/Procfile:proc" "docker/Dockerfile:df"; do
+# nested deploy dirs and dev-named paths match; every match is shown (cap 20)
+for spec in "deploy/helm/templates/job.yaml:helm" "ops/Procfile:proc" "docker/Dockerfile:df" ".github/workflows/deploy-dev.yml:dd" "devops/entrypoint.sh:do" "developer-portal/Dockerfile:dp" "latest/Dockerfile:lt"; do
     f=${spec%%:*}; R="$T/mig-n-${spec##*:}"; mkdir -p "$R/$(dirname "$f")"; fixture "$R"
     printf 'run: goose up\n' > "$R/$f"; git -C "$R" add -A
     out=$(cd "$R" && bash -c "$DETECT" 2>/dev/null)
     check "7b detection: nested $f matches" "^$f:goose up$" <(printf '%s\n' "$out")
 done
-for f in docker-compose.test.yml Dockerfile.dev; do
-    R="$T/mig-x-$f"; mkdir -p "$R"; fixture "$R"
-    printf 'command: rails db:migrate\n' > "$R/$f"; git -C "$R" add -A
-    out=$(cd "$R" && bash -c "$DETECT" 2>/dev/null)
-    [ -n "$DETECT" ] && [ -z "$out" ] \
-        && echo "PASS: 7b detection: only a test/dev variant runs a migrate command prints nothing" || { echo "FAIL: 7b detection: only a test/dev variant runs a migrate command prints nothing"; FAIL=1; }
-done
+R="$T/mig-nocmd"; mkdir -p "$R"; fixture "$R"
+printf 'exec gunicorn app:app\n' > "$R/Dockerfile"; git -C "$R" add -A
+out=$(cd "$R" && bash -c "$DETECT" 2>/dev/null)
+[ -n "$DETECT" ] && [ -z "$out" ] \
+    && echo "PASS: 7b detection: no migrate command prints nothing" || { echo "FAIL: 7b detection: no migrate command prints nothing"; FAIL=1; }
 R="$T/mig-multi"; mkdir -p "$R"; fixture "$R"
 printf 'goose up\n' > "$R/entrypoint.sh"; printf 'goose up\n' > "$R/Dockerfile"; git -C "$R" add -A
 out=$(cd "$R" && bash -c "$DETECT" 2>/dev/null)
