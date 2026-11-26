@@ -243,7 +243,7 @@ tw_snippet() { # first ```bash block after the line containing $1 in tech-writer
     awk -v h="$1" 'index($0, h) {f = 1; next} f && /^ *```bash/ {b = 1; next} b && /^ *```/ {exit} b' "$TWC" 2>/dev/null
 }
 DETECT=$(tw_snippet "**Auto-applied migrations**")
-[ -n "$DETECT" ] && echo "PASS: 7b has an auto-apply detection block" || { echo "FAIL: 7b has no auto-apply detection block"; FAIL=1; }
+[ -n "$DETECT" ] && echo "PASS: 7b has an auto-apply detection block" || { echo "FAIL: 7b has an auto-apply detection block"; FAIL=1; }
 fixture() { # <dir>: empty git repo with files staged
     git -C "$1" init -q -b main
 }
