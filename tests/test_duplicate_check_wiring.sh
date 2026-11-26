@@ -154,7 +154,7 @@ check "N1-634: interactive branch ends blocked and starts the watch" "Ask nothin
 check "N1-634: headless keeps the escalation, decision recorded" "claude -p. run .*unverified \(N1-634\)" "$B"
 check "N1-231: headless options use the exact ask-mode stop label" "OPTIONS=continue anyway \| Stop this ticket" "$B"
 check "N1-231: lookup failure warns and continues" "Warning: blocker check skipped \(<msg>\)" "$B"
-check "N1-231: unconfigured lookup warns and continues" "Warning: blocker check skipped \(operations\.getIssueLinks not configured\)" "$B"
+check "N1-231: unconfigured lookup warns and continues" "Warning: blocker check skipped \(operations\.getIssueLinks not configured; run /n1:n1-init to add it\)" "$B"
 if grep -qE 'N1_QUEUE_RUN_ID|QUEUE_CHILD' "$B" 2>/dev/null; then echo "FAIL: N1-231: blocker-check has no queue-child skip (queue intake must run it)"; FAIL=1; else echo "PASS: N1-231: blocker-check has no queue-child skip (queue intake must run it)"; fi
 check "N1-231: architecture.md documents the blocker check" "references/blocker-check\.md" references/architecture.md
 check "N1-231: architecture.md notes the queue link routing change" "queue intake used .mcp. only before N1-231" references/architecture.md
@@ -163,6 +163,7 @@ check "N1-231: architecture.md notes the queue link routing change" "queue intak
 I=skills/n1-queue/steps/intake.md
 check "N1-231: queue intake follows blocker-check with CALLER=queue" "blocker-check\.md. § Check with .ID=<KEY>., .CALLER=queue." "$I"
 check "N1-231: queue intake keeps the description-grep fallback" "SKIP_REASON=not-configured.*rely on the description grep" "$I"
+check "N1-653: queue intake names n1-init for the unconfigured skip" "SKIP_REASON=not-configured.*/n1:n1-init" "$I"
 check "N1-231: queue intake does not exclude on a failed lookup" "SKIP_REASON=error: <msg>.*do not exclude on links" "$I"
 check "N1-231: queue intake keeps the held prefix" "blocked_on <ID> · " "$I"
 check "N1-231: queue intake keeps the cycle rule" "blocked by <ID> \(cycle\)" "$I"

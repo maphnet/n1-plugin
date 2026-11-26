@@ -76,7 +76,7 @@ A tagged or listed story is never expanded into the queue; the user runs it expl
 
 ## Blocker check
 
-For each candidate follow `<N1_ROOT>/references/blocker-check.md` § Check with `ID=<KEY>`, `CALLER=queue` (run its Gate once per intake). With `SKIP_REASON=not-configured` (the config predates the `getIssueLinks` operation), skip link checks, rely on the description grep, and say so in the preview. With `SKIP_REASON=error: <msg>`, note `blocker check skipped for <KEY> (<msg>)` in the preview and do not exclude on links. Its `OPEN_BLOCKERS` are the candidate's link blockers.
+For each candidate follow `<N1_ROOT>/references/blocker-check.md` § Check with `ID=<KEY>`, `CALLER=queue` (run its Gate once per intake). With `SKIP_REASON=not-configured` (the config predates the `getIssueLinks` operation), skip link checks, rely on the description grep, and say so in the preview (run `/n1:n1-init` to add it). With `SKIP_REASON=error: <msg>`, note `blocker check skipped for <KEY> (<msg>)` in the preview and do not exclude on links. Its `OPEN_BLOCKERS` are the candidate's link blockers.
 
 Additionally grep the description, also when link checks were skipped:
 ```bash

@@ -78,7 +78,7 @@ The PR is the first entry whose title or `headRefName` contains `<KEY>` as a who
 
 Branch on the first rule that matches:
 
-1. **`SKIP_REASON=not-configured`:** print `Warning: blocker check skipped (operations.getIssueLinks not configured).` and continue.
+1. **`SKIP_REASON=not-configured`:** print `Warning: blocker check skipped (operations.getIssueLinks not configured; run /n1:n1-init to add it).` and continue.
 2. **`SKIP_REASON=error: <msg>`:** print `Warning: blocker check skipped (<msg>).` and continue.
 3. **`OPEN_BLOCKERS` empty:** print nothing and continue.
 4. **Interactive (`HEADLESS` is not `1`):** show
