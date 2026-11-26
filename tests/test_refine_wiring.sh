@@ -236,6 +236,18 @@ has "N1-296: SKILL loop blurb names scope classification" 'scope classification'
 line_has "N1-296: architecture row describes decomposition" '| n1-refine |' 'Epic into Stories, Story into Sub-tasks' references/architecture.md
 has "N1-296: duplicate-check lists n1-refine as caller" 'n1-ticket and n1-refine (before creation)' references/duplicate-check.md
 
+# --- N1-368: duplicate check of the refined ticket itself, in fetch, before the loop
+F368=skills/n1-refine/steps/01-fetch.md
+has "N1-368: fetch runs the duplicate check with CONTEXT=refine" '`<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=refine`' "$F368"
+has "N1-368: fetch excludes the ticket itself" '`SELF_ID=<ID>`' "$F368"
+has "N1-368: fetch passes no overview" '`OVERVIEW` empty' "$F368"
+has "N1-368: fetch check writes nothing" 'writes no file and never creates overview.md' "$F368"
+has "N1-368: fetch Stop or Close ends the ticket" 'On its **Stop** or **Close as duplicate**, end refine for this ticket' "$F368"
+before "N1-368: duplicate check follows Fetch" '## Step 3: Fetch' '## Step 3a: Duplicate Check' "$F368"
+before "N1-368: duplicate check precedes existing children" '## Step 3a: Duplicate Check' '## Step 3b: Existing Children' "$F368"
+has "N1-368: header names the duplicate check" 'Steps 1-5, incl. 3a duplicate check' "$F368"
+has "N1-368: duplicate-check lists the fetch caller" 'n1-refine (fetch, on the refined ticket itself)' references/duplicate-check.md
+
 # --- N1-33: premise check for bug tickets
 SA=$(split_cat "$PT/sa.md" SA)
 before "N1-33: premise check sits inside step 6 (bug only)" 'Bug investigation (when type is `bug`)' '**Premise check:**' "$SA"

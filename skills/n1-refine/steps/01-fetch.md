@@ -1,4 +1,4 @@
-<!-- Purpose: tracker gate, fetch, existing children, related context, codebase analysis, optional investigation (Steps 1-5). -->
+<!-- Purpose: tracker gate, fetch, duplicate check, existing children, related context, codebase analysis, optional investigation (Steps 1-5, incl. 3a duplicate check). -->
 
 List mode (`00-list.md`): a **STOP**, "end refine" or "refine ends here" in this file ends only the current ticket; `00-list.md` Step 5 records the outcome and goes on with the next ticket.
 
@@ -50,6 +50,10 @@ echo "issue_type=$ISSUE_TYPE subtask_count=${SUBTASK_COUNT:-0}"
 ```
 
 Printed type `investigation`: set `INVESTIGATE=true`.
+
+## Step 3a: Duplicate Check
+
+Run `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=refine`, `TEXT` = `TITLE` plus the description from `refine/ticket.md`, `SELF_ID=<ID>` and `OVERVIEW` empty. It runs once per ticket per refine run, before the question loop, and writes no file and never creates overview.md. It is silent when no tracker or `SEARCH_OP` is configured and never prompts in a headless run. Show its warning, when it prints one, before Step 3b. On its **Stop** or **Close as duplicate**, end refine for this ticket with the message it gives. **STOP.** Otherwise go on to Step 3b.
 
 ## Step 3b: Existing Children
 
