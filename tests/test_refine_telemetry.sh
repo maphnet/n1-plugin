@@ -50,4 +50,22 @@ ok "invalid input writes nothing" "$(lines "$F1")" 3
 ok "traversal ticket creates nothing" "$([ -e "$N1_HOME/x" ] && echo yes || echo no)" no
 ( unset N1_HOME; n1_emit_refine_question T-9 decision A false true recommended false 1 ); ok "no N1_HOME returns 0" "$?" 0
 
+# --- analyzer: T-1 has recommended/auto-decided/overridden; T-2 adds one other-option A question
+# and one actions question; one malformed line is skipped.
+n1_emit_refine_question T-2 decision A true true other-option true 2
+n1_emit_refine_question T-2 actions "" false true recommended true 2
+echo 'not json' >> "$F1"
+OUT=$(python3 "$ROOT/scripts/telemetry_analyzer.py" refine --n1-root "$T" 2>&1)
+RES=$(printf '%s' "$OUT" | python3 -c '
+import json, sys
+d = json.load(sys.stdin); a = d["by_tier"]["A"]
+print(d["events"], d["malformed"], d["refined_tickets"], d["asked"], d["questions_per_ticket"],
+      a["asked"], a["with_recommendation"], a["recommended_share"], a["auto_decided"], a["overridden"],
+      a["override_rate"], d["by_kind"]["actions"], d["by_tier"]["B"]["recommended_share"], d["override_rate"])' 2>&1)
+ok "analyzer aggregates per ticket, tier and kind" "$RES" "5 1 2 3 1.5 2 2 0.5 1 1 0.5 1 None 0.5"
+
+OUT=$(python3 "$ROOT/scripts/telemetry_analyzer.py" refine --n1-root "$T" --since 2999-01-01 2>&1)
+RES=$(printf '%s' "$OUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["events"], d["questions_per_ticket"])' 2>&1)
+ok "--since window excludes older events" "$RES" "0 None"
+
 exit $FAIL
