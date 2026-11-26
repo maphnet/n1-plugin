@@ -571,4 +571,22 @@ has "N1-651: exactly 5 counts as 2 to 5" 'exactly 5 counts here' "$Q"
 if [ "$(sed -n '/^\*\*Queue offer:\*\*/,$p' "$Q" | grep -c '(Recommended)')" = 2 ]; then echo "PASS: N1-651: one (Recommended) per list"; else echo "FAIL: N1-651: one (Recommended) per list"; FAIL=1; fi
 has "N1-651: Next line is the n1-start form" 'Next: /n1:n1-start <first refined ID>' "$Q"
 
+# N1-652: refine question telemetry call sites
+L=skills/n1-refine/steps/02-loop.md
+has "N1-652: loop documents the emit call" 'n1_emit_refine_question <ID> <kind> <tier> <stop_list> <had_recommendation> <answer> <LM> <N>' "$L"
+has "N1-652: no question or answer text stored" 'never question or answer text' "$L"
+has "N1-652: LM/N values for single and list mode" '`false 1` for a single ticket; `true <tickets in the run>` in list mode' "$L"
+has "N1-652: contradiction site" 'n1_emit_refine_question <ID> contradiction "" false false <answer> <LM> <N>' "$L"
+has "N1-652: list-mode premise Continue is auto-decided" 'n1_emit_refine_question <ID> contradiction "" false false auto-decided <LM> <N>' "$L"
+has "N1-652: B/C points emit auto-decided" 'n1_emit_refine_question <ID> decision <B|C> false false auto-decided <LM> <N>' "$L"
+has "N1-652: override list emits overridden" 'n1_emit_refine_question <ID> decision A false true overridden <LM> <N>' "$L"
+has "N1-652: override list emits auto-decided for unchanged points" 'n1_emit_refine_question <ID> decision A false true auto-decided <LM> <N>' "$L"
+has "N1-652: Step 3 question site" 'n1_emit_refine_question <ID> decision <tier> <stop_list> <had_recommendation> <answer> <LM> <N>' "$L"
+has "N1-652: Actions question site" 'n1_emit_refine_question <ID> actions "" false true <answer> <LM> <N>' "$L"
+before "N1-652: Telemetry section precedes Step 1" '## Telemetry' '## Step 1: Contradiction Gate' "$L"
+has "N1-652: drop screen site" 'n1_emit_refine_question <KEY> drop "" false false <answer> true <tickets in the run>' "$Q"
+has "N1-652: shared question emits under first tagged key" 'under its first tagged key' "$Q"
+has "N1-652: queue offer site" 'n1_emit_refine_question <first REFINED ID> queue-offer "" false true <answer> true <N>' "$Q"
+has "N1-652: n1-telemetry Section 7 runs the analyzer" 'scripts/telemetry_analyzer.py" refine' skills/n1-telemetry/steps/02-analyze.md
+
 exit $FAIL
