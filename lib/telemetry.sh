@@ -428,3 +428,27 @@ n1_emit_question_event() {
         "$(escape_json_val "$step")" "$(escape_json_val "$category")" "$(escape_json_val "$resolution")" \
         "$(escape_json_val "$rungs")" "$ts" >> "$file"
 }
+
+# n1_emit_refine_question <ticket> <kind> <tier> <stop_list> <had_recommendation> <answer> <list_mode> <tickets>
+# N1-652: one n1-refine question or auto-decided point -> $N1_HOME/memory/<ticket>/telemetry/refine.jsonl.
+# Run-less: refine starts no pipeline run, so this needs no lock and the Stop hook never sees it.
+# Enums and bools only; there is no question or answer text parameter. kind: contradiction|decision|
+# actions|drop|queue-offer; tier: A|B|C or empty; answer: recommended|other-option|free-text|park|
+# decide-for-me|auto-decided|overridden. Invalid input or an unwritable dir writes nothing; always returns 0.
+n1_emit_refine_question() {
+    local ticket="${1:-}" kind="${2:-}" tier="${3:-}" stop="${4:-}" rec="${5:-}" answer="${6:-}" lm="${7:-}" n="${8:-}"
+    [ -n "${N1_HOME:-}" ] || return 0
+    case "$ticket" in ''|.*|*/*|*..*) return 0;; esac
+    case "$kind" in contradiction|decision|actions|drop|queue-offer) ;; *) return 0;; esac
+    case "$tier" in ''|A|B|C) ;; *) return 0;; esac
+    case "$answer" in recommended|other-option|free-text|park|decide-for-me|auto-decided|overridden) ;; *) return 0;; esac
+    local b
+    for b in "$stop" "$rec" "$lm"; do case "$b" in true|false) ;; *) return 0;; esac; done
+    case "$n" in ''|*[!0-9]*) return 0;; esac
+    local dir="$N1_HOME/memory/$ticket/telemetry"
+    mkdir -p "$dir" 2>/dev/null || return 0
+    printf '{"event":"refine_question","ticket_id":"%s","kind":"%s","tier":"%s","stop_list":%s,"had_recommendation":%s,"answer":"%s","list_mode":%s,"tickets":%s,"timestamp":"%s"}\n' \
+        "$(escape_json_val "$ticket")" "$kind" "$tier" "$stop" "$rec" "$answer" "$lm" "$((10#$n))" \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$dir/refine.jsonl" 2>/dev/null || true
+    return 0
+}
