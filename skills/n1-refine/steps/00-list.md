@@ -72,7 +72,7 @@ The line reads `stale: yes|no - <reason> (<file:line or PR>)`; a ticket with `st
 
 ## Step 6: Resolve
 
-No question is asked in this step either. For each ticket still in the run, in `ORDER`, except drop candidates: set `<ID>` and follow `02-loop.md` Steps 1, 2 and 2b (list mode asks nothing there). Step 2b's simple exit gives `skipped: simple ticket`. Keep per ticket: its open A-tier points, its auto-decided points, `PROPOSED` and `CONVERT`. Drop candidates wait for Step 7; one the user keeps runs this step right after Step 7.
+No question is asked in this step either. For each ticket still in the run, in `ORDER`, except drop candidates: set `<ID>` and follow `02-loop.md` Steps 1, 2 and 2b (list mode asks nothing there). Step 2b's simple exit gives `skipped: simple ticket`. For a ticket that does not exit there, run `02-loop.md` Step 4 classification now without its Actions question (Step 8 asks it), so `PROPOSED` and `CONVERT` are set. Keep per ticket: its open A-tier points, its auto-decided points, `PROPOSED` and `CONVERT`. Drop candidates wait for Step 7; one the user keeps runs this step right after Step 7.
 
 ## Step 7: Triage
 

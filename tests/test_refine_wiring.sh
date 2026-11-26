@@ -529,6 +529,7 @@ has "N1-650: shared point tagged with all keys" 'Q<n> [<KEY1>, <KEY2>] <topic>:'
 has "N1-650: shared answer recorded per ticket" 'Why: decided with <KEYS>' "$Q"
 has "N1-650: shared questions at most 4 per message" 'Ask at most 4 questions per message' "$Q"
 has "N1-650: one override list across tickets" 'O<n> — <KEY> D<n> <topic>:' "$Q"
+has "N1-650: list resolve classifies without the Actions question" 'Step 4 classification now without its Actions question' "$Q"
 has "N1-650: no per-ticket override list in list mode" 'This is the only override list of the run' "$Q"
 has "N1-650: report names dropped tickets" '| failed: <reason> | dropped: <reason>' "$Q"
 lacks "N1-650: list step holds no PRIOR" 'PRIOR' "$Q"
