@@ -237,6 +237,64 @@ PA=$(split_cat "$T/pa.md" PA)
 check "product-analyst ticket.md has Deployment Actions" "^### Deployment Actions" "$PA"
 check "product-analyst copies it verbatim" "Deployment Actions rule" "$PA"
 
+# --- N1-648: step 7b turns new migrations into an After deploy Check: row when a deploy entry point applies them
+TWC=references/tech-writer-create.md
+tw_snippet() { # first ```bash block after the line containing $1 in tech-writer-create.md (blocks are list-indented)
+    awk -v h="$1" 'index($0, h) {f = 1; next} f && /^ *```bash/ {b = 1; next} b && /^ *```/ {exit} b' "$TWC" 2>/dev/null
+}
+DETECT=$(tw_snippet "**Auto-applied migrations**")
+[ -n "$DETECT" ] && echo "PASS: 7b has an auto-apply detection block" || { echo "FAIL: 7b has an auto-apply detection block"; FAIL=1; }
+fixture() { # <dir>: empty git repo with files staged
+    git -C "$1" init -q -b main
+}
+MREPO="$T/mig-auto"; mkdir -p "$MREPO/docker" "$MREPO/migrations/versions"
+fixture "$MREPO"
+printf '#!/bin/sh\nset -e\nalembic upgrade head\nexec gunicorn app:app\n' > "$MREPO/docker/entrypoint.sh"
+printf 'revision = "abc123"\n' > "$MREPO/migrations/versions/abc123_add_users.py"
+git -C "$MREPO" add -A
+out=$(cd "$MREPO" && bash -c "$DETECT" 2>/dev/null)
+check "7b detection: nested entrypoint running alembic upgrade matches" '^docker/entrypoint\.sh:alembic upgrade$' <(printf '%s\n' "$out")
+
+NREPO="$T/mig-manual"; mkdir -p "$NREPO/.github/workflows" "$NREPO/migrations/versions"
+fixture "$NREPO"
+printf '#!/bin/sh\nexec gunicorn app:app\n' > "$NREPO/entrypoint.sh"
+printf 'jobs:\n  test:\n    steps:\n      - run: alembic upgrade head && pytest\n' > "$NREPO/.github/workflows/test.yml"
+printf 'revision = "def456"\n' > "$NREPO/migrations/versions/def456_add_orders.py"
+git -C "$NREPO" add -A
+out=$(cd "$NREPO" && bash -c "$DETECT" 2>/dev/null)
+[ -n "$DETECT" ] && [ -z "$out" ] \
+    && echo "PASS: 7b detection: no auto-apply (CI test workflow ignored) prints nothing" || { echo "FAIL: 7b detection no-match case printed: $out"; FAIL=1; }
+
+check "7b: match writes an After deploy Check: row naming the migration" 'Check: dev deploy logs, or a SELECT on the tool.s history table .*show <file> applied \(the deploy runs <command>\); do not run the migration tool.s CLI' "$TWC"
+check "7b: Check: row is not a per-file log line" 'reads the tool.s history, not per-file log lines' "$TWC"
+check "7b: diff-derived Check: goes under After deploy, not Before" 'auto-applied migration .Check:. goes under After deploy' "$TWC"
+check "7b: doubt about test/dev variants falls back to Manual" 'any doubt \(a match only in a test, dev or example variant' "$TWC"
+
+# nested deploy dirs and dev-named paths match; every match is shown (cap 20)
+for spec in "deploy/helm/templates/job.yaml:helm" "ops/Procfile:proc" "docker/Dockerfile:df" ".github/workflows/deploy-dev.yml:dd" "devops/entrypoint.sh:do" "developer-portal/Dockerfile:dp" "latest/Dockerfile:lt"; do
+    f=${spec%%:*}; R="$T/mig-n-${spec##*:}"; mkdir -p "$R/$(dirname "$f")"; fixture "$R"
+    printf 'run: goose up\n' > "$R/$f"; git -C "$R" add -A
+    out=$(cd "$R" && bash -c "$DETECT" 2>/dev/null)
+    check "7b detection: nested $f matches" "^$f:goose up$" <(printf '%s\n' "$out")
+done
+R="$T/mig-nocmd"; mkdir -p "$R"; fixture "$R"
+printf 'exec gunicorn app:app\n' > "$R/Dockerfile"; git -C "$R" add -A
+out=$(cd "$R" && bash -c "$DETECT" 2>/dev/null)
+[ -n "$DETECT" ] && [ -z "$out" ] \
+    && echo "PASS: 7b detection: no migrate command prints nothing" || { echo "FAIL: 7b detection: no migrate command prints nothing"; FAIL=1; }
+R="$T/mig-multi"; mkdir -p "$R"; fixture "$R"
+printf 'goose up\n' > "$R/entrypoint.sh"; printf 'goose up\n' > "$R/Dockerfile"; git -C "$R" add -A
+out=$(cd "$R" && bash -c "$DETECT" 2>/dev/null)
+[ "$(printf '%s\n' "$out" | grep -c .)" = "2" ] \
+    && echo "PASS: 7b detection: shows every match, not only the first" || { echo "FAIL: 7b detection: shows every match, not only the first"; FAIL=1; }
+# a tracked symlink to a device is skipped, not read forever
+R="$T/mig-dev"; mkdir -p "$R"; fixture "$R"
+ln -s /dev/zero "$R/entrypoint.sh"; git -C "$R" add -A
+out=$(cd "$R" && timeout 10 bash -c "$DETECT" 2>/dev/null); rc=$?
+[ "$rc" != 124 ] && [ -z "$out" ] \
+    && echo "PASS: 7b detection: device symlink is skipped" || { echo "FAIL: 7b detection: device symlink is skipped"; FAIL=1; }
+check "7b: ticket items keep their wording" "keep each item's wording" "$TWC"
+
 # --- n1-finish
 F2=skills/n1-finish/steps/02-merge.md
 check "finish Step 2 parses deployment actions" "deployment-actions\.md. § Parse" "$F2"
