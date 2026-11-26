@@ -60,7 +60,7 @@ python3 "$N1_ROOT/scripts/telemetry_analyzer.py" refine
 ```
 
 From the JSON:
-- Questions per refined ticket: `questions_per_ticket` (`asked` / `refined_tickets`). Baseline before N1-652: about 3.5. Tickets refined with no question and no auto-decided point emit nothing, so this value is biased upward.
+- Questions per refined ticket: `questions_per_ticket` (`asked` / `refined_tickets`). Baseline before N1-652: about 3.5. Tickets refined with no question and no auto-decided point emit nothing, so this value is biased upward. Re-running refine on one ticket adds its questions to the numerator but counts the ticket once, which also biases it upward.
 - Per tier, from `by_tier`:
 
 | Tier | Asked | Recommended share | Auto-decided | Overridden | Override rate |
