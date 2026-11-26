@@ -1,14 +1,14 @@
 # Procedure: Duplicate Check
 
-Searches the tracker for tickets that duplicate or relate to the work at hand. It classifies the hits inline and warns before effort is spent. Called from n1-ticket and n1-refine (before creation), n1-start (intake), and n1-queue (intake annotates; preview resolves at plan time). Runs for every tier. Never dispatches a persona.
+Searches the tracker for tickets that duplicate or relate to the work at hand. It classifies the hits inline and warns before effort is spent. Called from n1-ticket and n1-refine (before creation), n1-refine (fetch, on the refined ticket itself), n1-start (intake), and n1-queue (intake annotates; preview resolves at plan time). Runs for every tier. Never dispatches a persona.
 
 **Parameters:**
-- `CONTEXT`: `create` (ticket not created yet), `start` (n1-start intake), `queue` (n1-queue intake, annotate only), or `queue-plan` (n1-queue preview, one flagged candidate; enters at § 4 with that candidate's `MATCHES` from the `queue` pass, no new search)
+- `CONTEXT`: `create` (ticket not created yet), `start` (n1-start intake), `queue` (n1-queue intake, annotate only), `refine` (n1-refine fetch on the refined ticket itself; show-only, never links or comments, § 4 lead-in block), or `queue-plan` (n1-queue preview, one flagged candidate; enters at § 4 with that candidate's `MATCHES` from the `queue` pass, no new search)
 - `TEXT`: title + description of the ticket, story seed, or candidate
 - `SELF_ID`: the current ticket ID; empty in `create`
 - `OVERVIEW`: absolute overview.md path in `start`; empty otherwise
 
-**Returns:** `DUP_LINKS`, a list of `<HIT_ID>:<Duplicate|Relates>` — includes every `duplicate` hit auto-linked in `CONTEXT=start`, every `related` hit auto-linked whenever links are offered in `CONTEXT=start` or `create` (`queue-plan` applies its related links directly, § 4), plus any `duplicate` hit the user chose to link via the interactive prompt. On **Stop**, the caller follows its own stop instruction. On **Close as duplicate** (§ Close Duplicate), `queue-plan` returns `DUP_CHOICE=close` and `start` ends the run.
+**Returns:** `DUP_LINKS`, a list of `<HIT_ID>:<Duplicate|Relates>` — includes every `duplicate` hit auto-linked in `CONTEXT=start`, every `related` hit auto-linked whenever links are offered in `CONTEXT=start` or `create` (`queue-plan` applies its related links directly, § 4), plus any `duplicate` hit the user chose to link via the interactive prompt. On **Stop**, the caller follows its own stop instruction. On **Close as duplicate** (§ Close Duplicate), `queue-plan` returns `DUP_CHOICE=close`, `start` ends the run, and `refine` ends refine for the ticket. `refine` never sets `DUP_LINKS`.
 
 ## § Check
 
@@ -66,15 +66,22 @@ Possible duplicate/related tickets:
 
 Link mapping: duplicate → link type `Duplicate`; related → link type `Relates`.
 
-Links are offered only when `LINK_OP` is non-empty and a tracker ticket exists or is about to be created. That means `CONTEXT=create`, `CONTEXT=queue-plan` (candidates are tracker tickets), or `CONTEXT=start` when `SELF_ID` is a tracker ticket (ticket mode, or a ticket was created at intake). If `LINK_OP` is empty, add this line under the table: `Linking unavailable: operations.linkIssues not configured.`
+Links are offered only when `LINK_OP` is non-empty and a tracker ticket exists or is about to be created. That means `CONTEXT=create`, `CONTEXT=queue-plan` (candidates are tracker tickets), `CONTEXT=start` when `SELF_ID` is a tracker ticket (ticket mode, or a ticket was created at intake), or `CONTEXT=refine` (`SELF_ID` is a tracker ticket; used only by Close as duplicate). If `LINK_OP` is empty, add this line under the table: `Linking unavailable: operations.linkIssues not configured.`
 
-**Close is offered** only when `CONTEXT` is `queue-plan` or `start`, links are offered, `HEADLESS` is not `1`, and `DONE_STATUS`, `MOVE_OP` and `COMMENT_OP` are non-empty (when `TRACKER_TYPE` is Jira, `TRANS_OP` too). When `MATCHES` has `duplicate` rows and `CONTEXT` is `queue-plan` or `start`, read these values first (`queue-plan` enters here without the § 1 Gate):
+**Close is offered** only when `CONTEXT` is `queue-plan`, `start` or `refine`, links are offered, `HEADLESS` is not `1`, and `DONE_STATUS`, `MOVE_OP` and `COMMENT_OP` are non-empty (when `TRACKER_TYPE` is Jira, `TRANS_OP` too). When `MATCHES` has `duplicate` rows and `CONTEXT` is `queue-plan`, `start` or `refine`, read these values first (`queue-plan` enters here without the § 1 Gate):
 
 ```bash
 source ~/.n1/preamble.sh
 printf 'TRACKER_MCP=%s\nTRACKER_TYPE=%s\nCLOUD_ID=%s\nLINK_OP=%s\nCOMMENT_OP=%s\nHEADLESS=%s\n' "$(n1_config_val '.tracker.mcp')" "$(n1_config_val '.tracker.type')" "$(n1_config_val '.tracker.cloudId')" "$(n1_config_val '.tracker.operations.linkIssues')" "$(n1_config_val '.tracker.operations.addComment')" "${N1_HEADLESS:-}"
 printf 'DONE_STATUS=%s\nMOVE_OP=%s\nTRANS_OP=%s\n' "$(n1_config_val '.tracker.statuses.done')" "$(n1_config_val '.tracker.operations.moveStatus')" "$(n1_config_val '.tracker.operations.getTransitions')"
 ```
+
+**`CONTEXT=refine`** takes this paragraph and skips the numbered rules below. Never link, never add to `DUP_LINKS`, never post a comment; omit the `Linking unavailable` line. If `MATCHES` has no `duplicate` rows, or `HEADLESS=1`, print the warning and return with no prompt. Otherwise print the warning and ask the user (name `SELF_ID` in it). No recommendation. The options are equivalent given the available evidence; select based on team preference.
+- **Continue**: refine goes on (default).
+- **Stop**: end refine for this ticket with: "Stopped: <SELF_ID> overlaps <HIT_IDs>. Close or link it in the tracker; `/n1:n1-refine <SELF_ID>` re-runs this check."
+- **Close as duplicate**: run § Close Duplicate with `SELF_ID` and the `duplicate` rows' `HIT_ID`s, then end refine for this ticket with: "Closed: <SELF_ID> duplicates <HIT_IDs>; it was closed in the tracker." If § Close Duplicate fails, take **Stop**. Omit this option when Close is not offered.
+
+Refine has no `OVERVIEW`, so § 5 does not run.
 
 Branch on the first rule that matches:
 
@@ -138,4 +145,4 @@ Run in order and stop at the first failure:
 2. **Comment:** `mcp__<TRACKER_MCP>__<COMMENT_OP>` on `SELF_ID` with `N1 duplicate check: duplicate of <HIT_IDs>; moving to <DONE_STATUS>.`
 3. **Move:** move `SELF_ID` to `DONE_STATUS` with the lookup in `<N1_ROOT>/skills/n1-finish/steps/04-close-ticket.md` item 1 (Move status), including its skip when the ticket is already done. On Jira, no transition whose target is `DONE_STATUS` counts as failure.
 
-On success print `Closed <SELF_ID> as duplicate of <HIT_IDs>.` and return success. On failure warn `Could not close <SELF_ID>: <ids|link|comment|move>: <error>. Links or the comment already written stay; the ticket is still open.` Never print `Closed` after a failure. Return failure: `queue-plan` returns `DUP_CHOICE=exclude`, `start` takes **Stop**. Never roll back (same policy as § Apply Links).
+On success print `Closed <SELF_ID> as duplicate of <HIT_IDs>.` and return success. On failure warn `Could not close <SELF_ID>: <ids|link|comment|move>: <error>. Links or the comment already written stay; the ticket is still open.` Never print `Closed` after a failure. Return failure: `queue-plan` returns `DUP_CHOICE=exclude`, `start` and `refine` take **Stop**. Never roll back (same policy as § Apply Links).

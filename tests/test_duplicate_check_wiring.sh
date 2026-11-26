@@ -70,6 +70,44 @@ check "N1-443: preview handles DUP_CHOICE close" "On \`close\`, .*duplicate: <HI
 check "N1-443: run.md step 5 handles DUP_CHOICE close" "Duplicate check \(unconditional.*DUP_CHOICE=close.*closed \(plan\)" skills/n1-queue/steps/run.md
 check "N1-443: architecture.md lists the close outcome" "continue, link, exclude, or close as duplicate" references/architecture.md
 check "architecture.md documents the procedure" "references/duplicate-check\.md" references/architecture.md
+# N1-368: n1-refine checks the refined ticket itself in fetch (CONTEXT=refine, show-only)
+check "N1-368: caller list names the n1-refine fetch call" "n1-refine \(fetch, on the refined ticket itself\)" "$P"
+check "N1-368: CONTEXT list names refine" "\`refine\` \(n1-refine fetch on the refined ticket itself; show-only" "$P"
+check "N1-368: links offered for refine only for Close" "\`CONTEXT=refine\` \(\`SELF_ID\` is a tracker ticket; used only by Close as duplicate\)" "$P"
+check "N1-368: Close is offered in refine" "\*\*Close is offered\*\* only when \`CONTEXT\` is \`queue-plan\`, \`start\` or \`refine\`" "$P"
+check "N1-368: failed Close makes refine take Stop" "\`start\` and \`refine\` take \*\*Stop\*\*" "$P"
+check "N1-368: Returns says refine ends the ticket on Close" "\`refine\` ends refine for the ticket" "$P"
+LC=$(grep -n -m1 '^\*\*Close is offered\*\*' "$P" | cut -d: -f1)
+LR=$(grep -n -m1 '^\*\*`CONTEXT=refine`\*\*' "$P" | cut -d: -f1)
+LBR=$(grep -n -m1 '^Branch on the first rule that matches' "$P" | cut -d: -f1)
+if [ -n "$LC" ] && [ -n "$LR" ] && [ -n "$LBR" ] && [ "$LC" -lt "$LR" ] && [ "$LR" -lt "$LBR" ]; then
+    echo "PASS: N1-368: refine block sits after the Close config read and before the numbered rules"
+else
+    echo "FAIL: N1-368: refine block sits after the Close config read and before the numbered rules"; FAIL=1
+fi
+RB=$(sed -n '/^\*\*`CONTEXT=refine`\*\*/,/^Branch on the first rule/p' "$P")
+refine_has() { # <label> <fixed-string>, searched inside the refine block only
+    if grep -qF -- "$2" <<<"$RB"; then echo "PASS: $1"; else echo "FAIL: $1"; FAIL=1; fi
+}
+refine_lacks() { # <label> <fixed-string>
+    if grep -qF -- "$2" <<<"$RB"; then echo "FAIL: $1"; FAIL=1; else echo "PASS: $1"; fi
+}
+refine_has "N1-368: refine skips the numbered rules" 'takes this paragraph and skips the numbered rules below'
+refine_has "N1-368: refine never links or comments" 'Never link, never add to `DUP_LINKS`, never post a comment'
+refine_has "N1-368: refine omits the Linking unavailable line" 'omit the `Linking unavailable` line'
+refine_has "N1-368: refine is silent-prompt when headless or related-only" 'If `MATCHES` has no `duplicate` rows, or `HEADLESS=1`, print the warning and return with no prompt.'
+refine_has "N1-368: refine options carry the no-recommendation sentence" "$NR"
+refine_has "N1-368: refine Continue is the default" '**Continue**: refine goes on (default).'
+refine_has "N1-368: refine Stop names n1-refine" '`/n1:n1-refine <SELF_ID>` re-runs this check.'
+refine_has "N1-368: refine offers Close as duplicate" '**Close as duplicate**: run § Close Duplicate with `SELF_ID`'
+refine_has "N1-368: refine Close omitted when not offered" 'Omit this option when Close is not offered.'
+refine_has "N1-368: refine Close failure takes Stop" 'If § Close Duplicate fails, take **Stop**.'
+refine_has "N1-368: refine never records" '§ 5 does not run'
+refine_lacks "N1-368: refine block never mentions CONTEXT=create" 'CONTEXT=create'
+refine_lacks "N1-368: refine Stop never points at n1-start" '/n1:n1-start'
+refine_lacks "N1-368: refine options carry no Recommended label" '(Recommended)'
+check "N1-368: n1-refine fetch calls the check with CONTEXT=refine" "duplicate-check\.md. § Check with .CONTEXT=refine." skills/n1-refine/steps/01-fetch.md
+check "N1-368: architecture.md names the refine fetch call" "\`n1-refine\` runs it on the refined ticket in its fetch phase" references/architecture.md
 
 check "n1-ticket runs the check before creation" "duplicate-check\.md. § Check" skills/n1-ticket/steps/02-create.md
 check "n1-ticket applies links after creation" "duplicate-check\.md. § Apply Links" skills/n1-ticket/steps/02-create.md
