@@ -50,5 +50,14 @@ expect "file source, default .version" "5.0.0|package.json" "$(resolve "$D" '{"r
 expect "file source, missing file" "|nope.json (not found)" "$(resolve "$D" '{"release":{"versionSource":{"file":"nope.json"}}}')"
 expect "unknown object keeps the old not-found path" "|null (not found)" "$(resolve "$D" '{"release":{"versionSource":{"git":"branch"}}}')"
 
-exit $FAIL
+# --- Skill wiring. Bugs: TAG becomes "v" with an empty git-tag version; the suggestion ignores the latest tag;
+# the gate never turns the confirmed version into TAG; a retry keeps PREV_TAG equal to TAG.
+R01=skills/n1-release/steps/01-resolve-metadata.md; R02=skills/n1-release/steps/02-confirm-execute.md
+check "step 01 resolves the version through the helper" '^   n1_release_version$' "$R01"
+check "step 01 documents the git-tag form" '\{"git": "tag"\}' "$R01"
+check "TAG stays empty while VERSION is empty" 'TAG=""; \[ -n "\$VERSION" \] && TAG="v\$VERSION"' "$R01"
+check "3b seeds the suggestion from PREV_TAG when VERSION is empty" 'BASE="\$\{VERSION:-\$\{PREV_TAG#v\}\}"' "$R01"
+check "gate sets VERSION from the suggestion on 1 for git-tag" 'On 1, set `VERSION` to `SUGGESTED_VERSION`' "$R02"
+check "gate re-resolves PREV_TAG on a git-tag retry" 'n1_release_prev_tag --exclude "\$TAG"' "$R02"
+
 exit $FAIL

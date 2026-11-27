@@ -22,57 +22,30 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
 
 ## Step 2: Resolve Release Metadata
 
-1. **Version**: resolved via `release.versionSource` config. The value is an object `{"file": "<path>", "jq": "<expression>"}` specifying where to read the version. When `release.versionSource` is `null` or absent, auto-detect by probing common locations in order:
+1. **Version**: resolved by `n1_release_version` (`lib/release.sh`) from `release.versionSource`:
+   - `{"git": "tag"}`: no file version. `VERSION` stays empty and `VERSION_SOURCE_DISPLAY` starts with `git tag`; sub-step 3b proposes the next version from the latest `v*` tag and the Step 3 gate confirms it. Nothing reads or bumps a file.
+   - `{"file": "<path>", "jq": "<expression>"}`: reads the version from that file (`jq` defaults to `.version`).
+   - `null` or absent: auto-detect by probing package.json, .claude-plugin/plugin.json, pyproject.toml, Cargo.toml, VERSION in that order.
 
    ```bash
-   VERSION_SOURCE=$(n1_config_val '.release.versionSource')
-   if [ -z "$VERSION_SOURCE" ] || [ "$VERSION_SOURCE" = "null" ]; then
-     # Auto-detect: probe common version files
-     if [ -f "package.json" ]; then
-       VERSION=$(jq -r '.version' package.json)
-       VERSION_SOURCE_DISPLAY="package.json"
-     elif [ -f ".claude-plugin/plugin.json" ]; then
-       VERSION=$(jq -r '.version' .claude-plugin/plugin.json)
-       VERSION_SOURCE_DISPLAY=".claude-plugin/plugin.json"
-     elif [ -f "pyproject.toml" ]; then
-       VERSION=$(grep -m1 '^version' pyproject.toml | sed 's/.*= *"\(.*\)"/\1/')
-       VERSION_SOURCE_DISPLAY="pyproject.toml"
-     elif [ -f "Cargo.toml" ]; then
-       VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*= *"\(.*\)"/\1/')
-       VERSION_SOURCE_DISPLAY="Cargo.toml"
-     elif [ -f "VERSION" ]; then
-       VERSION=$(cat VERSION | tr -d '[:space:]')
-       VERSION_SOURCE_DISPLAY="VERSION"
-     else
-       VERSION=""
-       VERSION_SOURCE_DISPLAY="none"
-     fi
-   else
-     # Explicit config: {"file": "...", "jq": "..."}
-     VS_FILE=$(echo "$VERSION_SOURCE" | jq -r '.file')
-     VS_JQ=$(echo "$VERSION_SOURCE" | jq -r '.jq // ".version"')
-     if [ -f "$VS_FILE" ]; then
-       VERSION=$(jq -r "$VS_JQ" "$VS_FILE")
-       VERSION_SOURCE_DISPLAY="$VS_FILE"
-     else
-       VERSION=""
-       VERSION_SOURCE_DISPLAY="$VS_FILE (not found)"
-     fi
-   fi
+   source ~/.n1/preamble.sh
+   source "$N1_ROOT/lib/release.sh"
+   n1_release_version
+   printf 'VERSION=%s\nVERSION_SOURCE_DISPLAY=%s\n' "$VERSION" "$VERSION_SOURCE_DISPLAY"
    ```
 
-   If `VERSION` is empty or `"null"` after resolution, ask the user:
+   With the git-tag source, skip the prompt below. Otherwise, if `VERSION` is empty or `"null"` after resolution, ask the user:
    ```
    Could not detect project version (source: <VERSION_SOURCE_DISPLAY>).
    Enter the version to release (e.g., 1.0.0):
    ```
    Read user input as `VERSION`. If user declines, STOP.
 
-2. **TAG**:
+2. **TAG**: with the git-tag source `VERSION` is still empty here, so `TAG` stays empty (never `v`) until the Step 3 gate sets it.
    ```bash
-   TAG="v$VERSION"
+   TAG=""; [ -n "$VERSION" ] && TAG="v$VERSION"
    ```
-3. **Previous tag**: resolve from local git tags first, fall back to gh. Exclude `TAG` itself — a retry after a tag-created-but-release-creation-failed run would otherwise pick the just-created tag as its own previous tag, collapsing the scan range to empty:
+3. **Previous tag**: resolve from local git tags first, fall back to gh. Exclude `TAG` itself — a retry after a tag-created-but-release-creation-failed run would otherwise pick the just-created tag as its own previous tag, collapsing the scan range to empty: With the git-tag source paste an empty `TAG`; the lookup then returns the latest `v*` tag.
    ```bash
    source ~/.n1/preamble.sh
    source "$N1_ROOT/lib/release.sh"
@@ -99,8 +72,10 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
        BUMP_LEVEL="minor"
    fi
 
-   # Split VERSION into major.minor.patch components
-   IFS='.' read -r V_MAJOR V_MINOR V_PATCH <<< "${VERSION}"
+   # Split the base into major.minor.patch. git-tag source: VERSION is empty, so the base is the latest v* tag (0.0.0 when none).
+   BASE="${VERSION:-${PREV_TAG#v}}"; BASE="${BASE%%[-+]*}"
+   IFS='.' read -r V_MAJOR V_MINOR V_PATCH <<< "${BASE}"
+   V_PATCH="${V_PATCH%%[!0-9]*}"   # a 4-part tag such as v1.2.3.4 would otherwise break the arithmetic below
    V_MAJOR="${V_MAJOR:-0}"; V_MINOR="${V_MINOR:-0}"; V_PATCH="${V_PATCH:-0}"
 
    case "$BUMP_LEVEL" in

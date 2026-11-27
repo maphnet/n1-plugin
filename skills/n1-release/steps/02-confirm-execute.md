@@ -33,6 +33,8 @@ Release as <SUGGESTED_VERSION>?
 
 If the user picks 2, prompt: `Enter version:` and read their input as the new `VERSION`. Recompute `TAG = v + VERSION`. Then proceed.
 
+**Git-tag source** (`VERSION_SOURCE_DISPLAY` starts with `git tag`): show `Current version: <PREV_TAG without the leading v, or "(none)">  (from git tag)`. On 1, set `VERSION` to `SUGGESTED_VERSION`; on 2, use the entered version; then set `TAG = v + VERSION` before Step 4. If that `TAG` equals `PREV_TAG` (a retry after the tag was created but the release failed), run `source ~/.n1/preamble.sh; source "$N1_ROOT/lib/release.sh"; n1_release_prev_tag --exclude "$TAG"` with `TAG` pasted, use its output as `PREV_TAG`, re-run Step 2 sub-steps 7 and 8, set `SUGGESTED_VERSION` to `VERSION` and show this gate again.
+
 Condition lines (informational -- no hard blocks):
 - `Merge SHA: <sha>` -- found in overview.md
 - `No merge SHA found (standalone run — not post-finish)` -- not available
