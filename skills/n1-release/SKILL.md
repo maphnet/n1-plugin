@@ -34,7 +34,7 @@ Read the `release` block via `n1_config_val`, applying defaults when keys are ab
 | Key | Default | Description |
 |-----|---------|-------------|
 | `.release.enabled` | `false` | |
-| `.release.versionSource` | `null` | Optional `{"file":"...","jq":"..."}` — auto-detects common files when absent |
+| `.release.versionSource` | `null` | Optional `{"file":"...","jq":"..."}`, or `{"git":"tag"}` for tag-only projects (no file read; next version proposed from the latest `v*` tag) — auto-detects common files when absent |
 | `.release.procedure` | `null` | |
 | `.release.draft` | `false` | |
 | `.release.autoRun` | `false` | Custom-procedure shell steps run without "Run this?"; `release:missing-offer` creates the Release unasked. The Step 3 gate stays. Read with `n1_release_autorun_enabled` (JSON `true` only) |

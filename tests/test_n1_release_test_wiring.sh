@@ -40,6 +40,21 @@ expect "version equal to PREV: unreleased label, no fixVersion" "PREV=v1.0.0 LAB
 expect "empty version: unreleased label" "PREV=v1.0.0 LABEL=unreleased-$SHA7 FIX=no" "$(label_run '')"
 expect "null version: unreleased label" "PREV=v1.0.0 LABEL=unreleased-$SHA7 FIX=no" "$(label_run null)"
 expect "path-unsafe version: unreleased label" "PREV=v1.0.0 LABEL=unreleased-$SHA7 FIX=no" "$(label_run '../x')"
+# Bug (N1-654): a placeholder 0.0.0 pyproject labels the run 0.0.0 and asks for fixVersion "0.0.0".
+# 1c runs the n1-release sub-step 1 VERSION snippet with the preamble first and echo VERSION last.
+VSNIP=$(awk 'index($0, "1. **Version**") == 1 {f = 1; next} f && /^ *```bash/ {b = 1; next} b && /^ *```/ {exit} b' \
+    skills/n1-release/steps/01-resolve-metadata.md | sed 's/^   //')
+ver_1c() { (cd "$G" && sandbox "source ~/.n1/preamble.sh
+$VSNIP
+echo \"VERSION=\$VERSION\"") | grep '^VERSION=' | tail -1 | sed 's/^VERSION=//'; }
+printf '[project]\nname = "x"\nversion = "0.0.0"\n' > "$G/pyproject.toml"
+cfg '{"release":{"enabled":true,"versionSource":{"git":"tag"}},"tracker":{"prefix":"VEL"}}'
+V1C=$(ver_1c)
+expect "git-tag source: 1c VERSION is empty despite a 0.0.0 pyproject" "" "$V1C"
+expect "git-tag source: unreleased label, no fixVersion" "PREV=v1.0.0 LABEL=unreleased-$SHA7 FIX=no" "$(label_run "$V1C")"
+cfg '{"release":{"enabled":true},"tracker":{"prefix":"VEL"}}'
+expect "auto-detect still reads the pyproject version" "0.0.0" "$(ver_1c)"
+rm -f "$G/pyproject.toml"
 
 # Bug: the referenced VERSION snippet has no preamble and prints nothing, so versionSource is ignored.
 check "1c adds the preamble to the VERSION snippet" 'source ~/\.n1/preamble\.sh. added as its first line' "$S1"
