@@ -60,4 +60,11 @@ check "3b seeds the suggestion from PREV_TAG when VERSION is empty" 'BASE="\$\{V
 check "gate sets VERSION from the suggestion on 1 for git-tag" 'On 1, set `VERSION` to `SUGGESTED_VERSION`' "$R02"
 check "gate re-resolves PREV_TAG on a git-tag retry" 'n1_release_prev_tag --exclude "\$TAG"' "$R02"
 
+# Bug: a 4-field tag (v1.2.3.4) leaves "3.4" in V_PATCH and the patch bump fails on the arithmetic.
+SNIP=$(grep -E '^   (IFS=.\..? read -r V_MAJOR|V_PATCH=|V_MAJOR=)' "$R01" | sed 's/^   //')
+bump() { (BASE="$1"; eval "$SNIP"; echo "$V_MAJOR.$V_MINOR.$((V_PATCH + 1))" 2>&1); }
+expect "3b patch bump of a four-field tag" "1.2.4" "$(bump 1.2.3.4)"
+expect "3b patch bump of a plain tag" "1.2.4" "$(bump 1.2.3)"
+expect "3b patch bump of a prerelease-suffixed tag" "1.2.4" "$(bump 1.2.3-rc1)"
+
 exit $FAIL
