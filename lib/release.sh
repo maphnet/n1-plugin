@@ -27,6 +27,44 @@ n1_release_prev_tag() {
     return 0
 }
 
+# n1_release_version: sets VERSION and VERSION_SOURCE_DISPLAY from release.versionSource (N1-654); rc 0.
+# Call it directly, not in $( ), so both variables reach the caller.
+#   {"git":"tag"}:   no file version; VERSION is empty and the version comes from the latest v* tag or the user.
+#   null or absent:  first of package.json, .claude-plugin/plugin.json, pyproject.toml, Cargo.toml, VERSION.
+#   other objects:   {"file":"<path>","jq":"<expr>"}, jq default .version; "<file> (not found)" when missing.
+n1_release_version() {
+    local src vs_file vs_jq
+    src=$(n1_config_val '.release.versionSource')
+    VERSION=""
+    if [ -n "$src" ] && [ "$src" != null ] \
+        && [ "$(jq -r 'if type == "object" then .git // "" else "" end' <<<"$src" 2>/dev/null)" = tag ]; then
+        VERSION_SOURCE_DISPLAY="git tag (latest v* tag)"
+    elif [ -z "$src" ] || [ "$src" = null ]; then
+        if [ -f package.json ]; then
+            VERSION=$(jq -r '.version' package.json); VERSION_SOURCE_DISPLAY="package.json"
+        elif [ -f .claude-plugin/plugin.json ]; then
+            VERSION=$(jq -r '.version' .claude-plugin/plugin.json); VERSION_SOURCE_DISPLAY=".claude-plugin/plugin.json"
+        elif [ -f pyproject.toml ]; then
+            VERSION=$(grep -m1 '^version' pyproject.toml | sed 's/.*= *"\(.*\)"/\1/'); VERSION_SOURCE_DISPLAY="pyproject.toml"
+        elif [ -f Cargo.toml ]; then
+            VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*= *"\(.*\)"/\1/'); VERSION_SOURCE_DISPLAY="Cargo.toml"
+        elif [ -f VERSION ]; then
+            VERSION=$(tr -d '[:space:]' < VERSION); VERSION_SOURCE_DISPLAY="VERSION"
+        else
+            VERSION_SOURCE_DISPLAY="none"
+        fi
+    else
+        vs_file=$(jq -r '.file' <<<"$src")
+        vs_jq=$(jq -r '.jq // ".version"' <<<"$src")
+        if [ -f "$vs_file" ]; then
+            VERSION=$(jq -r "$vs_jq" "$vs_file"); VERSION_SOURCE_DISPLAY="$vs_file"
+        else
+            VERSION_SOURCE_DISPLAY="$vs_file (not found)"
+        fi
+    fi
+    return 0
+}
+
 # n1_release_tag_date <tag>: ISO-8601 creation date of a local v* tag (tagger date of an annotated tag, commit
 # date of a lightweight one). Prints nothing for an absent or non-semver tag; rc 0. Release-test Step 3b window start.
 n1_release_tag_date() {
